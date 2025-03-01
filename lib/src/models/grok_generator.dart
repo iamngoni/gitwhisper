@@ -19,7 +19,7 @@ class GrokGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.progress(
+    $logger.info(
       'Grok :: generateCommitMessage -> generating commit message from diff',
     );
 

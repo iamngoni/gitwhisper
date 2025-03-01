@@ -19,7 +19,7 @@ class ClaudeGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.progress(
+    $logger.info(
       'Claude :: generateCommitMessage -> generating commit message from diff',
     );
     final prompt = '''

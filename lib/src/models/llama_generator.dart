@@ -19,7 +19,7 @@ class LlamaGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.progress(
+    $logger.info(
       'Llama :: generateCommitMessage -> generating commit message from diff',
     );
 

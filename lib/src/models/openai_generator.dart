@@ -19,7 +19,7 @@ class OpenAIGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.progress(
+    $logger.info(
       'OpenAI :: generateCommitMessage -> generating commit message from diff',
     );
     final prompt = '''

@@ -102,13 +102,20 @@ class CommitCommand extends Command<int> {
       // Generate commit message with AI
       final commitMessage = await generator.generateCommitMessage(diff);
 
-      // Write the message to the git commit editor
-      await GitUtils.setGitCommitMessage(commitMessage);
+      if (commitMessage.trim().isEmpty) {
+        _logger.err('Error: Generated commit message is empty');
+        return ExitCode.software.code;
+      }
 
-      _logger.info('Opening git commit editor with the generated message...');
+      _logger.info(commitMessage);
 
-      // Open the git commit editor
-      await GitUtils.runGitCommit();
+      try {
+        await GitUtils.runGitCommit(commitMessage);
+        _logger.success('Commit successful! 🎉');
+      } catch (e) {
+        _logger.err('Error setting commit message: $e');
+        return ExitCode.software.code;
+      }
 
       return ExitCode.success.code;
     } catch (e) {

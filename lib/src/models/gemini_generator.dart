@@ -19,7 +19,7 @@ class GeminiGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.progress(
+    $logger.info(
       'Gemini :: generateCommitMessage -> generating commit message from diff',
     );
 

@@ -63,10 +63,12 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     try {
       final topLevelResults = parse(args);
       if (topLevelResults['verbose'] == true) {
-        $logger.level = Level.verbose;
+        $logger.alert('Adding curl logs');
         $dio.interceptors.add(
           CurlLoggerDioInterceptor(printOnSuccess: true),
         );
+      } else {
+        $logger.warn('Running in non-verbose mode 🔇');
       }
       return await runCommand(topLevelResults) ?? ExitCode.success.code;
     } on FormatException catch (e, stackTrace) {

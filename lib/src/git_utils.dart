@@ -8,6 +8,8 @@
 
 import 'dart:io';
 
+import 'constants.dart';
+
 /// Utility class for Git operations
 class GitUtils {
   /// Check if the current directory is a Git repository
@@ -30,29 +32,19 @@ class GitUtils {
     return result.exitCode == 0 ? (result.stdout as String) : '';
   }
 
-  /// Set the Git commit message
-  static Future<void> setGitCommitMessage(String message) async {
-    // Get the git commit message file path
-    final result = await Process.run('git', ['rev-parse', '--git-dir']);
-    if (result.exitCode != 0) {
-      throw Exception('Error getting git directory: ${result.stderr}');
-    }
-
-    final gitDir = (result.stdout as String).trim();
-    final commitMessagePath = '$gitDir/COMMIT_EDITMSG';
-
-    // Write the message to the file
-    final file = File(commitMessagePath);
-    await file.writeAsString(message);
-  }
-
   /// Run git commit
-  static Future<void> runGitCommit() async {
-    final result = await Process.run('git', ['commit']);
+  static Future<void> runGitCommit(String message) async {
+    final args = ['commit', '-m', message];
+    final result = await Process.run('git', args);
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
-      print('Commit successful!');
+      $logger.success('Commit successful ✅');
     }
+  }
+
+  // Get the full path of the current working directory
+  String getCurrentDirectoryPath() {
+    return Directory.current.path;
   }
 }
