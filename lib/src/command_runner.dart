@@ -15,6 +15,7 @@ import 'package:pub_updater/pub_updater.dart';
 
 import 'commands/commit_command.dart';
 import 'commands/list_models_command.dart';
+import 'commands/list_variants_command.dart';
 import 'commands/save_key_command.dart';
 import 'commands/update_command.dart';
 import 'constants.dart';
@@ -41,6 +42,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     // Add commands
     addCommand(CommitCommand(logger: $logger));
     addCommand(ListModelsCommand(logger: $logger));
+    addCommand(ListVariantsCommand(logger: $logger));
     addCommand(SaveKeyCommand(logger: $logger));
     addCommand(UpdateCommand(logger: $logger, pubUpdater: _pubUpdater));
   }

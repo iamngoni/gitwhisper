@@ -74,6 +74,7 @@ class CommitCommand extends Command<int> {
 
     // Get the model name from args
     final modelName = argResults?['model'] as String;
+    final modelVariant = argResults?['model-variant'] as String?;
 
     // Initialize config manager
     final configManager = ConfigManager();
@@ -102,11 +103,17 @@ class CommitCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    _logger.info('Analyzing staged changes using $modelName...');
-
     try {
       // Create the appropriate AI generator based on model name
-      final generator = CommitGeneratorFactory.create(modelName, apiKey);
+      final generator = CommitGeneratorFactory.create(
+        modelName,
+        apiKey,
+        variant: modelVariant,
+      );
+
+      _logger.info('Analyzing staged changes using $modelName'
+          ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
+              '($modelVariant)' : ''}...');
 
       // Generate commit message with AI
       final rawCommitMessage = await generator.generateCommitMessage(diff);

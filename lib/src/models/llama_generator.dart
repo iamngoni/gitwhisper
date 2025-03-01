@@ -12,10 +12,13 @@ import '../constants.dart';
 import 'commit_generator.dart';
 
 class LlamaGenerator extends CommitGenerator {
-  LlamaGenerator(super.apiKey);
+  LlamaGenerator(super.apiKey, {super.variant});
 
   @override
   String get modelName => 'llama';
+
+  @override
+  String get defaultVariant => throw UnimplementedError();
 
   @override
   Future<String> generateCommitMessage(String diff) async {

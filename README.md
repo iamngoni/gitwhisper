@@ -1,4 +1,4 @@
-## gitwhisper
+# gitwhisper
 
 ![coverage][coverage_badge]
 [![style: very good analysis][very_good_analysis_badge]][very_good_analysis_link]
@@ -31,6 +31,8 @@ dart pub global activate --source=path <path to this package>
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
 - 🔄 Follows conventional commit format: `<type>(<scope>): <description>`
 - 📋 Pre-fills the Git commit editor for easy review and modification
+- 🎫 Supports ticket number prefixing for commit messages
+- 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
 - 🔑 Securely saves API keys for future use
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
@@ -42,21 +44,37 @@ dart pub global activate --source=path <path to this package>
 ## Usage
 
 ```bash
-# List available models
-gitwhisper --list-models
+# Generate a commit message (main command)
+gitwhisper commit --model openai
 
-# Use with a specific model and API key
-gitwhisper --model openai --key "your-api-key"
+# Choose a specific model variant
+gitwhisper commit --model openai --model-variant gpt-4o
+
+# Add a ticket number prefix to your commit message
+gitwhisper commit --prefix "JIRA-123"
+
+# List available models
+gitwhisper list-models
+
+# List available variants for a specific model
+gitwhisper list-variants --model claude
 
 # Save an API key for future use
-gitwhisper --model claude --key "your-claude-key" --save-key
-
-# Use a previously saved API key
-gitwhisper --model claude
+gitwhisper save-key --model claude --key "your-claude-key"
 
 # Get help
 gitwhisper --help
 ```
+
+## Command Structure
+
+GitWhisper uses a command-based structure:
+
+- `commit`: Generate and apply a commit message (main command)
+- `list-models`: Show all supported AI models
+- `list-variants`: Show available variants for each AI model
+- `save-key`: Store an API key for future use
+- `update`: Update GitWhisper to the latest version
 
 ## API Keys
 
@@ -69,7 +87,58 @@ You can provide API keys in several ways:
     - `GEMINI_API_KEY` (for Gemini)
     - `GROK_API_KEY` (for Grok)
     - `LLAMA_API_KEY` (for Llama)
-3. **Saved configuration**: Use `--save-key` to store your API key in `~/.git_whisper.yaml`
+3. **Saved configuration**: Use the `save-key` command to store your API key permanently
+
+## Model Variants
+
+GitWhisper supports a comprehensive range of model variants:
+
+### OpenAI
+- `gpt-4` (default)
+- `gpt-4-turbo-2024-04-09`
+- `gpt-4o`
+- `gpt-4o-mini`
+- `gpt-4.5-preview`
+- `gpt-3.5-turbo-0125`
+- `gpt-3.5-turbo-instruct`
+- `o1-preview`
+- `o1-mini`
+- `o3-mini`
+
+### Claude (Anthropic)
+- `claude-3-opus-20240307` (default)
+- `claude-3-sonnet-20240307`
+- `claude-3-haiku-20240307`
+- `claude-3-5-sonnet-20240620`
+- `claude-3-5-sonnet-20241022`
+- `claude-3-7-sonnet-20250219`
+
+### Gemini (Google)
+- `gemini-1.0-pro` (default)
+- `gemini-1.0-ultra`
+- `gemini-1.5-pro-002`
+- `gemini-1.5-flash-002`
+- `gemini-1.5-flash-8b`
+- `gemini-2.0-pro`
+- `gemini-2.0-flash`
+- `gemini-2.0-flash-lite`
+- `gemini-2.0-flash-thinking`
+
+### Grok (xAI)
+- `grok-1` (default)
+- `grok-2`
+- `grok-3`
+- `grok-2-mini`
+
+### Llama (Meta)
+- `llama-3-70b-instruct` (default)
+- `llama-3-8b-instruct`
+- `llama-3.1-8b-instruct`
+- `llama-3.1-70b-instruct`
+- `llama-3.1-405b-instruct`
+- `llama-3.2-1b-instruct`
+- `llama-3.2-3b-instruct`
+- `llama-3.3-70b-instruct`
 
 ## How It Works
 
@@ -78,8 +147,8 @@ Git Whisper:
 2. Retrieves the diff of your staged changes
 3. Sends the diff to the selected AI model
 4. Generates a commit message following the conventional commit format
-5. Pre-fills the git commit editor with the generated message
-6. Opens the editor for your review and confirmation
+5. Applies any prefix/ticket number if specified
+6. Submits the commit with the generated message
 
 ## Configuration
 
@@ -94,7 +163,7 @@ api_keys:
 
 ## Requirements
 
-- Dart SDK (>=2.19.0 <3.0.0)
+- Dart SDK (^3.5.0)
 - Git installed and available in your PATH
 
 ## Conventional Commit Format
@@ -103,6 +172,11 @@ Git Whisper generates commit messages following the conventional commit format:
 
 ```
 <type>(<scope>): <description>
+```
+
+With prefix option:
+```
+<type>(<scope>): PREFIX-123 -> <description>
 ```
 
 Common types include:

@@ -12,10 +12,13 @@ import '../constants.dart';
 import 'commit_generator.dart';
 
 class ClaudeGenerator extends CommitGenerator {
-  ClaudeGenerator(super.apiKey);
+  ClaudeGenerator(super.apiKey, {super.variant});
 
   @override
   String get modelName => 'claude';
+
+  @override
+  String get defaultVariant => throw UnimplementedError();
 
   @override
   Future<String> generateCommitMessage(String diff) async {

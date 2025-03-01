@@ -12,10 +12,13 @@ import '../constants.dart';
 import 'commit_generator.dart';
 
 class GeminiGenerator extends CommitGenerator {
-  GeminiGenerator(super.apiKey);
+  GeminiGenerator(super.apiKey, {super.variant});
 
   @override
   String get modelName => 'gemini';
+
+  @override
+  String get defaultVariant => throw UnimplementedError();
 
   @override
   Future<String> generateCommitMessage(String diff) async {

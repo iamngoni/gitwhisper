@@ -12,10 +12,13 @@ import '../constants.dart';
 import 'commit_generator.dart';
 
 class OpenAIGenerator extends CommitGenerator {
-  OpenAIGenerator(super.apiKey);
+  OpenAIGenerator(super.apiKey, {super.variant});
 
   @override
   String get modelName => 'openai';
+
+  @override
+  String get defaultVariant => 'gpt-4o';
 
   @override
   Future<String> generateCommitMessage(String diff) async {
@@ -41,7 +44,7 @@ class OpenAIGenerator extends CommitGenerator {
         },
       ),
       data: {
-        'model': 'gpt-4o',
+        'model': actualVariant,
         'store': true,
         'messages': [
           {'role': 'user', 'content': prompt},

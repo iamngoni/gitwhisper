@@ -15,18 +15,37 @@ import 'openai_generator.dart';
 
 /// Factory for creating appropriate commit generators
 class CommitGeneratorFactory {
-  static CommitGenerator create(String model, String apiKey) {
+  static CommitGenerator create(
+    String model,
+    String apiKey, {
+    String? variant,
+  }) {
     switch (model.toLowerCase()) {
       case 'claude':
-        return ClaudeGenerator(apiKey);
+        return ClaudeGenerator(
+          apiKey,
+          variant: variant,
+        );
       case 'openai':
-        return OpenAIGenerator(apiKey);
+        return OpenAIGenerator(
+          apiKey,
+          variant: variant,
+        );
       case 'gemini':
-        return GeminiGenerator(apiKey);
+        return GeminiGenerator(
+          apiKey,
+          variant: variant,
+        );
       case 'grok':
-        return GrokGenerator(apiKey);
+        return GrokGenerator(
+          apiKey,
+          variant: variant,
+        );
       case 'llama':
-        return LlamaGenerator(apiKey);
+        return LlamaGenerator(
+          apiKey,
+          variant: variant,
+        );
       default:
         throw ArgumentError('Unsupported model: $model');
     }

@@ -12,10 +12,13 @@ import '../constants.dart';
 import 'commit_generator.dart';
 
 class GrokGenerator extends CommitGenerator {
-  GrokGenerator(super.apiKey);
+  GrokGenerator(super.apiKey, {super.variant});
 
   @override
   String get modelName => 'grok';
+
+  @override
+  String get defaultVariant => 'grok-2-latest';
 
   @override
   Future<String> generateCommitMessage(String diff) async {
@@ -33,7 +36,7 @@ class GrokGenerator extends CommitGenerator {
     ''';
 
     final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.grok.x/v1/chat/completions',
+      'https://api.x.ai/v1/chat/completions',
       options: Options(
         headers: {
           'Content-Type': 'application/json',
@@ -41,7 +44,7 @@ class GrokGenerator extends CommitGenerator {
         },
       ),
       data: {
-        'model': 'grok-1',
+        'model': actualVariant,
         'messages': [
           {'role': 'user', 'content': prompt},
         ],
