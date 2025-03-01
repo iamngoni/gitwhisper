@@ -44,6 +44,12 @@ class CommitCommand extends Command<int> {
         abbr: 'p',
         help: 'Prefix to add to commit message (e.g., JIRA ticket number)',
         valueHelp: 'PREFIX-123',
+      )
+      ..addOption(
+        'model-variant',
+        abbr: 'v',
+        help: 'Specific variant of the AI model to use',
+        valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
       );
   }
 

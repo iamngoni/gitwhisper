@@ -48,27 +48,50 @@ class ListVariantsCommand extends Command<int> {
     switch (model) {
       case 'openai':
         _logger.info('  - gpt-4 (default)');
+        _logger.info('  - gpt-4-turbo-2024-04-09');
         _logger.info('  - gpt-4o');
-        _logger.info('  - gpt-4-turbo');
         _logger.info('  - gpt-4o-mini');
-        _logger.info('  - gpt-3.5-turbo');
+        _logger.info('  - gpt-4.5-preview');
+        _logger.info('  - gpt-3.5-turbo-0125');
+        _logger.info('  - gpt-3.5-turbo-instruct');
+        _logger.info('  - o1-preview');
+        _logger.info('  - o1-mini');
+        _logger.info('  - o3-mini');
         break;
       case 'claude':
-        _logger.info('  - claude-3-opus-20240229 (default)');
-        _logger.info('  - claude-3-sonnet-20240229');
+        _logger.info('  - claude-3-opus-20240307 (default)');
+        _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
+        _logger.info('  - claude-3-5-sonnet-20240620');
+        _logger.info('  - claude-3-5-sonnet-20241022');
+        _logger.info('  - claude-3-7-sonnet-20250219');
         break;
       case 'gemini':
-        _logger.info('  - gemini-pro (default)');
-        _logger.info('  - gemini-1.5-pro');
-        _logger.info('  - gemini-1.5-flash');
+        _logger.info('  - gemini-1.0-pro (default)');
+        _logger.info('  - gemini-1.0-ultra');
+        _logger.info('  - gemini-1.5-pro-002');
+        _logger.info('  - gemini-1.5-flash-002');
+        _logger.info('  - gemini-1.5-flash-8b');
+        _logger.info('  - gemini-2.0-pro');
+        _logger.info('  - gemini-2.0-flash');
+        _logger.info('  - gemini-2.0-flash-lite');
+        _logger.info('  - gemini-2.0-flash-thinking');
         break;
       case 'grok':
         _logger.info('  - grok-1 (default)');
+        _logger.info('  - grok-2');
+        _logger.info('  - grok-3');
+        _logger.info('  - grok-2-mini');
         break;
       case 'llama':
-        _logger.info('  - llama-3-70b (default)');
-        _logger.info('  - llama-3-8b');
+        _logger.info('  - llama-3-70b-instruct (default)');
+        _logger.info('  - llama-3-8b-instruct');
+        _logger.info('  - llama-3.1-8b-instruct');
+        _logger.info('  - llama-3.1-70b-instruct');
+        _logger.info('  - llama-3.1-405b-instruct');
+        _logger.info('  - llama-3.2-1b-instruct');
+        _logger.info('  - llama-3.2-3b-instruct');
+        _logger.info('  - llama-3.3-70b-instruct');
         break;
     }
   }

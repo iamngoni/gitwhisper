@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../constants.dart';
 import 'commit_generator.dart';
+import 'model_variants.dart';
 
 class ClaudeGenerator extends CommitGenerator {
   ClaudeGenerator(super.apiKey, {super.variant});
@@ -18,7 +19,7 @@ class ClaudeGenerator extends CommitGenerator {
   String get modelName => 'claude';
 
   @override
-  String get defaultVariant => throw UnimplementedError();
+  String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
   Future<String> generateCommitMessage(String diff) async {
@@ -36,7 +37,7 @@ class ClaudeGenerator extends CommitGenerator {
     ''';
 
     final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.anthropic.com/v1/messages',
+      '',
       options: Options(
         headers: {
           'Content-Type': 'application/json',

@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../constants.dart';
 import 'commit_generator.dart';
+import 'model_variants.dart';
 
 class OpenAIGenerator extends CommitGenerator {
   OpenAIGenerator(super.apiKey, {super.variant});
@@ -18,7 +19,7 @@ class OpenAIGenerator extends CommitGenerator {
   String get modelName => 'openai';
 
   @override
-  String get defaultVariant => 'gpt-4o';
+  String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
   Future<String> generateCommitMessage(String diff) async {

@@ -18,7 +18,7 @@ class ModelVariants {
   static const String geminiDefault = 'gemini-1.0-pro';
 
   /// Default Grok model variant
-  static const String grokDefault = 'grok-1';
+  static const String grokDefault = 'grok-2-latest';
 
   /// Default Llama model variant
   static const String llamaDefault = 'llama-3-70b-instruct';

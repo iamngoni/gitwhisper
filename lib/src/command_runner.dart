@@ -9,7 +9,6 @@
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_completion/cli_completion.dart';
-import 'package:curl_logger_dio_interceptor/curl_logger_dio_interceptor.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
 
@@ -64,14 +63,6 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   Future<int> run(Iterable<String> args) async {
     try {
       final topLevelResults = parse(args);
-      if (topLevelResults['verbose'] == true) {
-        $logger.alert('Adding curl logs');
-        $dio.interceptors.add(
-          CurlLoggerDioInterceptor(printOnSuccess: true),
-        );
-      } else {
-        $logger.warn('Running in non-verbose mode 🔇');
-      }
       return await runCommand(topLevelResults) ?? ExitCode.success.code;
     } on FormatException catch (e, stackTrace) {
       // Print usage information if an invalid argument was provided

@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../constants.dart';
 import 'commit_generator.dart';
+import 'model_variants.dart';
 
 class LlamaGenerator extends CommitGenerator {
   LlamaGenerator(super.apiKey, {super.variant});
@@ -18,7 +19,7 @@ class LlamaGenerator extends CommitGenerator {
   String get modelName => 'llama';
 
   @override
-  String get defaultVariant => throw UnimplementedError();
+  String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
   Future<String> generateCommitMessage(String diff) async {

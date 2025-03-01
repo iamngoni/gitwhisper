@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../constants.dart';
 import 'commit_generator.dart';
+import 'model_variants.dart';
 
 class GrokGenerator extends CommitGenerator {
   GrokGenerator(super.apiKey, {super.variant});
@@ -18,7 +19,7 @@ class GrokGenerator extends CommitGenerator {
   String get modelName => 'grok';
 
   @override
-  String get defaultVariant => 'grok-2-latest';
+  String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
   Future<String> generateCommitMessage(String diff) async {

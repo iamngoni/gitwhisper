@@ -10,7 +10,6 @@ environment:
 dependencies:
   args: ^2.5.0
   cli_completion: ^0.5.1
-  curl_logger_dio_interceptor: ^1.0.0
   dio: ^5.8.0+1
   mason_logger: ^0.3.2
   path: ^1.9.1
