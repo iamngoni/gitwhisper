@@ -19,6 +19,9 @@ class OpenAIGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
+    $logger.progress(
+      'OpenAI :: generateCommitMessage -> generating commit message from diff',
+    );
     final prompt = '''
     You are an assistant that generates git commit messages. 
     Based on the following diff of staged changes, generate a concise and descriptive commit message.
@@ -41,7 +44,8 @@ class OpenAIGenerator extends CommitGenerator {
         },
       ),
       data: {
-        'model': 'gpt-4',
+        'model': 'gpt-4o',
+        'store': true,
         'messages': [
           {'role': 'user', 'content': prompt},
         ],

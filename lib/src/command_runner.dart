@@ -9,6 +9,7 @@
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_completion/cli_completion.dart';
+import 'package:curl_logger_dio_interceptor/curl_logger_dio_interceptor.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
 
@@ -16,14 +17,13 @@ import 'commands/commit_command.dart';
 import 'commands/list_models_command.dart';
 import 'commands/save_key_command.dart';
 import 'commands/update_command.dart';
+import 'constants.dart';
 import 'version.dart';
 
 class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   GitWhisperCommandRunner({
-    Logger? logger,
     PubUpdater? pubUpdater,
-  })  : _logger = logger ?? Logger(),
-        _pubUpdater = pubUpdater ?? PubUpdater(),
+  })  : _pubUpdater = pubUpdater ?? PubUpdater(),
         super('gitwhisper', 'AI-powered Git commit message generator') {
     argParser
       ..addFlag(
@@ -39,22 +39,23 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
       );
 
     // Add commands
-    addCommand(CommitCommand(logger: _logger));
-    addCommand(ListModelsCommand(logger: _logger));
-    addCommand(SaveKeyCommand(logger: _logger));
-    addCommand(UpdateCommand(logger: _logger, pubUpdater: _pubUpdater));
+    addCommand(CommitCommand(logger: $logger));
+    addCommand(ListModelsCommand(logger: $logger));
+    addCommand(SaveKeyCommand(logger: $logger));
+    addCommand(UpdateCommand(logger: $logger, pubUpdater: _pubUpdater));
   }
 
   @override
   void printUsage() {
-    _logger.info('');
-    _logger.info(
-        'GitWhisper - Your AI companion for crafting perfect commit messages');
-    _logger.info('');
-    _logger.info(usage);
+    $logger
+      ..info('')
+      ..info(
+        'GitWhisper - Your AI companion for crafting perfect commit messages',
+      )
+      ..info('')
+      ..info(usage);
   }
 
-  final Logger _logger;
   final PubUpdater _pubUpdater;
 
   @override
@@ -62,20 +63,25 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     try {
       final topLevelResults = parse(args);
       if (topLevelResults['verbose'] == true) {
-        _logger.level = Level.verbose;
+        $logger.level = Level.verbose;
+        $dio.interceptors.add(
+          CurlLoggerDioInterceptor(printOnSuccess: true),
+        );
       }
       return await runCommand(topLevelResults) ?? ExitCode.success.code;
     } on FormatException catch (e, stackTrace) {
       // Print usage information if an invalid argument was provided
-      _logger.err(e.message);
-      _logger.detail(stackTrace.toString());
+      $logger
+        ..err(e.message)
+        ..detail(stackTrace.toString());
       printUsage();
       return ExitCode.usage.code;
     } on UsageException catch (e) {
       // Print usage information if the user provided a command that doesn't exist
-      _logger.err(e.message);
-      _logger.info('');
-      _logger.info(e.usage);
+      $logger
+        ..err(e.message)
+        ..info('')
+        ..info(e.usage);
       return ExitCode.usage.code;
     }
   }
@@ -84,7 +90,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   Future<int?> runCommand(ArgResults topLevelResults) async {
     // Handle version flag
     if (topLevelResults['version'] == true) {
-      _logger.info('gitwhisper version: $packageVersion');
+      $logger.info('gitwhisper version: $packageVersion');
       return ExitCode.success.code;
     }
 
