@@ -107,7 +107,14 @@ class CommitCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      _logger.info(commitMessage);
+      _logger
+        ..info('')
+        ..info('---------------------------------')
+        ..info('')
+        ..info(commitMessage)
+        ..info('')
+        ..info('---------------------------------')
+        ..info('');
 
       try {
         await GitUtils.runGitCommit(commitMessage);

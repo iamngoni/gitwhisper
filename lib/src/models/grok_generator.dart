@@ -19,10 +19,6 @@ class GrokGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    $logger.info(
-      'Grok :: generateCommitMessage -> generating commit message from diff',
-    );
-
     final prompt = '''
     You are an assistant that generates git commit messages. 
     Based on the following diff of staged changes, generate a concise and descriptive commit message.
