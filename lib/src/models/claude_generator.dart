@@ -37,16 +37,15 @@ class ClaudeGenerator extends CommitGenerator {
     ''';
 
     final Response<Map<String, dynamic>> response = await $dio.post(
-      '',
+      'https://api.anthropic.com/v1/messages',
       options: Options(
         headers: {
-          'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
       ),
       data: {
-        'model': 'claude-3-opus-20240229',
+        'model': actualVariant,
         'max_tokens': 300,
         'messages': [
           {
