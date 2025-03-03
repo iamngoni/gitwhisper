@@ -1,3 +1,6 @@
+## 0.0.6
+- resolve dart sdk constraint issue
+
 ## 0.0.5
 - fix(claude_generator): update API endpoint and model selection
 - refactor(dependencies): remove curl_logger_dio_interceptor and update model variants 
