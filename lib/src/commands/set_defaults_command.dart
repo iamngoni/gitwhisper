@@ -20,7 +20,6 @@ class SetDefaultsCommand extends Command<int> {
         'model',
         abbr: 'm',
         help: 'AI model to save the key for',
-        defaultsTo: 'openai',
         allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
         mandatory: true,
       )
@@ -28,7 +27,6 @@ class SetDefaultsCommand extends Command<int> {
         'model-variant',
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
-        defaultsTo: 'gpt-4o',
         valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
         mandatory: true,
       );
