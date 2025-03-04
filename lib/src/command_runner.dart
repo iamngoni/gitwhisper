@@ -66,17 +66,16 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   @override
   Future<int> run(Iterable<String> args) async {
     try {
-      final topLevelResults = parse(args);
+      final argsToUse = args.isEmpty ? ['commit'] : args;
+      final topLevelResults = parse(argsToUse);
       return await runCommand(topLevelResults) ?? ExitCode.success.code;
     } on FormatException catch (e, stackTrace) {
-      // Print usage information if an invalid argument was provided
       $logger
         ..err(e.message)
         ..detail(stackTrace.toString());
       printUsage();
       return ExitCode.usage.code;
     } on UsageException catch (e) {
-      // Print usage information if the user provided a command that doesn't exist
       $logger
         ..err(e.message)
         ..info('')
