@@ -1,3 +1,6 @@
+## 0.0.10
+- update README with better documentation of the commands
+
 ## 0.0.9
 - feat: default to 'commit' command when args are empty, add 'gw' executable alias
 

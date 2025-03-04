@@ -46,6 +46,7 @@ dart pub global activate --source=path <path to this package>
 ```bash
 # Generate a commit message (main command)
 gitwhisper commit --model openai
+gitwhisper # if defaults have been set before
 
 # Choose a specific model variant
 gitwhisper commit --model openai --model-variant gpt-4o
@@ -62,9 +63,18 @@ gitwhisper list-variants --model claude
 # Save an API key for future use
 gitwhisper save-key --model claude --key "your-claude-key"
 
+# Set defaults
+gitwhisper set-defaults --model openai --model-variant gpt-4o
+
+# Clear defaults
+gitwhisper clear-defaults
+
 # Get help
 gitwhisper --help
 ```
+
+## Shorter Command
+Instead of using the full `gitwhisper` command you can also use the shortened one `gw`.
 
 ## Command Structure
 
