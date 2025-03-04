@@ -24,7 +24,6 @@ class CommitCommand extends Command<int> {
         'model',
         abbr: 'm',
         help: 'AI model to use',
-        defaultsTo: 'openai',
         allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
         allowedHelp: {
           'claude': 'Anthropic Claude',
@@ -79,12 +78,25 @@ class CommitCommand extends Command<int> {
     }
 
     // Get the model name from args
-    final modelName = argResults?['model'] as String;
-    final modelVariant = argResults?['model-variant'] as String?;
+    String? modelName = argResults?['model'] as String?;
+    String? modelVariant = argResults?['model-variant'] as String?;
 
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
+
+    // If modelName is not provided if a default model was set else default
+    // to openai
+    if (modelName == null) {
+      final (String, String)? defaults =
+          configManager.getDefaultModelAndVariant();
+      if (defaults != null) {
+        modelName = defaults.$1;
+        modelVariant = defaults.$2;
+      } else {
+        modelName = 'openai';
+      }
+    }
 
     // Get API key (from args, config, or environment)
     var apiKey = argResults?['key'] as String?;
@@ -144,7 +156,6 @@ class CommitCommand extends Command<int> {
 
       try {
         await GitUtils.runGitCommit(commitMessage);
-        _logger.success('Commit successful! 🎉');
       } catch (e) {
         _logger.err('Error setting commit message: $e');
         return ExitCode.software.code;

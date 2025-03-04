@@ -46,12 +46,42 @@ class ConfigManager {
         as String?;
   }
 
+  /// Gets the API key for the specified model
+  (String, String)? getDefaultModelAndVariant() {
+    if (_config.containsKey('defaults')) {
+      final String model =
+          (_config['defaults'] as Map<String, dynamic>)['model'] as String;
+      final String variant =
+          (_config['defaults'] as Map<String, dynamic>)['variant'] as String;
+
+      return (model, variant);
+    } else {
+      return null;
+    }
+  }
+
   /// Sets the API key for the specified model
   void setApiKey(String model, String apiKey) {
     if (_config['api_keys'] == null) {
       _config['api_keys'] = <String, dynamic>{};
     }
     (_config['api_keys'] as Map<String, dynamic>)[model.toLowerCase()] = apiKey;
+  }
+
+  /// Sets the default model and default variant
+  void setDefaults(String model, String modelVariant) {
+    if (_config['defaults'] == null) {
+      _config['defaults'] = <String, dynamic>{};
+    }
+    (_config['defaults'] as Map<String, dynamic>)['model'] = model;
+    (_config['defaults'] as Map<String, dynamic>)['variant'] = modelVariant;
+  }
+
+  /// Clears the default model and default variant
+  void clearDefaults() {
+    if (_config['defaults'] != null) {
+      _config.remove('defaults');
+    }
   }
 
   /// Gets the path to the config file

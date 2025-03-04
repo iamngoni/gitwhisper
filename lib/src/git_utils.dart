@@ -39,7 +39,7 @@ class GitUtils {
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
-      $logger.success('Commit successful ✅');
+      $logger.success('Commit successful! 🎉');
     }
   }
 

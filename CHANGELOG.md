@@ -1,3 +1,6 @@
+## 0.0.7
+- set and clear default model and variant for future use
+
 ## 0.0.6
 - resolve dart sdk constraint issue
 

@@ -26,7 +26,7 @@ class ClaudeGenerator extends CommitGenerator {
     final prompt = '''
     You are an assistant that generates git commit messages. 
     Based on the following diff of staged changes, generate a concise and descriptive commit message.
-    Follow the conventional commit format: <type>(<scope>): <description>
+    Follow the conventional commit format: <type>: <description>
     
     Common types: feat, fix, docs, style, refactor, test, chore
     

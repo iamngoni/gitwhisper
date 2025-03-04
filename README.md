@@ -29,7 +29,7 @@ dart pub global activate --source=path <path to this package>
 ## Features
 
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
-- 🔄 Follows conventional commit format: `<type>(<scope>): <description>`
+- 🔄 Follows conventional commit format: `<type>: <description>`
 - 📋 Pre-fills the Git commit editor for easy review and modification
 - 🎫 Supports ticket number prefixing for commit messages
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
@@ -75,6 +75,8 @@ GitWhisper uses a command-based structure:
 - `list-variants`: Show available variants for each AI model
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
+- `set-defaults`: Set default model and variant for future use
+- `clear-defaults`: Clear any set default preferences
 
 ## API Keys
 
@@ -171,12 +173,12 @@ api_keys:
 Git Whisper generates commit messages following the conventional commit format:
 
 ```
-<type>(<scope>): <description>
+<type>: <description>
 ```
 
 With prefix option:
 ```
-<type>(<scope>): PREFIX-123 -> <description>
+<type>: PREFIX-123 -> <description>
 ```
 
 Common types include:
