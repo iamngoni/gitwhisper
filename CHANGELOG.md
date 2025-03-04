@@ -1,3 +1,6 @@
+## 0.0.9
+- feat: default to 'commit' command when args are empty, add 'gw' executable alias
+
 ## 0.0.8
 - fix(set_defaults_command): remove default values to enforce mandatory options
 
