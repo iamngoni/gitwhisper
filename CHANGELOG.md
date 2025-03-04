@@ -1,3 +1,6 @@
+## 0.0.8
+- fix(set_defaults_command): remove default values to enforce mandatory options
+
 ## 0.0.7
 - set and clear default model and variant for future use
 
