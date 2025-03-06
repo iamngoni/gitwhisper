@@ -17,7 +17,7 @@ class ListVariantsCommand extends Command<int> {
       'model',
       abbr: 'm',
       help: 'Model to list variants for',
-      allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
+      allowed: ['claude', 'openai', 'gemini', 'grok', 'llama', 'deekseek'],
     );
   }
 
@@ -57,7 +57,6 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - o1-preview');
         _logger.info('  - o1-mini');
         _logger.info('  - o3-mini');
-        break;
       case 'claude':
         _logger.info('  - claude-3-opus-20240307 (default)');
         _logger.info('  - claude-3-sonnet-20240307');
@@ -65,7 +64,6 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - claude-3-5-sonnet-20240620');
         _logger.info('  - claude-3-5-sonnet-20241022');
         _logger.info('  - claude-3-7-sonnet-20250219');
-        break;
       case 'gemini':
         _logger.info('  - gemini-1.0-pro (default)');
         _logger.info('  - gemini-1.0-ultra');
@@ -76,13 +74,11 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - gemini-2.0-flash');
         _logger.info('  - gemini-2.0-flash-lite');
         _logger.info('  - gemini-2.0-flash-thinking');
-        break;
       case 'grok':
         _logger.info('  - grok-1 (default)');
         _logger.info('  - grok-2');
         _logger.info('  - grok-3');
         _logger.info('  - grok-2-mini');
-        break;
       case 'llama':
         _logger.info('  - llama-3-70b-instruct (default)');
         _logger.info('  - llama-3-8b-instruct');
@@ -92,7 +88,9 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - llama-3.2-1b-instruct');
         _logger.info('  - llama-3.2-3b-instruct');
         _logger.info('  - llama-3.3-70b-instruct');
-        break;
+      case 'deepseek':
+        _logger.info('  - deepseek-chat (default)');
+        _logger.info('  - deepseek-reasoner');
     }
   }
 
@@ -106,5 +104,7 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('grok');
     _logger.info('');
     _listVariantsForModel('llama');
+    _logger.info('');
+    _listVariantsForModel('deepseek');
   }
 }

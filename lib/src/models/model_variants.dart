@@ -23,21 +23,19 @@ class ModelVariants {
   /// Default Llama model variant
   static const String llamaDefault = 'llama-3-70b-instruct';
 
+  /// Default Deekseek model variant
+  static const String deepseekDefault = 'deepseek-chat';
+
   /// Get the default model variant for a given model
   static String getDefault(String model) {
-    switch (model.toLowerCase()) {
-      case 'openai':
-        return openaiDefault;
-      case 'claude':
-        return claudeDefault;
-      case 'gemini':
-        return geminiDefault;
-      case 'grok':
-        return grokDefault;
-      case 'llama':
-        return llamaDefault;
-      default:
-        throw ArgumentError('Unknown model: $model');
-    }
+    return switch (model.toLowerCase()) {
+      'openai' => openaiDefault,
+      'claude' => claudeDefault,
+      'gemini' => geminiDefault,
+      'grok' => grokDefault,
+      'llama' => llamaDefault,
+      'deepseek' => deepseekDefault,
+      _ => throw ArgumentError('Unknown model: $model'),
+    };
   }
 }

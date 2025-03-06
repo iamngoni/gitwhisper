@@ -8,6 +8,7 @@
 
 import 'claude_generator.dart';
 import 'commit_generator.dart';
+import 'deepseek_generator.dart';
 import 'gemini_generator.dart';
 import 'grok_generator.dart';
 import 'llama_generator.dart';
@@ -20,34 +21,32 @@ class CommitGeneratorFactory {
     String apiKey, {
     String? variant,
   }) {
-    switch (model.toLowerCase()) {
-      case 'claude':
-        return ClaudeGenerator(
+    return switch (model.toLowerCase()) {
+      'claude' => ClaudeGenerator(
           apiKey,
           variant: variant,
-        );
-      case 'openai':
-        return OpenAIGenerator(
+        ),
+      'openai' => OpenAIGenerator(
           apiKey,
           variant: variant,
-        );
-      case 'gemini':
-        return GeminiGenerator(
+        ),
+      'gemini' => GeminiGenerator(
           apiKey,
           variant: variant,
-        );
-      case 'grok':
-        return GrokGenerator(
+        ),
+      'grok' => GrokGenerator(
           apiKey,
           variant: variant,
-        );
-      case 'llama':
-        return LlamaGenerator(
+        ),
+      'llama' => LlamaGenerator(
           apiKey,
           variant: variant,
-        );
-      default:
-        throw ArgumentError('Unsupported model: $model');
-    }
+        ),
+      'deepseek' => DeepseekGenerator(
+          apiKey,
+          variant: variant,
+        ),
+      _ => throw ArgumentError('Unsupported model: $model'),
+    };
   }
 }

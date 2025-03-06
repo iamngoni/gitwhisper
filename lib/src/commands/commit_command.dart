@@ -24,13 +24,14 @@ class CommitCommand extends Command<int> {
         'model',
         abbr: 'm',
         help: 'AI model to use',
-        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
+        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama', 'deepseek'],
         allowedHelp: {
           'claude': 'Anthropic Claude',
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
           'llama': 'Meta Llama',
+          'deepseek': 'DeepSeek, Inc.',
         },
       )
       ..addOption(

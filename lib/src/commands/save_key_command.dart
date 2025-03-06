@@ -21,7 +21,7 @@ class SaveKeyCommand extends Command<int> {
         abbr: 'm',
         help: 'AI model to save the key for',
         defaultsTo: 'openai',
-        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
+        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama', 'deepseek'],
       )
       ..addOption(
         'key',

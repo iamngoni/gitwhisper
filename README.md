@@ -40,6 +40,7 @@ dart pub global activate --source=path <path to this package>
     - Gemini (Google)
     - Grok (xAI)
     - Llama (Meta)
+    - Deepseek (DeepSeek, Inc.)
 
 ## Usage
 
@@ -151,6 +152,10 @@ GitWhisper supports a comprehensive range of model variants:
 - `llama-3.2-1b-instruct`
 - `llama-3.2-3b-instruct`
 - `llama-3.3-70b-instruct`
+
+### Deekseek (DeepSeek, Inc.)
+- `deekseek-chat` (default)
+- `deepseek-reasoner`
 
 ## How It Works
 

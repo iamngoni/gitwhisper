@@ -20,7 +20,7 @@ class SetDefaultsCommand extends Command<int> {
         'model',
         abbr: 'm',
         help: 'AI model to save the key for',
-        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama'],
+        allowed: ['claude', 'openai', 'gemini', 'grok', 'llama', 'deepseek'],
         mandatory: true,
       )
       ..addOption(
