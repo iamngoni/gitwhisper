@@ -1,3 +1,10 @@
+## 0.0.11
+- Integrated Deepseek model into the project
+- Updated model listing and validation to include Deepseek
+- Added Deepseek-specific generator implementation
+- Updated documentation to reflect the new model addition
+- Incremented version to 0.0.11 for release with new feature
+
 ## 0.0.10
 - update README with better documentation of the commands
 
