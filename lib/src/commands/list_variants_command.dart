@@ -103,6 +103,13 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - gpt-4o (default)');
         _logger.info('  - DeepSeek-R1');
         _logger.info('  - Llama-3.3-70B-Instruct');
+        _logger.info('  - Deepseek-V3');
+        _logger.info('  - Phi-4-mini-instruct');
+        _logger.info('  - Codestral 25.01');
+        _logger.info('  - Mistral Large 24.11');
+        _logger.info(
+          '  - etc. Check more on https://github.com/marketplace?type=models',
+        );
     }
   }
 

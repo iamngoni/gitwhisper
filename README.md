@@ -161,6 +161,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `gpt-4o` (default)
 - `Llama-3.3-70B-Instruct`
 - `DeepSeek-R1`
+- `etc - Check for more here` [https://github.com/marketplace?type=models](https://github.com/marketplace?type=models)
 
 To run GitHub models you may need the following:
 > To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
