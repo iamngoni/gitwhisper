@@ -1,3 +1,7 @@
+## 0.0.12+1
+- Added `Deepseek-V3`, `Phi-4-mini-instruct`, `Codestral 25.01`, and `Mistral Large 24.11` to `list_variants_command`.
+- Updated README with a link to check for more models on GitHub Marketplace.
+
 ## 0.0.12
 - Updated README to include GitHub models and authentication instructions.
 - Enhanced command options to support new 'github' model.
