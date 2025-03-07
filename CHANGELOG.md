@@ -1,3 +1,9 @@
+## 0.0.12
+- Updated README to include GitHub models and authentication instructions.
+- Enhanced command options to support new 'github' model.
+- Added `GithubGenerator` for generating commit messages using GitHub model.
+- Updated `model_variants` with a new default variant for GitHub.
+
 ## 0.0.11
 - Integrated Deepseek model into the project
 - Updated model listing and validation to include Deepseek
