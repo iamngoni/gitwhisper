@@ -157,6 +157,14 @@ GitWhisper supports a comprehensive range of model variants:
 - `deekseek-chat` (default)
 - `deepseek-reasoner`
 
+### GitHub (Free to use models) - rate limited
+- `gpt-4o` (default)
+- `Llama-3.3-70B-Instruct`
+- `DeepSeek-R1`
+
+To run GitHub models you may need the following:
+> To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+
 ## How It Works
 
 Git Whisper:

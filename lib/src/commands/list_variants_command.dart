@@ -17,7 +17,15 @@ class ListVariantsCommand extends Command<int> {
       'model',
       abbr: 'm',
       help: 'Model to list variants for',
-      allowed: ['claude', 'openai', 'gemini', 'grok', 'llama', 'deekseek'],
+      allowed: [
+        'claude',
+        'openai',
+        'gemini',
+        'grok',
+        'llama',
+        'deekseek',
+        'github',
+      ],
     );
   }
 
@@ -91,6 +99,10 @@ class ListVariantsCommand extends Command<int> {
       case 'deepseek':
         _logger.info('  - deepseek-chat (default)');
         _logger.info('  - deepseek-reasoner');
+      case 'github':
+        _logger.info('  - gpt-4o (default)');
+        _logger.info('  - DeepSeek-R1');
+        _logger.info('  - Llama-3.3-70B-Instruct');
     }
   }
 
@@ -106,5 +118,7 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('llama');
     _logger.info('');
     _listVariantsForModel('deepseek');
+    _logger.info('');
+    _listVariantsForModel('github');
   }
 }

@@ -31,7 +31,8 @@ class ListModelsCommand extends Command<int> {
       ..info('  - gemini (Google Gemini)')
       ..info('  - grok (xAI Grok)')
       ..info('  - llama (Meta Llama)')
-      ..info('  - deepseek (DeepSeek, Inc.)');
+      ..info('  - deepseek (DeepSeek, Inc.)')
+      ..info('  - github (GitHub)');
     return ExitCode.success.code;
   }
 }

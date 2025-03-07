@@ -10,6 +10,7 @@ import 'claude_generator.dart';
 import 'commit_generator.dart';
 import 'deepseek_generator.dart';
 import 'gemini_generator.dart';
+import 'github_generator.dart';
 import 'grok_generator.dart';
 import 'llama_generator.dart';
 import 'openai_generator.dart';
@@ -43,6 +44,10 @@ class CommitGeneratorFactory {
           variant: variant,
         ),
       'deepseek' => DeepseekGenerator(
+          apiKey,
+          variant: variant,
+        ),
+      'github' => GithubGenerator(
           apiKey,
           variant: variant,
         ),

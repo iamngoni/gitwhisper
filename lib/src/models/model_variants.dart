@@ -26,6 +26,9 @@ class ModelVariants {
   /// Default Deekseek model variant
   static const String deepseekDefault = 'deepseek-chat';
 
+  /// Default Github model variant
+  static const String githubDefault = 'gpt-4o';
+
   /// Get the default model variant for a given model
   static String getDefault(String model) {
     return switch (model.toLowerCase()) {
@@ -35,6 +38,7 @@ class ModelVariants {
       'grok' => grokDefault,
       'llama' => llamaDefault,
       'deepseek' => deepseekDefault,
+      'github' => githubDefault,
       _ => throw ArgumentError('Unknown model: $model'),
     };
   }
