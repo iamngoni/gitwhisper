@@ -8,6 +8,7 @@
 
 import 'package:dio/dio.dart';
 
+import '../commit_utils.dart';
 import '../constants.dart';
 import 'commit_generator.dart';
 import 'model_variants.dart';
@@ -23,18 +24,7 @@ class GeminiGenerator extends CommitGenerator {
 
   @override
   Future<String> generateCommitMessage(String diff) async {
-    final prompt = '''
-    You are an assistant that generates git commit messages. 
-    Based on the following diff of staged changes, generate a concise and descriptive commit message.
-    Follow the conventional commit format: <type>: <description>
-    
-    Common types: feat, fix, docs, style, refactor, test, chore
-    
-    Here's the diff:
-    $diff
-    
-    Generate only the commit message, nothing else.
-    ''';
+    final prompt = getCommitPrompt(diff);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$apiKey',
@@ -47,7 +37,7 @@ class GeminiGenerator extends CommitGenerator {
           }
         ],
         'generationConfig': {
-          'maxOutputTokens': 300,
+          'maxOutputTokens': maxTokens,
         },
       },
     );

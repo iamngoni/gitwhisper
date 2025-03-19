@@ -26,4 +26,11 @@ abstract class CommitGenerator {
   /// Gets the actual variant to use (specified or default)
   String get actualVariant =>
       (variant != null && variant!.isNotEmpty) ? variant! : defaultVariant;
+
+  /// The maximum number of tokens allowed for the commit message generation.
+  ///
+  /// This limits the size of the generated commit message to ensure it remains
+  /// concise and follows best practices for Git commit messages.
+  /// A lower value encourages more focused, single-purpose commit messages.
+  int get maxTokens => 300;
 }
