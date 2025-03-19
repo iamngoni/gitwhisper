@@ -1,3 +1,6 @@
+## 0.0.13
+- feat: extract commit prompt to shared utility module
+
 ## 0.0.12+1
 - Added `Deepseek-V3`, `Phi-4-mini-instruct`, `Codestral 25.01`, and `Mistral Large 24.11` to `list_variants_command`.
 - Updated README with a link to check for more models on GitHub Marketplace.
