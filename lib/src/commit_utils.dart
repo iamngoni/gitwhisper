@@ -18,9 +18,20 @@ String getCommitPrompt(String diff) {
   Based on the following diff of staged changes, generate a concise and descriptive commit message.
   Follow the conventional commit format: <type>: <description>
   
-  Common types: feat, fix, docs, style, refactor, test, chore
+  Commit types with their required emojis:
+  - feat: ✨ (new feature)
+  - fix: 🐛 (bug fix)
+  - docs: 📚 (documentation changes)
+  - style: 💄 (formatting, missing semi colons, etc; no code change)
+  - refactor: ♻️ (code change that neither fixes a bug nor adds a feature)
+  - test: 🧪 (adding or modifying tests)
+  - chore: 🔧 (updating build tasks, package manager configs, etc)
+  - perf: ⚡ (performance improvements)
+  - ci: 👷 (CI/CD related changes)
+  - build: 📦 (changes affecting build system or dependencies)
+  - revert: ⏪ (reverting a previous commit)
   
-  Include relevant emojis e.g. 🐛 for fixes, ✨ for features
+  The commit message format must be: <emoji> <type>: <description>
   
   Here's the diff:
   $diff
