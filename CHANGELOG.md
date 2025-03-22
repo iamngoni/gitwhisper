@@ -1,3 +1,6 @@
+## 0.0.14
+- docs: expand commit types with mandatory emojis in prompt
+
 ## 0.0.13
 - feat: extract commit prompt to shared utility module
 
