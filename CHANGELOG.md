@@ -1,3 +1,6 @@
+## 0.0.15
+- chore: 🧹 remove unused process_run dependency from pubspec.yaml
+
 ## 0.0.14
 - docs: expand commit types with mandatory emojis in prompt
 
