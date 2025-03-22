@@ -13,7 +13,6 @@ dependencies:
   dio: ^5.8.0+1
   mason_logger: ^0.3.3
   path: ^1.9.1
-  process_run: ^1.2.3
   pub_updater: ^0.5.0
   universal_io: ^2.2.2
   yaml: ^3.1.3
