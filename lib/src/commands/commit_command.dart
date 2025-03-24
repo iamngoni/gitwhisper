@@ -191,28 +191,42 @@ class CommitCommand extends Command<int> {
 
   /// Formats a commit message with an optional prefix
   ///
-  /// If prefix is provided, inserts it after the type/scope section
-  /// Example: "feat(ui): add button" becomes "feat(ui): PREFIX-123 -> add button"
+  /// Handles commit messages with emojis and correctly places the prefix
+  /// Example: "feat: ✨ add button" becomes "feat: ✨ PREFIX-123 -> add button"
   String formatCommitMessageWithPrefix(String message, String? prefix) {
     if (prefix == null || prefix.isEmpty) {
       return message;
     }
 
-    // Check if the message follows conventional commit format
-    final conventionalCommitRegex = RegExp(r'^(\w+)(\([^)]+\))?: (.+)$');
+    // Updated regex to handle conventional commits with emojis
+    // Format: type: emoji description
+    final conventionalCommitRegex = RegExp(r'^(\w+): (.*?)(\s+)(.+)$');
     final match = conventionalCommitRegex.firstMatch(message);
 
     if (match != null) {
-      // Extract parts of the conventional commit
+      // Extract parts of the conventional commit with emoji
       final type = match.group(1);
-      final scope = match.group(2) ?? '';
-      final description = match.group(3) ?? '';
+      final emoji = match.group(2);
+      final spacing = match.group(3) ?? ' ';
+      final description = match.group(4) ?? '';
 
-      // Format with prefix
-      return '$type$scope: $prefix -> $description';
+      // Format with prefix, keeping the emoji in place
+      return '$type: $emoji$spacing$prefix -> $description';
     } else {
-      // If not conventional format, just prepend the prefix
-      return '$prefix -> $message';
+      // Fallback to checking standard conventional format without emoji
+      final standardCommitRegex = RegExp(r'^(\w+): (.+)$');
+      final standardMatch = standardCommitRegex.firstMatch(message);
+
+      if (standardMatch != null) {
+        final type = standardMatch.group(1);
+        final description = standardMatch.group(2) ?? '';
+
+        // Format with prefix for standard conventional commits
+        return '$type: $prefix -> $description';
+      } else {
+        // If not in any conventional format, just prepend the prefix
+        return '$prefix -> $message';
+      }
     }
   }
 }
