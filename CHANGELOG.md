@@ -1,3 +1,6 @@
+## 0.0.16
+- docs: 📝 update commit message guidelines to include emojis
+
 ## 0.0.15
 - chore: 🧹 remove unused process_run dependency from pubspec.yaml
 
