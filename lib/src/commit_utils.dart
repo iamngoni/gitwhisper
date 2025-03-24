@@ -16,7 +16,7 @@ String getCommitPrompt(String diff) {
   final prompt = '''
   You are an assistant that generates git commit messages. 
   Based on the following diff of staged changes, generate a concise and descriptive commit message.
-  Follow the conventional commit format: <type>: <description>
+  Follow the conventional commit format: <type>: <emoji> <description>
   
   Commit types with their required emojis:
   - feat: ✨ (new feature)
@@ -31,7 +31,8 @@ String getCommitPrompt(String diff) {
   - build: 📦 (changes affecting build system or dependencies)
   - revert: ⏪ (reverting a previous commit)
   
-  The commit message format must be: <emoji> <type>: <description>
+  The commit message format must be: <type>: <emoji> <description> e.g.
+  fix: 🐛 resolved delay bug on payments
   
   Here's the diff:
   $diff
