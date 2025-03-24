@@ -1,3 +1,6 @@
+## 0.0.17
+- fix: 🐛 improve handling of emojis in commit message formatting
+
 ## 0.0.16
 - docs: 📝 update commit message guidelines to include emojis
 
