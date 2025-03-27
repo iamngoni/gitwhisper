@@ -1,3 +1,7 @@
+## 0.0.18
+- feat: ✨ Add template support for customizable commit messages
+- docs: 📚 Add custom templates feature and update documentation format
+
 ## 0.0.17
 - fix: 🐛 improve handling of emojis in commit message formatting
 

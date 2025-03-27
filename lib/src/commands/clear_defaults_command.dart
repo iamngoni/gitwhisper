@@ -32,7 +32,7 @@ class ClearDefaultsCommand extends Command<int> {
 
     // Clear the defaults
     configManager.clearDefaults();
-    await configManager.save();
+    await configManager.saveConfig();
 
     _logger.success('All set defaults have been cleared 🍻');
     return ExitCode.success.code;
