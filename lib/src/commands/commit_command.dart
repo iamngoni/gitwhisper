@@ -14,6 +14,7 @@ import 'package:mason_logger/mason_logger.dart';
 import '../config_manager.dart';
 import '../git_utils.dart';
 import '../models/commit_generator_factory.dart';
+import '../template_manager.dart';
 
 class CommitCommand extends Command<int> {
   CommitCommand({
@@ -59,6 +60,12 @@ class CommitCommand extends Command<int> {
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
         valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
+      )
+      ..addOption(
+        'template',
+        abbr: 't',
+        help: 'Template to use for commit message formatting',
+        defaultsTo: 'default',
       );
   }
 
@@ -94,6 +101,11 @@ class CommitCommand extends Command<int> {
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
+
+    // Get template to use
+    final String templateName = argResults?['template'] as String? ??
+        configManager.getDefaultTemplate() ??
+        'default';
 
     // If modelName is not provided if a default model was set else default
     // to openai
@@ -139,18 +151,32 @@ class CommitCommand extends Command<int> {
         variant: modelVariant,
       );
 
-      _logger.info('Analyzing staged changes using $modelName'
-          ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
-              '($modelVariant)' : ''}...');
+      final progress =
+          _logger.progress('Analyzing staged changes using $modelName'
+              ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
+                  '($modelVariant)' : ''}...');
 
       // Generate commit message with AI
       final rawCommitMessage = await generator.generateCommitMessage(diff);
 
-      // Apply prefix if available
-      final commitMessage =
-          formatCommitMessageWithPrefix(rawCommitMessage, prefix);
+      // Parse the raw commit message to extract components
+      final components = parseCommitMessage(rawCommitMessage);
 
-      if (commitMessage.trim().isEmpty) {
+      progress.update('Applying template...');
+
+      // Apply template
+      final templateManager = TemplateManager();
+      final template = templateManager.getTemplate(templateName);
+      final formattedMessage = applyTemplate(
+        template,
+        components,
+        prefix: prefix,
+      );
+      progress
+        ..update('Template applied!')
+        ..complete();
+
+      if (formattedMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty');
         return ExitCode.software.code;
       }
@@ -159,13 +185,13 @@ class CommitCommand extends Command<int> {
         ..info('')
         ..info('---------------------------------')
         ..info('')
-        ..info(commitMessage)
+        ..info(formattedMessage)
         ..info('')
         ..info('---------------------------------')
         ..info('');
 
       try {
-        await GitUtils.runGitCommit(commitMessage);
+        await GitUtils.runGitCommit(formattedMessage);
       } catch (e) {
         _logger.err('Error setting commit message: $e');
         return ExitCode.software.code;
@@ -189,30 +215,87 @@ class CommitCommand extends Command<int> {
     };
   }
 
-  /// Formats a commit message with an optional prefix
-  ///
-  /// If prefix is provided, inserts it after the type/scope section
-  /// Example: "feat(ui): add button" becomes "feat(ui): PREFIX-123 -> add button"
-  String formatCommitMessageWithPrefix(String message, String? prefix) {
-    if (prefix == null || prefix.isEmpty) {
-      return message;
-    }
+  /// Parse commit message to extract components
+  Map<String, String> parseCommitMessage(String message) {
+    final result = <String, String>{};
 
-    // Check if the message follows conventional commit format
-    final conventionalCommitRegex = RegExp(r'^(\w+)(\([^)]+\))?: (.+)$');
-    final match = conventionalCommitRegex.firstMatch(message);
+    // Enhanced conventional commit regex to capture type, scope, emoji and description
+    // format: type(scope): emoji description
+    final regex = RegExp(r'^(\w+)(?:\(([^)]+)\))?: (?:([^\s]+) )?(.+)$');
+    final match = regex.firstMatch(message);
 
     if (match != null) {
-      // Extract parts of the conventional commit
-      final type = match.group(1);
-      final scope = match.group(2) ?? '';
-      final description = match.group(3) ?? '';
+      result['type'] = match.group(1) ?? '';
+      // Capture scope if present
+      result['scope'] = match.group(2) ?? '';
 
-      // Format with prefix
-      return '$type$scope: $prefix -> $description';
+      // Check if there's an emoji
+      final possibleEmoji = match.group(3) ?? '';
+      final description = match.group(4) ?? '';
+
+      // Simple emoji detection
+      if (RegExp(r'[\p{Emoji}]', unicode: true).hasMatch(possibleEmoji)) {
+        result['emoji'] = possibleEmoji;
+        result['description'] = description;
+      } else {
+        result['emoji'] = '';
+        result['description'] = '$possibleEmoji $description'.trim();
+      }
     } else {
-      // If not conventional format, just prepend the prefix
-      return '$prefix -> $message';
+      // Fallback for non-conventional formats
+      result['type'] = '';
+      result['scope'] = '';
+      result['emoji'] = '';
+      result['description'] = message;
     }
+
+    return result;
+  }
+
+  /// Apply template to commit components
+  String applyTemplate(
+    String template,
+    Map<String, String> components, {
+    String? prefix,
+  }) {
+    var result = template;
+
+    // Replace placeholders with actual values
+    for (final entry in components.entries) {
+      result = result.replaceAll('{{${entry.key}}}', entry.value);
+    }
+
+    // Handle prefix if provided
+    if (prefix != null && prefix.isNotEmpty) {
+      result = result.replaceAll('{{prefix}}', prefix);
+    } else {
+      // Remove optional prefix pattern if no prefix
+      result = result.replaceAll(RegExp(r'\{\{prefix\}\} ?'), '');
+    }
+
+    // Remove any remaining placeholders
+    result = result.replaceAll(RegExp(r'\{\{[^}]+\}\}'), '');
+
+    // Clean up empty structures
+    // Remove empty brackets: []
+    result = result.replaceAll(RegExp(r'\[\s*\]'), '');
+
+    // Remove empty parentheses: ()
+    result = result.replaceAll(RegExp(r'\(\s*\)'), '');
+
+    // Remove double spaces
+    result = result.replaceAll(RegExp(r' +'), ' ');
+
+    // Cleanup any leftover structural patterns
+    // Fix patterns like "type: -> description" (when prefix is missing but format expects it)
+    result = result.replaceAll(RegExp(r': +-> +'), ': ');
+
+    // Fix patterns like "type: : description" (duplicate colons)
+    result = result.replaceAll(RegExp(r': *:'), ':');
+
+    // Trim whitespace
+    result = result.trim();
+
+    return result;
   }
 }

@@ -20,7 +20,7 @@ class TemplateManager {
   static const _defaultTemplateName = 'default';
   static const _defaultTemplate = '{{type}}: {{emoji}} {{description}}';
 
-  late final Map<String, dynamic> _templates;
+  late Map<String, dynamic> _templates;
 
   Map<String, dynamic> _loadTemplates() {
     final file = File(_getConfigPath());
