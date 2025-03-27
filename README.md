@@ -29,7 +29,7 @@ dart pub global activate --source=path <path to this package>
 ## Features
 
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
-- 🔄 Follows conventional commit format: `<type>: <description>`
+- 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
 - 📋 Pre-fills the Git commit editor for easy review and modification
 - 🎫 Supports ticket number prefixing for commit messages
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
@@ -47,7 +47,8 @@ dart pub global activate --source=path <path to this package>
 ```bash
 # Generate a commit message (main command)
 gitwhisper commit --model openai
-gitwhisper # if defaults have been set before
+gitwhisper # shorthand for 'gitwhisper commit' - runs commit command by default
+gw # even shorter command - also runs 'gitwhisper commit' by default
 
 # Choose a specific model variant
 gitwhisper commit --model openai --model-variant gpt-4o
@@ -75,7 +76,7 @@ gitwhisper --help
 ```
 
 ## Shorter Command
-Instead of using the full `gitwhisper` command you can also use the shortened one `gw`.
+Instead of using the full `gitwhisper` command you can also use the shortened one `gw`. Both `gitwhisper` and `gw` without any subcommands will automatically run the `commit` command by default.
 
 ## Command Structure
 
@@ -172,7 +173,7 @@ Git Whisper:
 1. Checks if you have staged changes in your repository
 2. Retrieves the diff of your staged changes
 3. Sends the diff to the selected AI model
-4. Generates a commit message following the conventional commit format
+4. Generates a commit message following the conventional commit format with emojis
 5. Applies any prefix/ticket number if specified
 6. Submits the commit with the generated message
 
@@ -194,25 +195,29 @@ api_keys:
 
 ## Conventional Commit Format
 
-Git Whisper generates commit messages following the conventional commit format:
+Git Whisper generates commit messages following the conventional commit format with emojis:
 
 ```
-<type>: <description>
+<emoji> <type>: <description>
 ```
 
 With prefix option:
 ```
-<type>: PREFIX-123 -> <description>
+<emoji> <type>: PREFIX-123 -> <description>
 ```
 
-Common types include:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting, etc.)
-- `refactor`: Code changes that neither fix bugs nor add features
-- `test`: Adding or fixing tests
-- `chore`: Changes to the build process or auxiliary tools
+Common types and their emojis include:
+- `✨ feat`: New feature
+- `🐛 fix`: Bug fix
+- `📚 docs`: Documentation changes
+- `💄 style`: Code style changes (formatting, etc.)
+- `♻️ refactor`: Code changes that neither fix bugs nor add features
+- `🧪 test`: Adding or fixing tests
+- `🔧 chore`: Changes to the build process or auxiliary tools
+- `⚡ perf`: Performance improvements
+- `👷 ci`: CI/CD related changes
+- `📦 build`: Changes affecting build system or dependencies
+- `⏪ revert`: Reverting a previous commit
 
 ## Contributing
 
