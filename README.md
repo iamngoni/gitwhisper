@@ -26,13 +26,7 @@ Or locally via:
 dart pub global activate --source=path <path to this package>
 ```
 
-## Features
-
-- 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
-- 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
-- 📋 Pre-fills the Git commit editor for easy review and modification
-- 🎫 Supports ticket number prefixing for commit messages
-- 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
+, claude-3-opus, etc.)
 - 🔑 Securely saves API keys for future use
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
@@ -56,6 +50,9 @@ gitwhisper commit --model openai --model-variant gpt-4o
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
 
+# Use a specific template for formatting
+gitwhisper commit --template "detailed"
+
 # List available models
 gitwhisper list-models
 
@@ -66,10 +63,16 @@ gitwhisper list-variants --model claude
 gitwhisper save-key --model claude --key "your-claude-key"
 
 # Set defaults
-gitwhisper set-defaults --model openai --model-variant gpt-4o
+gitwhisper set-defaults --model openai --model-variant gpt-4o --template default
 
 # Clear defaults
 gitwhisper clear-defaults
+
+# Template management
+gitwhisper template list                                  # List all templates
+gitwhisper template add --name "custom" --format "{{type}}: {{emoji}} {{description}}"  # Add template
+gitwhisper template show --name "default"                # Show template details
+gitwhisper template delete --name "custom"               # Delete a template
 
 # Get help
 gitwhisper --help
@@ -87,8 +90,13 @@ GitWhisper uses a command-based structure:
 - `list-variants`: Show available variants for each AI model
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
-- `set-defaults`: Set default model and variant for future use
+- `set-defaults`: Set default model, variant and template for future use
 - `clear-defaults`: Clear any set default preferences
+- `template`: Manage commit message templates
+    - `template list`: Show all available templates
+    - `template add`: Add or update a template
+    - `template show`: Show a specific template
+    - `template delete`: Delete a template
 
 ## API Keys
 
@@ -179,13 +187,26 @@ Git Whisper:
 
 ## Configuration
 
-Configuration is stored in `~/.git_whisper.yaml` and typically contains your saved API keys:
+Configuration is stored in `~/.git_whisper.yaml` and contains your saved API keys and default settings:
 
 ```yaml
 api_keys:
   claude: "your-claude-key"
   openai: "your-openai-key"
   # ...
+default_model: "openai"
+default_variant: "gpt-4o"
+default_template: "detailed"
+```
+
+Templates are stored in `~/.git_whisper_templates.json`:
+
+```json
+{
+  "default": "{{type}}: {{emoji}} {{description}}",
+  "detailed": "[{{prefix}}] {{type}}({{scope}}): {{emoji}} {{description}}",
+  "simple": "{{type}}: {{description}}"
+}
 ```
 
 ## Requirements
@@ -198,26 +219,57 @@ api_keys:
 Git Whisper generates commit messages following the conventional commit format with emojis:
 
 ```
-<emoji> <type>: <description>
+<type>([scope]): <emoji> <description>
 ```
 
 With prefix option:
 ```
-<emoji> <type>: PREFIX-123 -> <description>
+<type>([scope]): <emoji> PREFIX-123 -> <description>
 ```
 
 Common types and their emojis include:
-- `✨ feat`: New feature
-- `🐛 fix`: Bug fix
-- `📚 docs`: Documentation changes
-- `💄 style`: Code style changes (formatting, etc.)
-- `♻️ refactor`: Code changes that neither fix bugs nor add features
-- `🧪 test`: Adding or fixing tests
-- `🔧 chore`: Changes to the build process or auxiliary tools
-- `⚡ perf`: Performance improvements
-- `👷 ci`: CI/CD related changes
-- `📦 build`: Changes affecting build system or dependencies
-- `⏪ revert`: Reverting a previous commit
+- `feat: ✨` New feature
+- `fix: 🐛` Bug fix
+- `docs: 📚` Documentation changes
+- `style: 💄` Code style changes (formatting, etc.)
+- `refactor: ♻️` Code changes that neither fix bugs nor add features
+- `test: 🧪` Adding or fixing tests
+- `chore: 🔧` Changes to the build process or auxiliary tools
+- `perf: ⚡` Performance improvements
+- `ci: 👷` CI/CD related changes
+- `build: 📦` Changes affecting build system or dependencies
+- `revert: ⏪` Reverting a previous commit
+
+## Custom Templates
+
+You can create custom templates for commit messages to fit your team's workflow:
+
+```bash
+gitwhisper template add --name "detailed" --format "[{{prefix}}] {{type}}({{scope}}): {{emoji}} {{description}}"
+```
+
+Available template placeholders:
+- `{{type}}` - Commit type (feat, fix, etc.)
+- `{{scope}}` - Optional commit scope (auth, ui, etc.)
+- `{{emoji}}` - Type-specific emoji
+- `{{description}}` - Commit description
+- `{{prefix}}` - User-specified prefix (e.g., ticket number)
+
+Example template formats:
+- `"[{{prefix}}] {{type}}({{scope}}): {{emoji}} {{description}}"`
+- `"{{emoji}} {{type}}: {{description}}"`
+- `"{{type}}: {{prefix}} - {{description}}"`
+- `"{{type}}({{scope}}): {{description}} ({{prefix}})"`
+
+Use templates when generating commit messages:
+```bash
+gitwhisper commit --template "detailed"
+```
+
+Set a default template:
+```bash
+gitwhisper set-defaults --template "detailed"
+```
 
 ## Contributing
 
