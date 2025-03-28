@@ -31,7 +31,7 @@ class ConfigManager {
   }
 
   /// Saves the current configuration to the config file
-  Future<void> saveConfig() async {
+  Future<void> save() async {
     final configFile = File(_getConfigPath());
     final yamlString = json.encode(_config);
     await configFile.writeAsString(yamlString);
@@ -117,16 +117,5 @@ class ConfigManager {
         return item;
       }
     }).toList();
-  }
-
-  // Get default template
-  String? getDefaultTemplate() {
-    return _config['template'] as String?;
-  }
-
-  // Set default template
-  Future<void> setDefaultTemplate(String templateName) async {
-    _config['template'] = templateName;
-    await saveConfig();
   }
 }

@@ -58,7 +58,7 @@ class SaveKeyCommand extends Command<int> {
 
     // Save the API key
     configManager.setApiKey(modelName, apiKey);
-    await configManager.saveConfig();
+    await configManager.save();
 
     _logger.success('API key for $modelName saved successfully.');
     return ExitCode.success.code;

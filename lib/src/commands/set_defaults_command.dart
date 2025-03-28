@@ -10,7 +10,6 @@ import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import '../config_manager.dart';
-import '../template_manager.dart';
 
 class SetDefaultsCommand extends Command<int> {
   SetDefaultsCommand({
@@ -38,11 +37,6 @@ class SetDefaultsCommand extends Command<int> {
         help: 'Specific variant of the AI model to use',
         valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
         mandatory: true,
-      )
-      ..addOption(
-        'template',
-        abbr: 't',
-        help: 'Default template to use',
       );
   }
 
@@ -58,7 +52,6 @@ class SetDefaultsCommand extends Command<int> {
   Future<int> run() async {
     final modelName = argResults?['model'] as String;
     final modelVariant = argResults?['model-variant'] as String;
-    final templateName = argResults?['template'] as String?;
 
     // Initialize config manager
     final configManager = ConfigManager();
@@ -66,25 +59,12 @@ class SetDefaultsCommand extends Command<int> {
 
     // Save the API key
     configManager.setDefaults(modelName, modelVariant);
-    await configManager.saveConfig();
+    await configManager.save();
+
     _logger.success(
       '$modelName -> $modelVariant has been set as the default model for'
       ' commits 🥳',
     );
-
-    if (templateName != null) {
-      final templateManager = TemplateManager();
-
-      // Verify template exists
-      if (templateManager.getAllTemplates().containsKey(templateName)) {
-        await configManager.setDefaultTemplate(templateName);
-        _logger.info('Default template set to: $templateName');
-      } else {
-        _logger.err('Template "$templateName" not found');
-        return ExitCode.usage.code;
-      }
-    }
-
     return ExitCode.success.code;
   }
 }
