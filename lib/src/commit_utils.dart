@@ -14,31 +14,38 @@
 /// Returns a formatted prompt string ready to be sent to an AI assistant.
 String getCommitPrompt(String diff) {
   final prompt = '''
-  You are an assistant that generates git commit messages. 
-  Based on the following diff of staged changes, generate a concise and descriptive commit message.
-  Follow the conventional commit format: <type>: <emoji> <description>
-  
-  Commit types with their required emojis:
-  - feat: ✨ (new feature)
-  - fix: 🐛 (bug fix)
-  - docs: 📚 (documentation changes)
-  - style: 💄 (formatting, missing semi colons, etc; no code change)
-  - refactor: ♻️ (code change that neither fixes a bug nor adds a feature)
-  - test: 🧪 (adding or modifying tests)
-  - chore: 🔧 (updating build tasks, package manager configs, etc)
-  - perf: ⚡ (performance improvements)
-  - ci: 👷 (CI/CD related changes)
-  - build: 📦 (changes affecting build system or dependencies)
-  - revert: ⏪ (reverting a previous commit)
-  
-  The commit message format must be: <type>: <emoji> <description> e.g.
-  fix: 🐛 resolved delay bug on payments
-  
-  Here's the diff:
-  $diff
-  
-  Generate only the commit message, nothing else.
-  ''';
+    You are an assistant that generates git commit messages.
+    Based on the following diff of staged changes, generate concise and descriptive commit messages.
+    Follow the conventional commit format: <type>: <emoji> <description>
+    
+    Commit types with their required emojis:
+    - feat: ✨ (new feature)
+    - fix: 🐛 (bug fix)
+    - docs: 📚 (documentation changes)
+    - style: 💄 (formatting, missing semi colons, etc; no code change)
+    - refactor: ♻️ (code change that neither fixes a bug nor adds a feature)
+    - test: 🧪 (adding or modifying tests)
+    - chore: 🔧 (updating build tasks, package manager configs, etc)
+    - perf: ⚡ (performance improvements)
+    - ci: 👷 (CI/CD related changes)
+    - build: 📦 (changes affecting build system or dependencies)
+    - revert: ⏪ (reverting a previous commit)
+    
+    If there are multiple unrelated changes, generate multiple commit lines like this:
+    <type>: <emoji> <description>
+    <type>: <emoji> <description>
+    <type>: <emoji> <description>
+    
+    Example:
+    feat: ✨ Add user authentication
+    fix: 🐛 Fix crash on profile update
+    refactor: ♻️ Improve validation logic
+    
+    Here's the diff:
+    $diff
+    
+    Generate only the commit message(s), nothing else.
+''';
 
   return prompt;
 }
