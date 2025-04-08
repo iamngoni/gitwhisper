@@ -1,3 +1,6 @@
+## 0.0.20
+- refactor: ♻️ Enhance prompt formatting for commit message generation
+
 ## 0.0.16
 - docs: 📝 update commit message guidelines to include emojis
 
