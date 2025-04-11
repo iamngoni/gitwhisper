@@ -1,3 +1,6 @@
+## 0.0.21
+- docs: 📚 Update commit message guide with format details
+
 ## 0.0.20
 - refactor: ♻️ Enhance prompt formatting for commit message generation
 
