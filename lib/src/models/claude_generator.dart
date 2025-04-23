@@ -23,8 +23,8 @@ class ClaudeGenerator extends CommitGenerator {
   String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
-  Future<String> generateCommitMessage(String diff) async {
-    final prompt = getCommitPrompt(diff);
+  Future<String> generateCommitMessage(String diff, {String? prefix}) async {
+    final prompt = getCommitPrompt(diff, prefix: prefix);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
       'https://api.anthropic.com/v1/messages',

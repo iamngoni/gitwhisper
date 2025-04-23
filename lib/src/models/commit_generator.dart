@@ -15,7 +15,7 @@ abstract class CommitGenerator {
   final String? variant;
 
   /// Generate a commit message based on the git diff
-  Future<String> generateCommitMessage(String diff);
+  Future<String> generateCommitMessage(String diff, {String? prefix});
 
   /// Returns the name of the model
   String get modelName;

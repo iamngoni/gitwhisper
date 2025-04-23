@@ -144,11 +144,7 @@ class CommitCommand extends Command<int> {
               '($modelVariant)' : ''}...');
 
       // Generate commit message with AI
-      final rawCommitMessage = await generator.generateCommitMessage(diff);
-
-      // Apply prefix if available
-      final commitMessage =
-          formatCommitMessageWithPrefix(rawCommitMessage, prefix);
+      final commitMessage = await generator.generateCommitMessage(diff);
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty');
@@ -187,32 +183,5 @@ class CommitCommand extends Command<int> {
       'llama' => Platform.environment['LLAMA_API_KEY'],
       _ => null,
     };
-  }
-
-  /// Formats a commit message with an optional prefix
-  ///
-  /// If prefix is provided, inserts it after the type/scope section
-  /// Example: "feat(ui): add button" becomes "feat(ui): PREFIX-123 -> add button"
-  String formatCommitMessageWithPrefix(String message, String? prefix) {
-    if (prefix == null || prefix.isEmpty) {
-      return message;
-    }
-
-    // Check if the message follows conventional commit format
-    final conventionalCommitRegex = RegExp(r'^(\w+)(\([^)]+\))?: (.+)$');
-    final match = conventionalCommitRegex.firstMatch(message);
-
-    if (match != null) {
-      // Extract parts of the conventional commit
-      final type = match.group(1);
-      final scope = match.group(2) ?? '';
-      final description = match.group(3) ?? '';
-
-      // Format with prefix
-      return '$type$scope: $prefix -> $description';
-    } else {
-      // If not conventional format, just prepend the prefix
-      return '$prefix -> $message';
-    }
   }
 }
