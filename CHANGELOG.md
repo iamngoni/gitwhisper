@@ -1,3 +1,6 @@
+## 0.0.26
+- refactor: 🔧 Remove debug print statement, bump version to 0.0.26
+
 ## 0.0.25
 - fix: make AI aware of the prefix
 
