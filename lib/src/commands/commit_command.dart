@@ -141,7 +141,7 @@ class CommitCommand extends Command<int> {
 
       _logger.info('Analyzing staged changes using $modelName'
           ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
-              '($modelVariant)' : ''}...');
+              '($modelVariant)' : ''} ${prefix != null ? ' for ticket $prefix' : ''}...');
 
       // Generate commit message with AI
       final commitMessage = await generator.generateCommitMessage(

@@ -16,15 +16,17 @@ String getCommitPrompt(String diff, {String? prefix}) {
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
-If a prefix like "$prefix" is provided, format it like this:
+If a prefix is provided, format it like this:
 
 - For a **single commit message**:
-  fix: 🐛 **$prefix** -> Fix login validation, handle empty input
+  fix: 🐛 **PREFIX** -> Fix login validation, handle empty input
 
 - For **multiple unrelated messages**:
-  **$prefix**
+  **PREFIX**
   feat: ✨ Add dark mode toggle, persist setting
   fix: 🐛 Fix login bug, validate inputs
+  
+  Here's the commit prefix: $prefix
 '''
       : '';
 

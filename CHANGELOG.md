@@ -1,3 +1,6 @@
+## 0.0.25
+- fix: make AI aware of the prefix
+
 ## 0.0.24
 - chore: update release notes url
 
