@@ -194,30 +194,40 @@ api_keys:
 - Git installed and available in your PATH
 
 ## Conventional Commit Format
+Git Whisper generates commit messages following the **conventional commit format** with emojis: `fix: 🐛Fix login validation`
 
-Git Whisper generates commit messages following the conventional commit format with emojis:
+### With Prefix
+If a prefix (e.g., a ticket number or task ID) is provided, Git Whisper intelligently formats it based on the number of commit messages:
+
+- For a **single commit message**, the prefix appears **after the emoji**:
+
+`fix: 🐛 PREFIX-123 -> Fix login validation`
+
+- For **multiple unrelated commit messages**, the prefix appears in **bold at the top**, and each message starts with an arrow after the emoji:
 
 ```
-<emoji> <type>: <description>
+PREFIX-123
+feat: ✨ -> Add dark mode toggle
+fix: 🐛 -> Resolve token refresh bug
 ```
 
-With prefix option:
-```
-<emoji> <type>: PREFIX-123 -> <description>
-```
+This ensures your commits are always clean, readable, and traceable.
 
-Common types and their emojis include:
-- `✨ feat`: New feature
-- `🐛 fix`: Bug fix
-- `📚 docs`: Documentation changes
-- `💄 style`: Code style changes (formatting, etc.)
-- `♻️ refactor`: Code changes that neither fix bugs nor add features
-- `🧪 test`: Adding or fixing tests
-- `🔧 chore`: Changes to the build process or auxiliary tools
-- `⚡ perf`: Performance improvements
-- `👷 ci`: CI/CD related changes
-- `📦 build`: Changes affecting build system or dependencies
-- `⏪ revert`: Reverting a previous commit
+### Common Commit Types and Emojis
+
+| Type       | Emoji | Description                                      |
+|------------|-------|--------------------------------------------------|
+| `feat`     | ✨     | New feature                                      |
+| `fix`      | 🐛     | Bug fix                                          |
+| `docs`     | 📚     | Documentation changes                            |
+| `style`    | 💄     | Code style changes (formatting, whitespace, etc.)|
+| `refactor` | ♻️     | Code refactoring (no new features or fixes)      |
+| `test`     | 🧪     | Adding or updating tests                         |
+| `chore`    | 🔧     | Build process or auxiliary tool changes          |
+| `perf`     | ⚡     | Performance improvements                         |
+| `ci`       | 👷     | Continuous Integration/Deployment changes        |
+| `build`    | 📦     | Build system or dependency changes               |
+| `revert`   | ⏪     | Revert a previous commit                         |
 
 ## Contributing
 
