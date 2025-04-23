@@ -144,7 +144,10 @@ class CommitCommand extends Command<int> {
               '($modelVariant)' : ''}...');
 
       // Generate commit message with AI
-      final commitMessage = await generator.generateCommitMessage(diff);
+      final commitMessage = await generator.generateCommitMessage(
+        diff,
+        prefix: prefix,
+      );
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty');
