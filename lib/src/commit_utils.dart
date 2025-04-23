@@ -19,12 +19,12 @@ String getCommitPrompt(String diff, {String? prefix}) {
 If a prefix like "$prefix" is provided, format it like this:
 
 - For a **single commit message**:
-  fix: 🐛 $prefix -> Fix login validation, handle empty input
+  fix: 🐛 **$prefix** -> Fix login validation, handle empty input
 
 - For **multiple unrelated messages**:
   **$prefix**
-  feat: ✨ -> Add dark mode toggle, persist setting
-  fix: 🐛 -> Fix login bug, validate inputs
+  feat: ✨ Add dark mode toggle, persist setting
+  fix: 🐛 Fix login bug, validate inputs
 '''
       : '';
 
