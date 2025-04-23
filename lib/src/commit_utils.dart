@@ -23,8 +23,8 @@ When generating the commit message(s), apply the prefix **$prefix** as follows:
 
 - If there are **multiple** unrelated commit messages, start the output with the prefix in bold on its own line:
   **$prefix**
-  feat: ✨ -> Add dark mode toggle
-  fix: 🐛 -> Fix login validation
+  feat: ✨ Add dark mode toggle
+  fix: 🐛 Fix login validation
 '''
       : '';
 

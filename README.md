@@ -194,7 +194,7 @@ api_keys:
 - Git installed and available in your PATH
 
 ## Conventional Commit Format
-Git Whisper generates commit messages following the **conventional commit format** with emojis: `fix: 🐛Fix login validation`
+Git Whisper generates commit messages following the **conventional commit format** with emojis: `fix: 🐛 Fix login validation`
 
 ### With Prefix
 If a prefix (e.g., a ticket number or task ID) is provided, Git Whisper intelligently formats it based on the number of commit messages:
@@ -207,8 +207,8 @@ If a prefix (e.g., a ticket number or task ID) is provided, Git Whisper intellig
 
 ```
 PREFIX-123
-feat: ✨ -> Add dark mode toggle
-fix: 🐛 -> Resolve token refresh bug
+feat: ✨ Add dark mode toggle
+fix: 🐛 Resolve token refresh bug
 ```
 
 This ensures your commits are always clean, readable, and traceable.

@@ -1,3 +1,6 @@
+## 0.0.23
+- fix: formatting issue (regression)
+
 ## 0.0.22
 - refactor: ♻️ Remove manual commit message prefix formatting logic
 - feat: ✨ Add prefix support to AI commit message generation
