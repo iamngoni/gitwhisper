@@ -16,50 +16,52 @@ String getCommitPrompt(String diff, {String? prefix}) {
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
-When generating the commit message(s), apply the prefix **$prefix** as follows:
+If a prefix like "$prefix" is provided, format it like this:
 
-- If there is **only one** commit message, include the prefix after the emoji in the header:
-  Example: fix: 🐛 $prefix -> Fix login error
+- For a **single commit message**:
+  fix: 🐛 $prefix -> Fix login validation, handle empty input
 
-- If there are **multiple** unrelated commit messages, start the output with the prefix in bold on its own line:
+- For **multiple unrelated messages**:
   **$prefix**
-  feat: ✨ Add dark mode toggle
-  fix: 🐛 Fix login validation
+  feat: ✨ -> Add dark mode toggle, persist setting
+  fix: 🐛 -> Fix login bug, validate inputs
 '''
       : '';
 
   final prompt = '''
-You are an assistant that generates git commit messages.
+You are an assistant that generates commit messages.
 
-Based on the following diff of staged changes, generate valid, concise, and conventional commit messages using this format:
-<type>: <emoji> <description>
+You must return only one-liner commit messages. Each message must follow this strict format:
+<type>: <emoji> <description[, additional brief context]>
 
-[optional body — separated by a blank line]
+Where:
+- <type> is a valid conventional type
+- <emoji> is the matching emoji
+- <description> is in imperative mood ("Fix bug", not "Fixed bug")
+- Optional context (e.g., small body) must be **on the same line**, comma-separated after the description
 
-[optional footer — e.g., BREAKING CHANGE, issue references]
-
-Commit types with their required emojis:
-- feat: ✨ new feature
-- fix: 🐛 bug fix
-- docs: 📚 documentation changes
-- style: 💄 formatting changes (no logic changes)
-- refactor: ♻️ code improvements
-- test: 🧪 test additions/changes
-- chore: 🔧 tooling or maintenance
-- perf: ⚡ performance enhancements
-- ci: 👷 CI/CD changes
-- build: 📦 build/dependency updates
-- revert: ⏪ revert changes
+Do NOT include:
+- Blank lines
+- Multiline messages
+- Commit bodies or footers below the header
+- Summaries, intros, or explanations
 
 $prefixNote
 
-⚠️ Output requirements:
-- ONLY return the commit message(s), no explanations, no intro text, no summaries, no closing lines
-- Do NOT include phrases like "Here are the messages", "Based on the diff", etc.
-- Messages should be valid to pass directly as commit messages
-- Use imperative mood ("Add feature", not "Added feature")
-- Keep descriptions concise (preferably under 50 characters)
-- Only generate multiple commit messages if changes are truly unrelated
+### Commit types and emojis:
+- feat: ✨ New feature
+- fix: 🐛 Bug fix
+- docs: 📚 Documentation
+- style: 💄 Code formatting only
+- refactor: ♻️ Code improvements
+- test: 🧪 Tests
+- chore: 🔧 Tooling/maintenance
+- perf: ⚡ Performance improvements
+- ci: 👷 CI/CD
+- build: 📦 Build system/dependencies
+- revert: ⏪ Reverting a commit
+
+⚠️ Output must only be properly formatted commit message(s). Nothing else.
 
 Here’s the diff:
 $diff
