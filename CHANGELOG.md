@@ -1,3 +1,6 @@
+## 0.0.24
+- chore: update release notes url
+
 ## 0.0.23
 - fix: formatting issue (regression)
 

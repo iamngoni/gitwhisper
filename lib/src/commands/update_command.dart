@@ -55,7 +55,7 @@ class UpdateCommand extends Command<int> {
       _logger
         ..info('')
         ..info(
-          'See the release notes here: https://github.com/iamngoni/gitwhisper/releases/tag/$latestVersion',
+          'See the release notes here: https://pub.dev/packages/gitwhisper/versions/$latestVersion/changelog',
         );
 
       return ExitCode.success.code;
