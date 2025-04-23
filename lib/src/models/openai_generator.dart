@@ -26,8 +26,6 @@ class OpenAIGenerator extends CommitGenerator {
   Future<String> generateCommitMessage(String diff, {String? prefix}) async {
     final prompt = getCommitPrompt(diff, prefix: prefix);
 
-    print(prompt);
-
     final Response<Map<String, dynamic>> response = await $dio.post(
       'https://api.openai.com/v1/chat/completions',
       options: Options(
