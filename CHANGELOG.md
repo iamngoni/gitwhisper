@@ -1,3 +1,6 @@
+## 0.0.28
+- refactor: ♻️ Update commit message generation prompt
+
 ## 0.0.27
 - feat: ✨ Add mandatory format rules for commit messages
 
