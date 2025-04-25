@@ -33,7 +33,7 @@ If a prefix is provided, format it like this:
   final prompt = '''
 You are an assistant that generates commit messages.
 
-You must return only one-liner commit messages. Each message must follow this strict format:
+Based on the following diff of staged changes, generate valid, concise, and conventional commit messages. Each message must follow this strict format:
 <type>: <emoji> <description[, additional brief context]>
 
 Where:
@@ -51,8 +51,9 @@ Do NOT include:
 MANDATORY FORMAT RULES:
 1. IMPERATIVE VERB: Always use "Add", "Fix", "Update", etc. (NOT "Added", "Fixed", "Updated")
 2. CAPITALIZE: First word must be capitalized
-3. CONCISE: Keep descriptions brief but clear
+3. CONCISE: Keep descriptions concise (preferably under 50 characters)
 4. TYPES AND EMOJIS: Must use ONLY from the approved list below
+5. Only generate multiple commit messages if changes are truly unrelated
 
 $prefixNote
 
