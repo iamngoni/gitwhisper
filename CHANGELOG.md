@@ -1,3 +1,6 @@
+## 0.0.27
+- feat: ✨ Add mandatory format rules for commit messages
+
 ## 0.0.26
 - refactor: 🔧 Remove debug print statement, bump version to 0.0.26
 
