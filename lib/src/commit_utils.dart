@@ -48,6 +48,12 @@ Do NOT include:
 - Commit bodies or footers below the header
 - Summaries, intros, or explanations
 
+MANDATORY FORMAT RULES:
+1. IMPERATIVE VERB: Always use "Add", "Fix", "Update", etc. (NOT "Added", "Fixed", "Updated")
+2. CAPITALIZE: First word must be capitalized
+3. CONCISE: Keep descriptions brief but clear
+4. TYPES AND EMOJIS: Must use ONLY from the approved list below
+
 $prefixNote
 
 ### Commit types and emojis:
@@ -63,7 +69,7 @@ $prefixNote
 - build: 📦 Build system/dependencies
 - revert: ⏪ Reverting a commit
 
-⚠️ Output must only be properly formatted commit message(s). Nothing else.
+⚠️ Output must only be properly formatted commit message(s). Nothing else. Violation is not acceptable
 
 Here’s the diff:
 $diff
