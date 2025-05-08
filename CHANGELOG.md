@@ -1,3 +1,6 @@
+## 0.0.32
+- feat: ✨ Update Gemini model variants and API integration, dynamic endpoint support
+
 ## 0.0.31
 - increase max output tokens for analysis
 
