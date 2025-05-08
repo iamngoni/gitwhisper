@@ -15,7 +15,7 @@ class ModelVariants {
   static const String claudeDefault = 'claude-3-5-sonnet-20240620';
 
   /// Default Gemini model variant
-  static const String geminiDefault = 'gemini-1.0-pro';
+  static const String geminiDefault = 'gemini-2.0-flash';
 
   /// Default Grok model variant
   static const String grokDefault = 'grok-2-latest';

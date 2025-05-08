@@ -73,15 +73,13 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - claude-3-5-sonnet-20241022');
         _logger.info('  - claude-3-7-sonnet-20250219');
       case 'gemini':
-        _logger.info('  - gemini-1.0-pro (default)');
-        _logger.info('  - gemini-1.0-ultra');
-        _logger.info('  - gemini-1.5-pro-002');
-        _logger.info('  - gemini-1.5-flash-002');
-        _logger.info('  - gemini-1.5-flash-8b');
-        _logger.info('  - gemini-2.0-pro');
-        _logger.info('  - gemini-2.0-flash');
-        _logger.info('  - gemini-2.0-flash-lite');
-        _logger.info('  - gemini-2.0-flash-thinking');
+        _logger.info('  - gemini-2.5-pro-preview-05-06 (advanced reasoning)');
+        _logger.info('  - gemini-2.5-flash-preview-04-17 (adaptive thinking)');
+        _logger.info('  - gemini-2.0-flash (default)');
+        _logger.info('  - gemini-2.0-flash-lite (low latency)');
+        _logger.info('  - gemini-1.5-pro-002 (2M tokens)');
+        _logger.info('  - gemini-1.5-flash-002 (1M tokens)');
+        _logger.info('  - gemini-1.5-flash-8b (cost effective)');
       case 'grok':
         _logger.info('  - grok-1 (default)');
         _logger.info('  - grok-2');

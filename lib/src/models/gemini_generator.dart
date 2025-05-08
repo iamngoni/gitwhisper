@@ -27,7 +27,7 @@ class GeminiGenerator extends CommitGenerator {
     final prompt = getCommitPrompt(diff, prefix: prefix);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$apiKey',
+      'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
       data: {
         'contents': [
           {
@@ -58,7 +58,7 @@ class GeminiGenerator extends CommitGenerator {
     final prompt = getAnalysisPrompt(diff);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$apiKey',
+      'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
       data: {
         'contents': [
           {

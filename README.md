@@ -142,15 +142,13 @@ GitWhisper supports a comprehensive range of model variants:
 - `claude-3-7-sonnet-20250219`
 
 ### Gemini (Google)
-- `gemini-1.0-pro` (default)
-- `gemini-1.0-ultra`
-- `gemini-1.5-pro-002`
-- `gemini-1.5-flash-002`
-- `gemini-1.5-flash-8b`
-- `gemini-2.0-pro`
-- `gemini-2.0-flash`
-- `gemini-2.0-flash-lite`
-- `gemini-2.0-flash-thinking`
+- `gemini-2.5-pro-preview-05-06` (advanced reasoning, 1M token context)
+- `gemini-2.5-flash-preview-04-17` (adaptive thinking, cost efficient)
+- `gemini-2.0-flash` (default, fast performance)
+- `gemini-2.0-flash-lite` (lowest latency)
+- `gemini-1.5-pro-002` (supports up to 2M tokens)
+- `gemini-1.5-flash-002` (supports up to 1M tokens)
+- `gemini-1.5-flash-8b` (most cost effective)
 
 ### Grok (xAI)
 - `grok-1` (default)
