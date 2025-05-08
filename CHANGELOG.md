@@ -1,3 +1,6 @@
+## 0.0.30
+- lower mason_logger dependency version
+
 ## 0.0.29
 - feat: ✨ Add analyze command for detailed code change analysis
 
