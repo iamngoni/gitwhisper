@@ -148,6 +148,8 @@ Keep your analysis balanced - highlight both positive aspects and areas for impr
 ## Diff to analyze:
 
 $diff
+
+Response should be only markdown formatted response.
 ''';
 
   return prompt;

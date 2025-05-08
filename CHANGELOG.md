@@ -1,3 +1,6 @@
+## 0.0.33
+- render markdown properly
+
 ## 0.0.32
 - feat: ✨ Update Gemini model variants and API integration, dynamic endpoint support
 
