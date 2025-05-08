@@ -37,7 +37,7 @@ class LlamaGenerator extends CommitGenerator {
       data: {
         'model': actualVariant,
         'prompt': prompt,
-        'max_tokens': maxTokens,
+        'max_tokens': maxAnalysisTokens,
       },
     );
 

@@ -1,3 +1,6 @@
+## 0.0.31
+- increase max output tokens for analysis
+
 ## 0.0.30
 - lower mason_logger dependency version
 

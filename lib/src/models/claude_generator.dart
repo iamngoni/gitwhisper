@@ -69,7 +69,7 @@ class ClaudeGenerator extends CommitGenerator {
       ),
       data: {
         'model': actualVariant,
-        'max_tokens': maxTokens,
+        'max_tokens': maxAnalysisTokens,
         'messages': [
           {
             'role': 'user',

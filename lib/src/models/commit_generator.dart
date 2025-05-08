@@ -37,4 +37,7 @@ abstract class CommitGenerator {
   /// concise and follows best practices for Git commit messages.
   /// A lower value encourages more focused, single-purpose commit messages.
   int get maxTokens => 300;
+
+  /// The maximum number of tokens allowed for the analysis message generation.
+  int get maxAnalysisTokens => 8000;
 }

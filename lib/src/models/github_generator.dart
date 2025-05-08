@@ -73,7 +73,7 @@ class GithubGenerator extends CommitGenerator {
         'messages': [
           {'role': 'user', 'content': prompt},
         ],
-        'max_tokens': maxTokens,
+        'max_tokens': maxAnalysisTokens,
       },
     );
 

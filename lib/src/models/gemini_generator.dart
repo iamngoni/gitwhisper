@@ -68,7 +68,7 @@ class GeminiGenerator extends CommitGenerator {
           }
         ],
         'generationConfig': {
-          'maxOutputTokens': maxTokens,
+          'maxOutputTokens': maxAnalysisTokens,
         },
       },
     );
