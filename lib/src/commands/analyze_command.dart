@@ -1,8 +1,8 @@
 //
 //  gitwhisper
-//  commit_command.dart
+//  analyze_command.dart
 //
-//  Created by Ngonidzashe Mangudya on 2025/03/01.
+//  Created by Ngonidzashe Mangudya on 2025/05/08.
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
@@ -15,8 +15,8 @@ import '../config_manager.dart';
 import '../git_utils.dart';
 import '../models/commit_generator_factory.dart';
 
-class CommitCommand extends Command<int> {
-  CommitCommand({
+class AnalyzeCommand extends Command<int> {
+  AnalyzeCommand({
     required Logger logger,
   }) : _logger = logger {
     argParser
@@ -49,12 +49,6 @@ class CommitCommand extends Command<int> {
         help: 'API key for the selected model',
       )
       ..addOption(
-        'prefix',
-        abbr: 'p',
-        help: 'Prefix to add to commit message (e.g., JIRA ticket number)',
-        valueHelp: 'PREFIX-123',
-      )
-      ..addOption(
         'model-variant',
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
@@ -63,10 +57,10 @@ class CommitCommand extends Command<int> {
   }
 
   @override
-  String get description => 'Generate a commit message based on staged changes';
+  String get description => 'Generate an analysis based on file changes';
 
   @override
-  String get name => 'commit';
+  String get name => 'analyze';
 
   final Logger _logger;
 
@@ -75,15 +69,6 @@ class CommitCommand extends Command<int> {
     // Check if we're in a git repository
     if (!await GitUtils.isGitRepository()) {
       _logger.err('Not a git repository. Please run from a git repository.');
-      return ExitCode.usage.code;
-    }
-
-    // Check if there are staged changes
-    if (!await GitUtils.hasStagedChanges()) {
-      _logger.err(
-        'No staged changes found. Please stage your changes using `git add`'
-        ' first.',
-      );
       return ExitCode.usage.code;
     }
 
@@ -121,11 +106,18 @@ class CommitCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Get prefix if available for things like ticket numbers
-    final prefix = argResults?['prefix'] as String?;
-
+    final hasStagedChanges = await GitUtils.hasStagedChanges();
     // Get the diff of staged changes
-    final diff = await GitUtils.getStagedDiff();
+    late final String diff;
+
+    if (hasStagedChanges) {
+      _logger.info('Checking staged files for changes.');
+      diff = await GitUtils.getStagedDiff();
+    } else {
+      _logger.info('Checking for changes in all unstaged files');
+      diff = await GitUtils.getUnstagedDiff();
+    }
+
     if (diff.isEmpty) {
       _logger.err('No changes detected in staged files.');
       return ExitCode.usage.code;
@@ -139,40 +131,23 @@ class CommitCommand extends Command<int> {
         variant: modelVariant,
       );
 
-      _logger.info('Analyzing staged changes using $modelName'
+      _logger.info('Analyzing changes using $modelName'
           ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
-              '($modelVariant)' : ''} ${prefix != null ? ' for ticket $prefix' : ''}...');
+              '($modelVariant)' : ''}...');
 
-      // Generate commit message with AI
-      final commitMessage = await generator.generateCommitMessage(
-        diff,
-        prefix: prefix,
-      );
+      // Generate analysis with AI
+      final analysis = await generator.analyzeChanges(diff);
 
-      if (commitMessage.trim().isEmpty) {
-        _logger.err('Error: Generated commit message is empty');
+      if (analysis.trim().isEmpty) {
+        _logger.err('Error: Failed to generate analysis');
         return ExitCode.software.code;
       }
 
-      _logger
-        ..info('')
-        ..info('---------------------------------')
-        ..info('')
-        ..info(commitMessage)
-        ..info('')
-        ..info('---------------------------------')
-        ..info('');
-
-      try {
-        await GitUtils.runGitCommit(commitMessage);
-      } catch (e) {
-        _logger.err('Error setting commit message: $e');
-        return ExitCode.software.code;
-      }
+      _logger.success(analysis);
 
       return ExitCode.success.code;
     } catch (e) {
-      _logger.err('Error generating commit message: $e');
+      _logger.err('Error analysing the changes: $e');
       return ExitCode.software.code;
     }
   }

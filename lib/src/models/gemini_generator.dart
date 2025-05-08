@@ -52,4 +52,35 @@ class GeminiGenerator extends CommitGenerator {
       );
     }
   }
+
+  @override
+  Future<String> analyzeChanges(String diff) async {
+    final prompt = getAnalysisPrompt(diff);
+
+    final Response<Map<String, dynamic>> response = await $dio.post(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$apiKey',
+      data: {
+        'contents': [
+          {
+            'parts': [
+              {'text': prompt},
+            ],
+          }
+        ],
+        'generationConfig': {
+          'maxOutputTokens': maxTokens,
+        },
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return response.data!['candidates'][0]['content']['parts'][0]['text']
+          .toString()
+          .trim();
+    } else {
+      throw Exception(
+        'API request failed with status: ${response.statusCode}, data: ${response.data}',
+      );
+    }
+  }
 }

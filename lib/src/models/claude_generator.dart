@@ -54,4 +54,37 @@ class ClaudeGenerator extends CommitGenerator {
       );
     }
   }
+
+  @override
+  Future<String> analyzeChanges(String diff) async {
+    final prompt = getAnalysisPrompt(diff);
+
+    final Response<Map<String, dynamic>> response = await $dio.post(
+      'https://api.anthropic.com/v1/messages',
+      options: Options(
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+      ),
+      data: {
+        'model': actualVariant,
+        'max_tokens': maxTokens,
+        'messages': [
+          {
+            'role': 'user',
+            'content': prompt,
+          },
+        ],
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return response.data!['content'][0]['text'].toString().trim();
+    } else {
+      throw Exception(
+        'API request failed with status: ${response.statusCode}, data: ${response.data}',
+      );
+    }
+  }
 }

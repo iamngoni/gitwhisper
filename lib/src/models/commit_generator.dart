@@ -17,6 +17,10 @@ abstract class CommitGenerator {
   /// Generate a commit message based on the git diff
   Future<String> generateCommitMessage(String diff, {String? prefix});
 
+  /// Generate an analysis of the provided diff for what's changed and possibly
+  /// what can be made better
+  Future<String> analyzeChanges(String diff);
+
   /// Returns the name of the model
   String get modelName;
 

@@ -54,4 +54,37 @@ class DeepseekGenerator extends CommitGenerator {
       );
     }
   }
+
+  @override
+  Future<String> analyzeChanges(String diff) async {
+    final prompt = getAnalysisPrompt(diff);
+
+    final Response<Map<String, dynamic>> response = await $dio.post(
+      'https://api.deepseek.com/v1/chat/completions',
+      options: Options(
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
+        },
+      ),
+      data: {
+        'model': actualVariant,
+        'store': true,
+        'messages': [
+          {'role': 'user', 'content': prompt},
+        ],
+        'max_tokens': maxTokens,
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return response.data!['choices'][0]['message']['content']
+          .toString()
+          .trim();
+    } else {
+      throw Exception(
+        'API request failed with status: ${response.statusCode}, data: ${response.data}',
+      );
+    }
+  }
 }

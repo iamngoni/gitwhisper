@@ -12,6 +12,7 @@ import 'package:cli_completion/cli_completion.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
 
+import 'commands/analyze_command.dart';
 import 'commands/clear_defaults_command.dart';
 import 'commands/commit_command.dart';
 import 'commands/list_models_command.dart';
@@ -42,6 +43,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
 
     // Add commands
     addCommand(CommitCommand(logger: $logger));
+    addCommand(AnalyzeCommand(logger: $logger));
     addCommand(ListModelsCommand(logger: $logger));
     addCommand(ListVariantsCommand(logger: $logger));
     addCommand(SaveKeyCommand(logger: $logger));

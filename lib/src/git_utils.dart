@@ -26,6 +26,12 @@ class GitUtils {
     return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
   }
 
+  /// Get the diff of unstagged changes
+  static Future<String> getUnstagedDiff() async {
+    final result = await Process.run('git', ['diff']);
+    return result.exitCode == 0 ? (result.stdout as String) : '';
+  }
+
   /// Get the diff of staged changes
   static Future<String> getStagedDiff() async {
     final result = await Process.run('git', ['diff', '--cached']);
