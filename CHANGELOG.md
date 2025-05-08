@@ -1,3 +1,6 @@
+## 0.0.34
+- fix: remove markdown changes
+
 ## 0.0.33
 - render markdown properly
 

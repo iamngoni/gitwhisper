@@ -14,7 +14,6 @@ import 'package:mason_logger/mason_logger.dart';
 import '../config_manager.dart';
 import '../git_utils.dart';
 import '../models/commit_generator_factory.dart';
-import '../utils.dart';
 
 class AnalyzeCommand extends Command<int> {
   AnalyzeCommand({
@@ -144,8 +143,9 @@ class AnalyzeCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      _logger.info('');
-      renderMarkdownText(analysis, logger: _logger);
+      _logger
+        ..info('')
+        ..success(analysis);
 
       return ExitCode.success.code;
     } catch (e) {
