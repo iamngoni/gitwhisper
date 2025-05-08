@@ -31,6 +31,7 @@ dart pub global activate --source=path <path to this package>
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
 - 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
 - 📋 Pre-fills the Git commit editor for easy review and modification
+- 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
 - 🔑 Securely saves API keys for future use
@@ -52,27 +53,39 @@ gw # even shorter command - also runs 'gitwhisper commit' by default
 
 # Choose a specific model variant
 gitwhisper commit --model openai --model-variant gpt-4o
+gw commit --model openai --model-variant gpt-4o
 
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
+gw commit --prefix "JIRA-123"
+
+# Analyze your changes (staged/unstaged) with AI
+gitwhisper analyze
+gw analyze
 
 # List available models
 gitwhisper list-models
+gw list-models
 
 # List available variants for a specific model
 gitwhisper list-variants --model claude
+gw list-variants --model claude
 
 # Save an API key for future use
 gitwhisper save-key --model claude --key "your-claude-key"
+gw save-key --model claude --key "your-claude-key"
 
 # Set defaults
 gitwhisper set-defaults --model openai --model-variant gpt-4o
+gw set-defaults --model openai --model-variant gpt-4o
 
 # Clear defaults
 gitwhisper clear-defaults
+gw clear-defaults
 
 # Get help
 gitwhisper --help
+gw --help
 ```
 
 ## Shorter Command
@@ -83,6 +96,7 @@ Instead of using the full `gitwhisper` command you can also use the shortened on
 GitWhisper uses a command-based structure:
 
 - `commit`: Generate and apply a commit message (main command)
+- `analyze`: Examine changes (staged/unstaged) and provide detailed code analysis with suggestions for improvements
 - `list-models`: Show all supported AI models
 - `list-variants`: Show available variants for each AI model
 - `save-key`: Store an API key for future use

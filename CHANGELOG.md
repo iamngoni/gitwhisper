@@ -1,3 +1,7 @@
+## 0.0.29
+- feat: ✨ Add analyze command for detailed code change analysis
+
+
 ## 0.0.28
 - refactor: ♻️ Update commit message generation prompt
 
@@ -74,9 +78,9 @@
 
 ## 0.0.5
 - fix(claude_generator): update API endpoint and model selection
-- refactor(dependencies): remove curl_logger_dio_interceptor and update model variants 
-- feat(commit): add model-variant option to commit command 
-- feat(list-variants): update and expand model variant lists for all models 
+- refactor(dependencies): remove curl_logger_dio_interceptor and update model variants
+- feat(commit): add model-variant option to commit command
+- feat(list-variants): update and expand model variant lists for all models
 - fix(models): use ModelVariants for default model variants across all generators
 
 ## 0.0.3
