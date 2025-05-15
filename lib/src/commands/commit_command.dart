@@ -149,10 +149,16 @@ class CommitCommand extends Command<int> {
               '($modelVariant)' : ''} ${prefix != null ? ' for ticket $prefix' : ''}...');
 
       // Generate commit message with AI
-      final commitMessage = await generator.generateCommitMessage(
+      String commitMessage = await generator.generateCommitMessage(
         diff,
         prefix: prefix,
       );
+
+      try {
+        commitMessage = GitUtils.stripMarkdownCodeBlocks(commitMessage);
+      } catch (_) {
+        // Silent prayer that it works
+      }
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty');

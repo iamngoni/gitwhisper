@@ -38,6 +38,29 @@ class GitUtils {
     return result.exitCode == 0 ? (result.stdout as String) : '';
   }
 
+  /// Removes Markdown-style code block markers (``` or ```dart) from a string.
+  ///
+  /// This is useful when dealing with AI-generated or Markdown-formatted text
+  /// that includes code fences around commit messages or snippets.
+  ///
+  /// Example:
+  /// ```dart
+  /// final raw = '```dart\nfix: improve performance of query\n```';
+  /// final cleaned = stripMarkdownCodeBlocks(raw);
+  /// print(cleaned); // Output: fix: improve performance of query
+  /// ```
+  ///
+  /// - Removes opening code fences like ``` or ```dart at the start of the string
+  /// - Removes closing ``` at the end of the string
+  /// - Trims any leading/trailing whitespace
+  ///
+  /// [input] is the original string with possible Markdown code block syntax.
+  /// Returns the cleaned string without Markdown code block delimiters.
+  static String stripMarkdownCodeBlocks(String input) {
+    final codeBlockPattern = RegExp(r'^```(\w+)?\n?|```$', multiLine: true);
+    return input.replaceAll(codeBlockPattern, '').trim();
+  }
+
   /// Run git commit
   static Future<void> runGitCommit({
     required String message,
