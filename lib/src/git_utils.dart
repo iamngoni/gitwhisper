@@ -90,13 +90,20 @@ class GitUtils {
             await Process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
         final remoteName =
             await Process.run('git', ['config', '--get', 'remote.origin.url']);
-        if (branchName.exitCode != 0 || remoteName.exitCode != 0) {
+        final remoteNameNoneUrl = await Process.run('git', ['remote']);
+
+        if (branchName.exitCode != 0 ||
+            remoteName.exitCode != 0 ||
+            remoteNameNoneUrl.exitCode != 0) {
           throw Exception(
             'Error getting branch or remote name: ${branchName.stderr}',
           );
         }
+
         final branch = (branchName.stdout as String).trim();
         final remote = (remoteName.stdout as String).trim();
+        final remoteNoneUrl = (remoteNameNoneUrl.stdout as String).trim();
+
         $logger
           ..info('')
           ..info(
@@ -114,7 +121,8 @@ class GitUtils {
           ..info('');
 
         /// Run the git push command
-        final pushResult = await Process.run('git', ['push']);
+        final pushResult =
+            await Process.run('git', ['push', remoteNoneUrl, branch]);
         if (pushResult.exitCode != 0) {
           throw Exception('Error during git push: ${pushResult.stderr}');
         } else {
