@@ -55,9 +55,38 @@ class GitUtils {
           ..info('Pushing changes to remote repository...')
           ..info('')
           ..info('---------------------------------')
+          ..info('')
           ..info('Current Directory: ${Directory.current.path}')
+          ..info('')
           ..info('---------------------------------');
 
+        /// Prompt user to confirm push on [branchName] on [remoteName]
+        final branchName =
+            await Process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+        final remoteName =
+            await Process.run('git', ['config', '--get', 'remote.origin.url']);
+        if (branchName.exitCode != 0 || remoteName.exitCode != 0) {
+          throw Exception(
+              'Error getting branch or remote name: ${branchName.stderr}');
+        }
+        final branch = (branchName.stdout as String).trim();
+        final remote = (remoteName.stdout as String).trim();
+        $logger
+          ..info('')
+          ..info('Are you sure you want to push to $branch on $remote? (y/n)')
+          ..info('');
+
+        final confirmation = stdin.readLineSync();
+
+        if (confirmation == null || confirmation.toLowerCase() != 'y') {
+          $logger.info('Push cancelled‼️.');
+          return;
+        }
+        $logger
+          ..info('Pushing changes to remote repository...')
+          ..info('');
+
+        /// Run the git push command
         final pushResult = await Process.run('git', ['push']);
         if (pushResult.exitCode != 0) {
           throw Exception('Error during git push: ${pushResult.stderr}');
