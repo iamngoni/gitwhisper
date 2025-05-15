@@ -54,10 +54,14 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
 
   @override
   void printUsage() {
+    final url = link(
+      message: 'iamngoni 🚀',
+      uri: Uri.parse('https://github.com/iamngoni'),
+    );
     $logger
       ..info('')
       ..info(
-        'GitWhisper - Your AI companion for crafting perfect commit messages',
+        'GitWhisper (by $url) - Your AI companion for crafting perfect commit messages',
       )
       ..info('')
       ..info(usage);
