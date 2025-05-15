@@ -1,5 +1,5 @@
 ## 0.0.36
-- fix: small bug fixes
+- fix: 🐛 Handle missing remote URL during push
 
 ## 0.0.35
 - feat: ✨ Add auto-push support (by [Takudzwa Nyanhanga](https://github.com/abcdOfficialzw))
