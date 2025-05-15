@@ -31,6 +31,7 @@ dart pub global activate --source=path <path to this package>
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
 - 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
 - 📋 Pre-fills the Git commit editor for easy review and modification
+- 🚀️ Supports automatic pushing of commits to the remote repository
 - 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
@@ -58,6 +59,11 @@ gw commit --model openai --model-variant gpt-4o
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
 gw commit --prefix "JIRA-123"
+
+# Automatically push the commit to the remote repository
+gitwhisper commit --auto-push
+gw commit --auto-push
+gw commit -a # shorthand for --auto-push
 
 # Analyze your changes (staged/unstaged) with AI
 gitwhisper analyze
