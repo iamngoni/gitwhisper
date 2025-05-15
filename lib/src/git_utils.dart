@@ -73,11 +73,10 @@ class GitUtils {
         final remote = (remoteName.stdout as String).trim();
         $logger
           ..info('')
-          ..info('Are you sure you want to push to $branch on $remote? (y/n)\n')
-
+          ..info(
+              'Are you sure you want to push to $branch on $remote? (y/n)\n');
 
         final confirmation = stdin.readLineSync();
-
 
         if (confirmation == null || confirmation.toLowerCase() != 'y') {
           $logger.info('Push cancelled‼️.');
