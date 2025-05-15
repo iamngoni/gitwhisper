@@ -59,6 +59,12 @@ class CommitCommand extends Command<int> {
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
         valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
+      )
+      ..addFlag(
+        'auto-push',
+        abbr: 'a',
+        help: 'Automatically push the commit to the remote repository',
+        defaultsTo: false,
       );
   }
 
@@ -164,7 +170,10 @@ class CommitCommand extends Command<int> {
         ..info('');
 
       try {
-        await GitUtils.runGitCommit(commitMessage);
+        await GitUtils.runGitCommit(
+          message: commitMessage,
+          autoPush: argResults?['auto-push'] as bool,
+        );
       } catch (e) {
         _logger.err('Error setting commit message: $e');
         return ExitCode.software.code;

@@ -39,13 +39,32 @@ class GitUtils {
   }
 
   /// Run git commit
-  static Future<void> runGitCommit(String message) async {
+  static Future<void> runGitCommit(
+      {required String message, bool autoPush = false}) async {
     final args = ['commit', '-m', message];
     final result = await Process.run('git', args);
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
       $logger.success('Commit successful! 🎉');
+
+      /// Push the commit if autoPush is true
+      if (autoPush) {
+        $logger
+          ..info('')
+          ..info('Pushing changes to remote repository...')
+          ..info('')
+          ..info('---------------------------------')
+          ..info('Current Directory: ${Directory.current.path}')
+          ..info('---------------------------------');
+
+        final pushResult = await Process.run('git', ['push']);
+        if (pushResult.exitCode != 0) {
+          throw Exception('Error during git push: ${pushResult.stderr}');
+        } else {
+          $logger.success('Push successful! 🎉');
+        }
+      }
     }
   }
 
