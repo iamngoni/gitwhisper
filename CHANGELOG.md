@@ -1,3 +1,6 @@
+## 0.0.35
+- feat: ✨ Add auto-push support (by [Takudzwa Nyanhanga](https://github.com/abcdOfficialzw))
+
 ## 0.0.34
 - fix: remove markdown changes
 

@@ -64,7 +64,6 @@ class CommitCommand extends Command<int> {
         'auto-push',
         abbr: 'a',
         help: 'Automatically push the commit to the remote repository',
-        defaultsTo: false,
       );
   }
 
