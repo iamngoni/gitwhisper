@@ -71,54 +71,24 @@ class GitUtils {
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
-      $logger.success('Commit successful! 🎉');
+      if (!autoPush) {
+        $logger.success('Commit successful! 🎉');
+      } else {
+        /// Push the commit if autoPush is true
+        $logger.info('Commit successful! Syncing with remote branch.');
 
-      /// Push the commit if autoPush is true
-      if (autoPush) {
-        $logger
-          ..info('')
-          ..info('Pushing changes to remote repository...')
-          ..info('')
-          ..info('---------------------------------')
-          ..info('')
-          ..info('Current Directory: ${Directory.current.path}')
-          ..info('')
-          ..info('---------------------------------');
-
-        /// Prompt user to confirm push on [branchName] on [remoteName]
         final branchName =
             await Process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
-        final remoteName =
-            await Process.run('git', ['config', '--get', 'remote.origin.url']);
         final remoteNameNoneUrl = await Process.run('git', ['remote']);
 
-        if (branchName.exitCode != 0 ||
-            remoteName.exitCode != 0 ||
-            remoteNameNoneUrl.exitCode != 0) {
+        if (branchName.exitCode != 0 || remoteNameNoneUrl.exitCode != 0) {
           throw Exception(
             'Error getting branch or remote name: ${branchName.stderr}',
           );
         }
 
         final branch = (branchName.stdout as String).trim();
-        final remote = (remoteName.stdout as String).trim();
         final remoteNoneUrl = (remoteNameNoneUrl.stdout as String).trim();
-
-        $logger
-          ..info('')
-          ..info(
-            'Are you sure you want to push to $branch on $remote? (y/n)\n',
-          );
-
-        final confirmation = stdin.readLineSync();
-
-        if (confirmation == null || confirmation.toLowerCase() != 'y') {
-          $logger.info('Push cancelled‼️.');
-          return;
-        }
-        $logger
-          ..info('Pushing changes to remote repository...')
-          ..info('');
 
         /// Run the git push command
         final pushResult =
@@ -126,7 +96,7 @@ class GitUtils {
         if (pushResult.exitCode != 0) {
           throw Exception('Error during git push: ${pushResult.stderr}');
         } else {
-          $logger.success('Push successful! 🎉');
+          $logger.success('Pushed to $remoteNoneUrl/$branch successfully! 🎉');
         }
       }
     }
