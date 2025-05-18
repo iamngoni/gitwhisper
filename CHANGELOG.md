@@ -1,3 +1,6 @@
+## 0.0.37
+- refactor: ♻️ Simplify git push confirmation logic
+
 ## 0.0.36
 - fix: 🐛 Handle missing remote URL during push
 
