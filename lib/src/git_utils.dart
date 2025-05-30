@@ -201,7 +201,11 @@ class GitUtils {
         .toSet();
 
     // Stage all changes (including new files)
-    final addResult = await Process.run('git', ['add', '.']);
+    final addResult = await Process.run(
+      'git',
+      ['add', '.'],
+      workingDirectory: folderPath,
+    );
     if (addResult.exitCode != 0) {
       throw Exception('Failed to stage all changes: ${addResult.stderr}');
     }
