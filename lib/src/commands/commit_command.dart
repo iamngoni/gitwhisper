@@ -320,7 +320,13 @@ class CommitCommand extends Command<int> {
       if (failedRepos.isNotEmpty) {
         _logger.err('Failed in: ${failedRepos.join(', ')}');
       }
-      _logger.success('$successCount git repos managed.');
+
+      if (successCount == 1) {
+        _logger.success('Processed 1 git repository.');
+      } else {
+        _logger.success('Processed $successCount git repositories.');
+      }
+
       return failedRepos.isEmpty
           ? ExitCode.success.code
           : ExitCode.software.code;
