@@ -26,6 +26,53 @@ class GitUtils {
     return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
   }
 
+  /// Check if there are unstaged changes
+  static Future<bool> hasUnstagedChanges() async {
+    final result = await Process.run('git', ['diff', '--name-only']);
+    return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
+  }
+
+  /// Stages all unstaged changes (including new files) and returns the number
+  /// of files added to the index
+  static Future<int> stageAllUnstagedFilesAndCount() async {
+    // Get currently staged files before
+    final beforeResult =
+        await Process.run('git', ['diff', '--cached', '--name-only']);
+    if (beforeResult.exitCode != 0) {
+      throw Exception(
+        'Failed to get staged files before: ${beforeResult.stderr}',
+      );
+    }
+    final before = (beforeResult.stdout as String)
+        .trim()
+        .split('\n')
+        .where((f) => f.isNotEmpty)
+        .toSet();
+
+    // Stage all changes (including new files)
+    final addResult = await Process.run('git', ['add', '.']);
+    if (addResult.exitCode != 0) {
+      throw Exception('Failed to stage all changes: ${addResult.stderr}');
+    }
+
+    // Get currently staged files after
+    final afterResult =
+        await Process.run('git', ['diff', '--cached', '--name-only']);
+    if (afterResult.exitCode != 0) {
+      throw Exception(
+        'Failed to get staged files after: ${afterResult.stderr}',
+      );
+    }
+    final after = (afterResult.stdout as String)
+        .trim()
+        .split('\n')
+        .where((f) => f.isNotEmpty)
+        .toSet();
+
+    // Return the number of files newly staged
+    return after.difference(before).length;
+  }
+
   /// Get the diff of unstagged changes
   static Future<String> getUnstagedDiff() async {
     final result = await Process.run('git', ['diff']);

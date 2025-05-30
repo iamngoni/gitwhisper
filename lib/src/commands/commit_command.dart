@@ -77,6 +77,10 @@ class CommitCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    // Initialize config manager
+    final configManager = ConfigManager();
+    await configManager.load();
+
     // Check if we're in a git repository
     if (!await GitUtils.isGitRepository()) {
       _logger.err('Not a git repository. Please run from a git repository.');
@@ -85,20 +89,33 @@ class CommitCommand extends Command<int> {
 
     // Check if there are staged changes
     if (!await GitUtils.hasStagedChanges()) {
-      _logger.err(
-        'No staged changes found. Please stage your changes using `git add`'
-        ' first.',
-      );
-      return ExitCode.usage.code;
+      // Check if we should always add unstaged files
+      if (configManager.shouldAlwaysAdd()) {
+        if (await GitUtils.hasUnstagedChanges()) {
+          _logger.info(
+            'Unstaged changes found. Staging all changes and new files.',
+          );
+          final int stagedFiles =
+              await GitUtils.stageAllUnstagedFilesAndCount();
+          _logger.success('$stagedFiles files have been staged.');
+        } else {
+          _logger.err(
+            'No staged or unstaged changes found!',
+          );
+          return ExitCode.usage.code;
+        }
+      } else {
+        _logger.err(
+          'No staged changes found. Please stage your changes using `git add`'
+          ' first.',
+        );
+        return ExitCode.usage.code;
+      }
     }
 
     // Get the model name from args
     String? modelName = argResults?['model'] as String?;
     String? modelVariant = argResults?['model-variant'] as String?;
-
-    // Initialize config manager
-    final configManager = ConfigManager();
-    await configManager.load();
 
     // If modelName is not provided if a default model was set else default
     // to openai
