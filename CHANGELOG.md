@@ -1,3 +1,8 @@
+## 0.0.41
+- feat: ✨ Implement analysis on multiple git repos
+- feat: ✨ Implement commit command in subfolders
+- refactor: ♻️ Improve git utils with subfolder support
+
 ## 0.0.40
 - fix: 🐛 remove argOptions
 

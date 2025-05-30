@@ -102,6 +102,19 @@ class CommitCommand extends Command<int> {
 
     final bool hasSubGitRepos = subGitRepos != null;
 
+    if (hasSubGitRepos) {
+      final String response = _logger.chooseOne(
+        'GitWhisper has discovered git repositories in subfolders but not in this'
+        ' current folder, would you like to continue?',
+        choices: ['N', 'Y', 'n', 'y'],
+        defaultValue: 'N',
+      );
+
+      if (response.toLowerCase() == 'n') {
+        return ExitCode.usage.code;
+      }
+    }
+
     final bool hasStagedChanges = !hasSubGitRepos
         ? await GitUtils.hasStagedChanges()
         : (await GitUtils.foldersWithStagedChanges(subGitRepos)).isNotEmpty;
