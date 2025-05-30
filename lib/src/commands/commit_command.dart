@@ -258,7 +258,7 @@ class CommitCommand extends Command<int> {
       _logger.info('Working in ${foldersWithStagedChanges.length} git repos');
 
       int successCount = 0;
-      List<String> failedRepos = [];
+      final List<String> failedRepos = [];
 
       for (final f in foldersWithStagedChanges) {
         final folderName = path.basename(f);
@@ -302,6 +302,7 @@ class CommitCommand extends Command<int> {
             await GitUtils.runGitCommit(
               message: commitMessage,
               autoPush: autoPush,
+              folderPath: f,
             );
             successCount++;
           } catch (e) {
