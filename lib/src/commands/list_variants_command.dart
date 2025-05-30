@@ -66,7 +66,12 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - o1-mini');
         _logger.info('  - o3-mini');
       case 'claude':
-        _logger.info('  - claude-3-opus-20240307 (default)');
+        _logger.info('  - claude-sonnet-4-20250514 (default)');
+        _logger.info('  - claude-opus-4-20250514');
+        _logger.info('  - claude-3-7-sonnet-20250219');
+        _logger.info('  - claude-3-7-sonnet-latest');
+        _logger.info('  - claude-3-5-sonnet-latest');
+        _logger.info('  - claude-3-opus-20240307');
         _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
         _logger.info('  - claude-3-5-sonnet-20240620');
