@@ -77,6 +77,10 @@ class ConfigManager {
     (_config['defaults'] as Map<String, dynamic>)['variant'] = modelVariant;
   }
 
+  void setAlwaysAdd({required bool value}) {
+    _config['always_add'] = value;
+  }
+
   /// Clears the default model and default variant
   void clearDefaults() {
     if (_config['defaults'] != null) {
