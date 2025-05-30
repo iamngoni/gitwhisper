@@ -91,6 +91,7 @@ class CommitCommand extends Command<int> {
     if (!await GitUtils.hasStagedChanges()) {
       // Check if we should always add unstaged files
       if (configManager.shouldAlwaysAdd()) {
+        // Check for unstaged changes
         if (await GitUtils.hasUnstagedChanges()) {
           _logger.info(
             'Unstaged changes found. Staging all changes and new files.',
