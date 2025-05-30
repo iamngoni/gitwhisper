@@ -184,8 +184,11 @@ class GitUtils {
   /// of files added to the index
   static Future<int> stageAllUnstagedFilesAndCount({String? folderPath}) async {
     // Get currently staged files before
-    final beforeResult =
-        await Process.run('git', ['diff', '--cached', '--name-only']);
+    final beforeResult = await Process.run(
+      'git',
+      ['diff', '--cached', '--name-only'],
+      workingDirectory: folderPath,
+    );
     if (beforeResult.exitCode != 0) {
       throw Exception(
         'Failed to get staged files before: ${beforeResult.stderr}',
