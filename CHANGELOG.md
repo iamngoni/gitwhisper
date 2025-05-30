@@ -1,3 +1,8 @@
+## 0.0.38
+- fix: 🐛 Handle null home directory, throw exception if null
+- feat: ✨ Add always-add command to allow you to skip running `git add` manually
+- feat: ✨ Stage all unstaged files if configured
+
 ## 0.0.37
 - refactor: ♻️ Simplify git push confirmation logic
 
