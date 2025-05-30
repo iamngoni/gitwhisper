@@ -1,3 +1,6 @@
+## 0.0.47
+- enhancements
+
 ## 0.0.46
 - fix: 🐛 Update success message, support singular repo
 
