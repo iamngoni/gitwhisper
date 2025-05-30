@@ -90,9 +90,19 @@ class ConfigManager {
 
   /// Gets the path to the config file
   String _getConfigPath() {
-    final home =
-        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    return path.join(home!, _configFileName);
+    String? home;
+
+    if (Platform.isMacOS || Platform.isLinux) {
+      home = Platform.environment['HOME'];
+    } else if (Platform.isWindows) {
+      home = Platform.environment['USERPROFILE'];
+    }
+
+    if (home == null) {
+      throw Exception('Could not determine the user home directory.');
+    }
+
+    return path.join(home, _configFileName);
   }
 
   /// Converts a YamlMap to a regular Map
