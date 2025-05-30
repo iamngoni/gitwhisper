@@ -1,3 +1,6 @@
+## 0.0.44
+- fix: 🐛 Fix Git add, pass workingDirectory
+
 ## 0.0.43
 - fix: 🐛 Pass folderPath to git diff command
 
