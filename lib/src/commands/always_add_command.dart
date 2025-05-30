@@ -17,7 +17,6 @@ class AlwaysAddCommand extends Command<int> {
   }) : _logger = logger {
     argParser.addOption(
       'always-add',
-      abbr: 'aa',
       help: 'Always stage changes',
       allowed: ['true', 'false'],
     );
