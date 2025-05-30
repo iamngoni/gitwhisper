@@ -1,3 +1,6 @@
+## 0.0.48
+- feat: ✨ Update Claude model variants and default version
+
 ## 0.0.47
 - enhancements
 
