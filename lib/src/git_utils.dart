@@ -8,6 +8,8 @@
 
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
+
 import 'constants.dart';
 
 /// Utility class for Git operations
@@ -144,7 +146,12 @@ class GitUtils {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
       if (!autoPush) {
-        $logger.success('Commit successful! 🎉');
+        if (folderPath != null) {
+          final folderName = path.basename(folderPath);
+          $logger.success('[$folderName] Commit successful! 🎉');
+        } else {
+          $logger.success('Commit successful! 🎉');
+        }
       } else {
         /// Push the commit if autoPush is true
         $logger.info('Commit successful! Syncing with remote branch.');
@@ -174,7 +181,14 @@ class GitUtils {
         if (pushResult.exitCode != 0) {
           throw Exception('Error during git push: ${pushResult.stderr}');
         } else {
-          $logger.success('Pushed to $remoteNoneUrl/$branch successfully! 🎉');
+          if (folderPath != null) {
+            final folderName = path.basename(folderPath);
+            $logger.success(
+                '[$folderName] Pushed to $remoteNoneUrl/$branch successfully! 🎉');
+          } else {
+            $logger
+                .success('Pushed to $remoteNoneUrl/$branch successfully! 🎉');
+          }
         }
       }
     }
