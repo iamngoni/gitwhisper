@@ -89,6 +89,10 @@ gw set-defaults --model openai --model-variant gpt-4o
 gitwhisper clear-defaults
 gw clear-defaults
 
+# Always stage changes first
+gitwhisper always-add true
+gw always-add true
+
 # Get help
 gitwhisper --help
 gw --help

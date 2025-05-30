@@ -55,7 +55,7 @@ class AlwaysAddCommand extends Command<int> {
       );
     } else {
       _logger.success(
-        'If there are no staged changes GitWhisper will abort mission!',
+        'If there are no staged changes, GitWhisper will abort mission!',
       );
     }
     return ExitCode.success.code;

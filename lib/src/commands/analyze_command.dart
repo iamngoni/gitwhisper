@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
+import 'package:path/path.dart' as path;
 
 import '../config_manager.dart';
 import '../git_utils.dart';
@@ -56,32 +57,40 @@ class AnalyzeCommand extends Command<int> {
       );
   }
 
+  final Logger _logger;
+
   @override
   String get description => 'Generate an analysis based on file changes';
 
   @override
   String get name => 'analyze';
 
-  final Logger _logger;
-
   @override
   Future<int> run() async {
-    // Check if we're in a git repository
-    if (!await GitUtils.isGitRepository()) {
-      _logger.err('Not a git repository. Please run from a git repository.');
-      return ExitCode.usage.code;
-    }
-
-    // Get the model name from args
-    String? modelName = argResults?['model'] as String?;
-    String? modelVariant = argResults?['model-variant'] as String?;
-
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
 
-    // If modelName is not provided if a default model was set else default
-    // to openai
+    List<String>? subGitRepos;
+
+    // Check if we're in a git repository; if not, check subfolders
+    if (!await GitUtils.isGitRepository()) {
+      _logger
+          .warn('Not a git repository. Checking subfolders for git repos...');
+      subGitRepos = await GitUtils.findGitReposInSubfolders();
+      if (subGitRepos.isEmpty) {
+        _logger.err(
+            'No git repository found in subfolders. Please run from a git repository.');
+        return ExitCode.usage.code;
+      }
+    }
+
+    final bool hasSubGitRepos = subGitRepos != null;
+
+    // Get the model name and variant from args, config, or defaults
+    String? modelName = argResults?['model'] as String?;
+    String? modelVariant = argResults?['model-variant'] as String? ?? '';
+
     if (modelName == null) {
       final (String, String)? defaults =
           configManager.getDefaultModelAndVariant();
@@ -90,6 +99,7 @@ class AnalyzeCommand extends Command<int> {
         modelVariant = defaults.$2;
       } else {
         modelName = 'openai';
+        modelVariant = '';
       }
     }
 
@@ -100,57 +110,127 @@ class AnalyzeCommand extends Command<int> {
 
     if (apiKey == null || apiKey.isEmpty) {
       _logger.err(
-        'No API key provided for $modelName. Please provide an API key using'
-        ' --key.',
-      );
+          'No API key provided for $modelName. Please provide an API key using --key.');
       return ExitCode.usage.code;
     }
 
-    final hasStagedChanges = await GitUtils.hasStagedChanges();
-    // Get the diff of staged changes
-    late final String diff;
+    // Create the appropriate AI generator based on model name
+    final generator = CommitGeneratorFactory.create(
+      modelName,
+      apiKey,
+      variant: modelVariant,
+    );
 
-    if (hasStagedChanges) {
-      _logger.info('Checking staged files for changes.');
-      diff = await GitUtils.getStagedDiff();
-    } else {
-      _logger.info('Checking for changes in all unstaged files');
-      diff = await GitUtils.getUnstagedDiff();
-    }
+    if (!hasSubGitRepos) {
+      // --- Single repo flow ---
+      final hasStagedChanges = await GitUtils.hasStagedChanges();
+      late final String diff;
 
-    if (diff.isEmpty) {
-      _logger.err('No changes detected in staged files.');
-      return ExitCode.usage.code;
-    }
-
-    try {
-      // Create the appropriate AI generator based on model name
-      final generator = CommitGeneratorFactory.create(
-        modelName,
-        apiKey,
-        variant: modelVariant,
-      );
-
-      _logger.info('Analyzing changes using $modelName'
-          ' ${(modelVariant != null && modelVariant.isNotEmpty) ? ''
-              '($modelVariant)' : ''}...');
-
-      // Generate analysis with AI
-      final analysis = await generator.analyzeChanges(diff);
-
-      if (analysis.trim().isEmpty) {
-        _logger.err('Error: Failed to generate analysis');
-        return ExitCode.software.code;
+      if (hasStagedChanges) {
+        _logger.info('Checking staged files for changes.');
+        diff = await GitUtils.getStagedDiff();
+      } else {
+        _logger.info('Checking for changes in all unstaged files.');
+        diff = await GitUtils.getUnstagedDiff();
       }
 
-      _logger
-        ..info('')
-        ..success(analysis);
+      if (diff.isEmpty) {
+        _logger.err('No changes detected in staged or unstaged files.');
+        return ExitCode.usage.code;
+      }
 
-      return ExitCode.success.code;
-    } catch (e) {
-      _logger.err('Error analysing the changes: $e');
-      return ExitCode.software.code;
+      try {
+        _logger.info('Analyzing changes using $modelName'
+            '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}...');
+
+        // Generate analysis with AI
+        final analysis = await generator.analyzeChanges(diff);
+
+        if (analysis.trim().isEmpty) {
+          _logger.err('Error: Failed to generate analysis');
+          return ExitCode.software.code;
+        }
+
+        _logger
+          ..info('')
+          ..success(analysis);
+
+        return ExitCode.success.code;
+      } catch (e) {
+        _logger.err('Error analyzing the changes: $e');
+        return ExitCode.software.code;
+      }
+    } else {
+      // --- Multi-repo flow ---
+      int successCount = 0;
+      final List<String> failedRepos = [];
+      final foldersWithChanges = <String>[];
+
+      // Only process repos with staged or unstaged changes
+      for (final repo in subGitRepos) {
+        final hasStaged = await GitUtils.hasStagedChanges(folderPath: repo);
+        final hasUnstaged = await GitUtils.hasUnstagedChanges(folderPath: repo);
+
+        if (hasStaged || hasUnstaged) {
+          foldersWithChanges.add(repo);
+        }
+      }
+
+      if (foldersWithChanges.isEmpty) {
+        _logger.err('No changes detected in any subfolder repositories.');
+        return ExitCode.usage.code;
+      }
+
+      for (final repo in foldersWithChanges) {
+        final repoName = path.basename(repo);
+        String diff = '';
+        bool usedStaged = false;
+
+        if (await GitUtils.hasStagedChanges(folderPath: repo)) {
+          diff = await GitUtils.getStagedDiff(folderPath: repo);
+          usedStaged = true;
+        } else if (await GitUtils.hasUnstagedChanges(folderPath: repo)) {
+          diff = await GitUtils.getUnstagedDiff(folderPath: repo);
+        }
+
+        if (diff.isEmpty) {
+          _logger.warn('[$repoName] No changes detected, skipping.');
+          continue;
+        }
+
+        try {
+          _logger.info(
+              '[$repoName] Analyzing ${usedStaged ? 'staged' : 'unstaged'} changes using $modelName'
+              '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}...');
+
+          final analysis = await generator.analyzeChanges(diff);
+
+          if (analysis.trim().isEmpty) {
+            _logger.err('[$repoName] Error: Failed to generate analysis');
+            failedRepos.add(repoName);
+            continue;
+          }
+
+          _logger
+            ..info('\n----------- $repoName -----------\n')
+            ..success(analysis)
+            ..info('\n----------------------------------\n');
+
+          successCount++;
+        } catch (e) {
+          _logger.err('[$repoName] Error analyzing the changes: $e');
+          failedRepos.add(repoName);
+          continue;
+        }
+      }
+
+      if (failedRepos.isNotEmpty) {
+        _logger.err('Analysis failed in: ${failedRepos.join(', ')}');
+      }
+      _logger.success('Analysis complete for $successCount git repos.');
+      return failedRepos.isEmpty
+          ? ExitCode.success.code
+          : ExitCode.software.code;
     }
   }
 

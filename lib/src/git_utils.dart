@@ -46,27 +46,78 @@ class GitUtils {
   }
 
   /// Get the diff of staged changes
-  static Future<String> getStagedDiff() async {
-    final result = await Process.run('git', ['diff', '--cached']);
+  static Future<String> getStagedDiff({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['diff', '--cached'],
+      workingDirectory: folderPath,
+    );
     return result.exitCode == 0 ? (result.stdout as String) : '';
   }
 
   /// Get the diff of unstagged changes
-  static Future<String> getUnstagedDiff() async {
-    final result = await Process.run('git', ['diff']);
+  static Future<String> getUnstagedDiff({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['diff'],
+      workingDirectory: folderPath,
+    );
     return result.exitCode == 0 ? (result.stdout as String) : '';
   }
 
   /// Check if there are staged changes
-  static Future<bool> hasStagedChanges() async {
-    final result =
-        await Process.run('git', ['diff', '--cached', '--name-only']);
+  static Future<bool> hasStagedChanges({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['diff', '--cached', '--name-only'],
+      workingDirectory: folderPath,
+    );
     return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
   }
 
+  /// Returns a list of folder paths (from the input) that have staged changes.
+  static Future<List<String>> foldersWithStagedChanges(
+      List<String> folders) async {
+    final result = <String>[];
+    for (final folder in folders) {
+      final gitResult = await Process.run(
+        'git',
+        ['diff', '--cached', '--name-only'],
+        workingDirectory: folder,
+      );
+      if (gitResult.exitCode == 0 &&
+          (gitResult.stdout as String).trim().isNotEmpty) {
+        result.add(folder);
+      }
+    }
+    return result;
+  }
+
+  /// Returns a list of folder paths (from the input) that have unstaged changes.
+  static Future<List<String>> foldersWithUnstagedChanges(
+      List<String> folders) async {
+    final result = <String>[];
+    for (final folder in folders) {
+      final gitResult = await Process.run(
+        'git',
+        ['diff', '--name-only'],
+        workingDirectory: folder,
+      );
+      if (gitResult.exitCode == 0 &&
+          (gitResult.stdout as String).trim().isNotEmpty) {
+        result.add(folder);
+      }
+    }
+    return result;
+  }
+
   /// Check if there are unstaged changes
-  static Future<bool> hasUnstagedChanges() async {
-    final result = await Process.run('git', ['diff', '--name-only']);
+  static Future<bool> hasUnstagedChanges({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['diff', '--name-only'],
+      workingDirectory: folderPath,
+    );
     return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
   }
 
@@ -81,9 +132,14 @@ class GitUtils {
   static Future<void> runGitCommit({
     required String message,
     bool autoPush = false,
+    String? folderPath,
   }) async {
     final args = ['commit', '-m', message];
-    final result = await Process.run('git', args);
+    final result = await Process.run(
+      'git',
+      args,
+      workingDirectory: folderPath,
+    );
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
@@ -93,8 +149,11 @@ class GitUtils {
         /// Push the commit if autoPush is true
         $logger.info('Commit successful! Syncing with remote branch.');
 
-        final branchName =
-            await Process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+        final branchName = await Process.run(
+          'git',
+          ['rev-parse', '--abbrev-ref', 'HEAD'],
+          workingDirectory: folderPath,
+        );
         final remoteNameNoneUrl = await Process.run('git', ['remote']);
 
         if (branchName.exitCode != 0 || remoteNameNoneUrl.exitCode != 0) {
@@ -107,8 +166,11 @@ class GitUtils {
         final remoteNoneUrl = (remoteNameNoneUrl.stdout as String).trim();
 
         /// Run the git push command
-        final pushResult =
-            await Process.run('git', ['push', remoteNoneUrl, branch]);
+        final pushResult = await Process.run(
+          'git',
+          ['push', remoteNoneUrl, branch],
+          workingDirectory: folderPath,
+        );
         if (pushResult.exitCode != 0) {
           throw Exception('Error during git push: ${pushResult.stderr}');
         } else {
@@ -120,7 +182,7 @@ class GitUtils {
 
   /// Stages all unstaged changes (including new files) and returns the number
   /// of files added to the index
-  static Future<int> stageAllUnstagedFilesAndCount() async {
+  static Future<int> stageAllUnstagedFilesAndCount({String? folderPath}) async {
     // Get currently staged files before
     final beforeResult =
         await Process.run('git', ['diff', '--cached', '--name-only']);
@@ -142,8 +204,11 @@ class GitUtils {
     }
 
     // Get currently staged files after
-    final afterResult =
-        await Process.run('git', ['diff', '--cached', '--name-only']);
+    final afterResult = await Process.run(
+      'git',
+      ['diff', '--cached', '--name-only'],
+      workingDirectory: folderPath,
+    );
     if (afterResult.exitCode != 0) {
       throw Exception(
         'Failed to get staged files after: ${afterResult.stderr}',
