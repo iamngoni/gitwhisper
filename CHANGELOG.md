@@ -1,3 +1,6 @@
+## 0.0.45
+- feat: ✨ Add folderPath to GitUtils.runGitCommit
+
 ## 0.0.44
 - fix: 🐛 Fix Git add, pass workingDirectory
 
