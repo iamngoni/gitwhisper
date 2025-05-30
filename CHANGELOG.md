@@ -1,3 +1,6 @@
+## 0.0.43
+- fix: 🐛 Pass folderPath to git diff command
+
 ## 0.0.42
 - fix: 🐛 multi repo options
 
