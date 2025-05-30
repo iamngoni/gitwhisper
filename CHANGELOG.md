@@ -1,3 +1,6 @@
+## 0.0.40
+- fix: 🐛 remove argOptions
+
 ## 0.0.39
 - fix: 🐛 remove always add abbreviation
 

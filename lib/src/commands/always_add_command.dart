@@ -14,13 +14,7 @@ import '../config_manager.dart';
 class AlwaysAddCommand extends Command<int> {
   AlwaysAddCommand({
     required Logger logger,
-  }) : _logger = logger {
-    argParser.addOption(
-      'always-add',
-      help: 'Always stage changes',
-      allowed: ['true', 'false'],
-    );
-  }
+  }) : _logger = logger;
 
   final Logger _logger;
 
@@ -31,15 +25,26 @@ class AlwaysAddCommand extends Command<int> {
   String get name => 'always-add';
 
   @override
+  String get invocation => 'gw always-add <true|false>';
+
+  @override
   Future<int> run() async {
-    final arg = argResults?['always-add'] as String;
+    // Positional arguments are accessed via argResults.rest
+    if (argResults == null || argResults!.rest.isEmpty) {
+      _logger.err('You must specify "true" or "false".');
+      return ExitCode.usage.code;
+    }
+
+    final arg = argResults!.rest.first;
+    if (arg != 'true' && arg != 'false') {
+      _logger.err('Value must be "true" or "false".');
+      return ExitCode.usage.code;
+    }
     final alwaysAdd = arg == 'true';
 
-    // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
 
-    // Save the always add config
     configManager.setAlwaysAdd(value: alwaysAdd);
     await configManager.save();
 
@@ -50,7 +55,7 @@ class AlwaysAddCommand extends Command<int> {
       );
     } else {
       _logger.success(
-        'If there are not staged changes GitWhisper will abort mission!',
+        'If there are no staged changes GitWhisper will abort mission!',
       );
     }
     return ExitCode.success.code;
