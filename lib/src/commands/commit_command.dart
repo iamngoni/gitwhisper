@@ -106,11 +106,11 @@ class CommitCommand extends Command<int> {
       final String response = _logger.chooseOne(
         'GitWhisper has discovered git repositories in subfolders but not in this'
         ' current folder, would you like to continue?',
-        choices: ['N', 'Y', 'n', 'y'],
-        defaultValue: 'N',
+        choices: ['continue', 'abort'],
+        defaultValue: 'continue',
       );
 
-      if (response.toLowerCase() == 'n') {
+      if (response == 'abort') {
         return ExitCode.usage.code;
       }
     }

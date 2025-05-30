@@ -1,3 +1,6 @@
+## 0.0.42
+- fix: 🐛 multi repo options
+
 ## 0.0.41
 - feat: ✨ Implement analysis on multiple git repos
 - feat: ✨ Implement commit command in subfolders

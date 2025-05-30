@@ -87,6 +87,19 @@ class AnalyzeCommand extends Command<int> {
 
     final bool hasSubGitRepos = subGitRepos != null;
 
+    if (hasSubGitRepos) {
+      final String response = _logger.chooseOne(
+        'GitWhisper has discovered git repositories in subfolders but not in this'
+        ' current folder, would you like to continue?',
+        choices: ['continue', 'abort'],
+        defaultValue: 'continue',
+      );
+
+      if (response == 'abort') {
+        return ExitCode.usage.code;
+      }
+    }
+
     // Get the model name and variant from args, config, or defaults
     String? modelName = argResults?['model'] as String?;
     String? modelVariant = argResults?['model-variant'] as String? ?? '';
