@@ -1,3 +1,6 @@
+## 0.0.46
+- fix: 🐛 Update success message, support singular repo
+
 ## 0.0.45
 - feat: ✨ Add folderPath to GitUtils.runGitCommit
 
