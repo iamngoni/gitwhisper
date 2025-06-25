@@ -14,7 +14,7 @@ Git Whisper is an AI-powered Git commit message generator that whispers the perf
 
 ## Getting Started 🚀
 
-If the CLI application is available on [pub](https://pub.dev), activate globally via:
+If you have `Dart` installed, activate globally via:
 
 ```sh
 dart pub global activate gitwhisper
@@ -24,6 +24,12 @@ Or locally via:
 
 ```sh
 dart pub global activate --source=path <path to this package>
+```
+
+### Homebrew
+```bash
+brew tap iamngoni/homebrew-gitwhisper
+brew install gitwhisper
 ```
 
 ## Features
