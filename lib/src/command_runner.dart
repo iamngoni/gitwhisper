@@ -63,7 +63,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     $logger
       ..info('')
       ..info(
-        'GitWhisper (by $url) - Your AI companion for crafting perfect commit messages',
+        'GitWhisper (by $url) - Your AI companion for crafting perfect commit messages.',
       )
       ..info('')
       ..info(usage);
