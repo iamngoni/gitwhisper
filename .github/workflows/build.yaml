@@ -10,7 +10,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: gitwhisper
+            archive: gitwhisper-linux.tar.gz
+          - os: macos-latest
+            target: gitwhisper
+            archive: gitwhisper-macos.tar.gz
+          - os: windows-latest
+            target: gitwhisper.exe
+            archive: gitwhisper-windows.tar.gz
 
     steps:
       - uses: actions/checkout@v3
@@ -19,33 +28,24 @@ jobs:
       - run: dart pub get
 
       - name: Compile binary
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            dart compile exe bin/main.dart -o gitwhisper.exe
-          else
-            dart compile exe bin/main.dart -o gitwhisper
-          fi
+        run: dart compile exe bin/main.dart -o ${{ matrix.target }}
 
       - name: Archive binary
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            tar -czf gitwhisper-windows.tar.gz gitwhisper.exe
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            tar -czf gitwhisper-linux.tar.gz gitwhisper
-          else
-            tar -czf gitwhisper-macos.tar.gz gitwhisper
-          fi
+        run: tar -czf ${{ matrix.archive }} ${{ matrix.target }}
 
-      - name: Calculate sha256
-        id: hash
+      - name: Calculate sha256 (Linux/macOS)
+        id: hash_unix
+        if: runner.os != 'Windows'
+        run: echo "sha256=$(shasum -a 256 ${{ matrix.archive }} | cut -d ' ' -f1)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Calculate sha256 (Windows)
+        id: hash_win
+        if: runner.os == 'Windows'
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "sha256=$(shasum -a 256 gitwhisper-windows.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            echo "sha256=$(shasum -a 256 gitwhisper-linux.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
-          else
-            echo "sha256=$(shasum -a 256 gitwhisper-macos.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
-          fi
+          $hash = Get-FileHash ${{ matrix.archive }} -Algorithm SHA256
+          echo "sha256=$($hash.Hash)" >> $env:GITHUB_OUTPUT
+        shell: pwsh
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
