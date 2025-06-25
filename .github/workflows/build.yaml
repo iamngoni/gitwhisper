@@ -76,6 +76,7 @@ jobs:
           echo "" >> Formula/gitwhisper.rb
           echo "  def install" >> Formula/gitwhisper.rb
           echo "    bin.install \"gitwhisper\"" >> Formula/gitwhisper.rb
+          echo "    bin.install_symlink \"gitwhisper\" => \"gw\"" >> Formula/gitwhisper.rb
           echo "  end" >> Formula/gitwhisper.rb
           echo "end" >> Formula/gitwhisper.rb
 
