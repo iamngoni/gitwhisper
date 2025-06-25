@@ -12,6 +12,8 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:yaml/yaml.dart';
 
+import 'constants.dart';
+
 /// Manages configuration and API keys for the application
 class ConfigManager {
   static const String _configFileName = '.git_whisper.yaml';
@@ -36,8 +38,14 @@ class ConfigManager {
     final yamlString = json.encode(_config);
     await configFile.writeAsString(yamlString);
 
-    // Set file permissions to be readable only by the user
-    await Process.run('chmod', ['600', _getConfigPath()]);
+    // Set file permissions on Unix-like systems only
+      if (!Platform.isWindows) {
+        try {
+          await Process.run('chmod', ['600', _getConfigPath()]);
+        } catch (e) {
+          $logger.warn('Warning: Failed to set file permissions: $e');
+        }
+      }
   }
 
   /// Gets the API key for the specified model
