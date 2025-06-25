@@ -1,4 +1,4 @@
-name: Build Binaries
+name: Build and Release GitWhisper
 
 on:
   push:
@@ -14,18 +14,75 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
 
       - name: Compile binary
         run: |
-          dart compile exe bin/main.dart -o gitwhisper${{ runner.os == 'Windows' && '.exe' || '' }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            dart compile exe bin/main.dart -o gitwhisper.exe
+          else
+            dart compile exe bin/main.dart -o gitwhisper
+          fi
 
       - name: Archive binary
         run: |
-          tar -czf gitwhisper-${{ runner.os }}.tar.gz gitwhisper${{ runner.os == 'Windows' && '.exe' || '' }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            tar -czf gitwhisper-windows.tar.gz gitwhisper.exe
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            tar -czf gitwhisper-linux.tar.gz gitwhisper
+          else
+            tar -czf gitwhisper-macos.tar.gz gitwhisper
+          fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Calculate sha256
+        id: hash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "sha256=$(shasum -a 256 gitwhisper-windows.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            echo "sha256=$(shasum -a 256 gitwhisper-linux.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          else
+            echo "sha256=$(shasum -a 256 gitwhisper-macos.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
         with:
-          name: gitwhisper-${{ matrix.os }}
-          path: gitwhisper-*.tar.gz
+          files: |
+            gitwhisper-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-latest
+    needs: build
+    steps:
+      - name: Clone Homebrew Tap
+        run: |
+          git clone https://github.com/ngoni/homebrew-gitwhisper.git
+          cd homebrew-gitwhisper
+          curl -LO https://github.com/ngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz
+          sha256=$(shasum -a 256 gitwhisper-macos.tar.gz | cut -d ' ' -f1)
+
+          cat <<EOF > Formula/gitwhisper.rb
+class Gitwhisper < Formula
+  desc "AI-assisted git commit CLI"
+  homepage "https://github.com/ngoni/gitwhisper"
+  url "https://github.com/ngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz"
+  sha256 "\${sha256}"
+  version "${{ github.ref_name }}"
+
+  def install
+    bin.install "gitwhisper"
+  end
+end
+EOF
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add Formula/gitwhisper.rb
+          git commit -m "Update formula to ${{ github.ref_name }}"
+          git push https://x-access-token:${{ secrets.HOMEBREW_TAP_PAT }}@github.com/ngoni/homebrew-gitwhisper HEAD:main
