@@ -19,7 +19,7 @@ jobs:
 
       - name: Compile binary
         run: |
-          dart compile exe bin/gitwhisper.dart -o gitwhisper${{ runner.os == 'Windows' && '.exe' || '' }}
+          dart compile exe bin/main.dart -o gitwhisper${{ runner.os == 'Windows' && '.exe' || '' }}
 
       - name: Archive binary
         run: |
