@@ -63,7 +63,7 @@ class SetDefaultsCommand extends Command<int> {
 
     _logger.success(
       '$modelName -> $modelVariant has been set as the default model for'
-      ' commits 🥳',
+      ' commits 🥳.',
     );
     return ExitCode.success.code;
   }
