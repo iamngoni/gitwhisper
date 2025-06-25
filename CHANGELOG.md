@@ -1,3 +1,6 @@
+## 0.0.49
+- fix: 🐛 Add Windows compatibility for file permissions
+
 ## 0.0.48
 - feat: ✨ Update Claude model variants and default version
 
