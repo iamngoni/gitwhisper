@@ -60,26 +60,24 @@ jobs:
     runs-on: macos-latest
     needs: build
     steps:
-      - name: Clone Homebrew Tap
+      - name: Clone and update formula
         run: |
           git clone https://github.com/ngoni/homebrew-gitwhisper.git
           cd homebrew-gitwhisper
           curl -LO https://github.com/ngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz
           sha256=$(shasum -a 256 gitwhisper-macos.tar.gz | cut -d ' ' -f1)
 
-          cat <<EOF > Formula/gitwhisper.rb
-class Gitwhisper < Formula
-  desc "AI-assisted git commit CLI"
-  homepage "https://github.com/ngoni/gitwhisper"
-  url "https://github.com/ngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz"
-  sha256 "\${sha256}"
-  version "${{ github.ref_name }}"
-
-  def install
-    bin.install "gitwhisper"
-  end
-end
-EOF
+          echo "class Gitwhisper < Formula" > Formula/gitwhisper.rb
+          echo "  desc \"AI-assisted git commit CLI\"" >> Formula/gitwhisper.rb
+          echo "  homepage \"https://github.com/ngoni/gitwhisper\"" >> Formula/gitwhisper.rb
+          echo "  url \"https://github.com/ngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz\"" >> Formula/gitwhisper.rb
+          echo "  sha256 \"$sha256\"" >> Formula/gitwhisper.rb
+          echo "  version \"${{ github.ref_name }}\"" >> Formula/gitwhisper.rb
+          echo "" >> Formula/gitwhisper.rb
+          echo "  def install" >> Formula/gitwhisper.rb
+          echo "    bin.install \"gitwhisper\"" >> Formula/gitwhisper.rb
+          echo "  end" >> Formula/gitwhisper.rb
+          echo "end" >> Formula/gitwhisper.rb
 
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
