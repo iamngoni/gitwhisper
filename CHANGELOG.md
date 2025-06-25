@@ -1,3 +1,6 @@
+## 0.0.50
+- feat: ✨ Make gitwhisper installable through Homebrew
+
 ## 0.0.49
 - fix: 🐛 Add Windows compatibility for file permissions
 

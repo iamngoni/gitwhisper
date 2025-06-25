@@ -26,7 +26,8 @@ Or locally via:
 dart pub global activate --source=path <path to this package>
 ```
 
-### Homebrew
+Or on Mac using Homebrew:
+
 ```bash
 brew tap iamngoni/homebrew-gitwhisper
 brew install gitwhisper
