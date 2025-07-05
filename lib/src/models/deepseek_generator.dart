@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../commit_utils.dart';
 import '../constants.dart';
+import '../exceptions/exceptions.dart';
 import 'commit_generator.dart';
 import 'model_variants.dart';
 
@@ -26,32 +27,37 @@ class DeepseekGenerator extends CommitGenerator {
   Future<String> generateCommitMessage(String diff, {String? prefix}) async {
     final prompt = getCommitPrompt(diff, prefix: prefix);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      options: Options(
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://api.deepseek.com/v1/chat/completions',
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $apiKey',
+          },
+        ),
+        data: {
+          'model': actualVariant,
+          'store': true,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': maxTokens,
         },
-      ),
-      data: {
-        'model': actualVariant,
-        'store': true,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-        'max_tokens': maxTokens,
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['choices'][0]['message']['content']
-          .toString()
-          .trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['choices'][0]['message']['content']
+            .toString()
+            .trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from DeepSeek API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('deepseek', e);
     }
   }
 
@@ -59,32 +65,37 @@ class DeepseekGenerator extends CommitGenerator {
   Future<String> analyzeChanges(String diff) async {
     final prompt = getAnalysisPrompt(diff);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.deepseek.com/v1/chat/completions',
-      options: Options(
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://api.deepseek.com/v1/chat/completions',
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $apiKey',
+          },
+        ),
+        data: {
+          'model': actualVariant,
+          'store': true,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': maxAnalysisTokens,
         },
-      ),
-      data: {
-        'model': actualVariant,
-        'store': true,
-        'messages': [
-          {'role': 'user', 'content': prompt},
-        ],
-        'max_tokens': maxAnalysisTokens,
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['choices'][0]['message']['content']
-          .toString()
-          .trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['choices'][0]['message']['content']
+            .toString()
+            .trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from DeepSeek API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('deepseek', e);
     }
   }
 }

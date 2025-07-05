@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../commit_utils.dart';
 import '../constants.dart';
+import '../exceptions/exceptions.dart';
 import 'commit_generator.dart';
 import 'model_variants.dart';
 
@@ -26,32 +27,37 @@ class ClaudeGenerator extends CommitGenerator {
   Future<String> generateCommitMessage(String diff, {String? prefix}) async {
     final prompt = getCommitPrompt(diff, prefix: prefix);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.anthropic.com/v1/messages',
-      options: Options(
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-      ),
-      data: {
-        'model': actualVariant,
-        'max_tokens': maxTokens,
-        'messages': [
-          {
-            'role': 'user',
-            'content': prompt,
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://api.anthropic.com/v1/messages',
+        options: Options(
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
           },
-        ],
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['content'][0]['text'].toString().trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
+        ),
+        data: {
+          'model': actualVariant,
+          'max_tokens': maxTokens,
+          'messages': [
+            {
+              'role': 'user',
+              'content': prompt,
+            },
+          ],
+        },
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['content'][0]['text'].toString().trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from Claude API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('claude', e);
     }
   }
 
@@ -59,32 +65,37 @@ class ClaudeGenerator extends CommitGenerator {
   Future<String> analyzeChanges(String diff) async {
     final prompt = getAnalysisPrompt(diff);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://api.anthropic.com/v1/messages',
-      options: Options(
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-      ),
-      data: {
-        'model': actualVariant,
-        'max_tokens': maxAnalysisTokens,
-        'messages': [
-          {
-            'role': 'user',
-            'content': prompt,
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://api.anthropic.com/v1/messages',
+        options: Options(
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
           },
-        ],
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['content'][0]['text'].toString().trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
+        ),
+        data: {
+          'model': actualVariant,
+          'max_tokens': maxAnalysisTokens,
+          'messages': [
+            {
+              'role': 'user',
+              'content': prompt,
+            },
+          ],
+        },
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['content'][0]['text'].toString().trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from Claude API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('claude', e);
     }
   }
 }

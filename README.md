@@ -33,6 +33,8 @@ brew tap iamngoni/homebrew-gitwhisper
 brew install gitwhisper
 ```
 
+Or download the executable binary for your operating system directly [here.](https://github.com/iamngoni/gitwhisper/releases)
+
 ## Features
 
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages

@@ -13,6 +13,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as path;
 
 import '../config_manager.dart';
+import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
 import '../models/commit_generator_factory.dart';
 
@@ -247,8 +248,26 @@ class CommitCommand extends Command<int> {
         }
 
         return ExitCode.success.code;
+      } on ApiException catch (e) {
+        ErrorHandler.handleErrorWithRetry(
+          e,
+          context: 'generating commit message',
+        );
+
+        if (ErrorHandler.shouldSuggestModelSwitch(e)) {
+          final suggestions = ErrorHandler.getModelSwitchSuggestions(e);
+          ErrorHandler.handleErrorWithFallback(
+            e,
+            fallbackOptions: suggestions,
+          );
+        }
+
+        return ExitCode.software.code;
       } catch (e) {
-        _logger.err('Error generating commit message: $e');
+        ErrorHandler.handleGeneralError(
+          e as Exception,
+          context: 'generating commit message',
+        );
         return ExitCode.software.code;
       }
     } else {
@@ -310,6 +329,10 @@ class CommitCommand extends Command<int> {
             failedRepos.add(folderName);
             continue;
           }
+        } on ApiException catch (e) {
+          _logger.err('[$folderName] ${ErrorHandler.getErrorSummary(e)}');
+          failedRepos.add(folderName);
+          continue;
         } catch (e) {
           _logger.err('[$folderName] Error generating commit message: $e');
           failedRepos.add(folderName);

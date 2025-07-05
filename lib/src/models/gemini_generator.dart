@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 
 import '../commit_utils.dart';
 import '../constants.dart';
+import '../exceptions/exceptions.dart';
 import 'commit_generator.dart';
 import 'model_variants.dart';
 
@@ -26,30 +27,35 @@ class GeminiGenerator extends CommitGenerator {
   Future<String> generateCommitMessage(String diff, {String? prefix}) async {
     final prompt = getCommitPrompt(diff, prefix: prefix);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
-      data: {
-        'contents': [
-          {
-            'parts': [
-              {'text': prompt},
-            ],
-          }
-        ],
-        'generationConfig': {
-          'maxOutputTokens': maxTokens,
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
+        data: {
+          'contents': [
+            {
+              'parts': [
+                {'text': prompt},
+              ],
+            }
+          ],
+          'generationConfig': {
+            'maxOutputTokens': maxTokens,
+          },
         },
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['candidates'][0]['content']['parts'][0]['text']
-          .toString()
-          .trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['candidates'][0]['content']['parts'][0]['text']
+            .toString()
+            .trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from Gemini API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('gemini', e);
     }
   }
 
@@ -57,30 +63,35 @@ class GeminiGenerator extends CommitGenerator {
   Future<String> analyzeChanges(String diff) async {
     final prompt = getAnalysisPrompt(diff);
 
-    final Response<Map<String, dynamic>> response = await $dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
-      data: {
-        'contents': [
-          {
-            'parts': [
-              {'text': prompt},
-            ],
-          }
-        ],
-        'generationConfig': {
-          'maxOutputTokens': maxAnalysisTokens,
+    try {
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/$actualVariant:generateContent?key=$apiKey',
+        data: {
+          'contents': [
+            {
+              'parts': [
+                {'text': prompt},
+              ],
+            }
+          ],
+          'generationConfig': {
+            'maxOutputTokens': maxAnalysisTokens,
+          },
         },
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return response.data!['candidates'][0]['content']['parts'][0]['text']
-          .toString()
-          .trim();
-    } else {
-      throw Exception(
-        'API request failed with status: ${response.statusCode}, data: ${response.data}',
       );
+
+      if (response.statusCode == 200) {
+        return response.data!['candidates'][0]['content']['parts'][0]['text']
+            .toString()
+            .trim();
+      } else {
+        throw ServerException(
+          message: 'Unexpected response from Gemini API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('gemini', e);
     }
   }
 }

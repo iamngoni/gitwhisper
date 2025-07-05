@@ -13,6 +13,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as path;
 
 import '../config_manager.dart';
+import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
 import '../models/commit_generator_factory.dart';
 
@@ -169,8 +170,26 @@ class AnalyzeCommand extends Command<int> {
           ..success(analysis);
 
         return ExitCode.success.code;
+      } on ApiException catch (e) {
+        ErrorHandler.handleErrorWithRetry(
+          e,
+          context: 'analyzing changes',
+        );
+
+        if (ErrorHandler.shouldSuggestModelSwitch(e)) {
+          final suggestions = ErrorHandler.getModelSwitchSuggestions(e);
+          ErrorHandler.handleErrorWithFallback(
+            e,
+            fallbackOptions: suggestions,
+          );
+        }
+
+        return ExitCode.software.code;
       } catch (e) {
-        _logger.err('Error analyzing the changes: $e');
+        ErrorHandler.handleGeneralError(
+          e as Exception,
+          context: 'analyzing changes',
+        );
         return ExitCode.software.code;
       }
     } else {
@@ -230,6 +249,10 @@ class AnalyzeCommand extends Command<int> {
             ..info('\n----------------------------------\n');
 
           successCount++;
+        } on ApiException catch (e) {
+          _logger.err('[$repoName] ${ErrorHandler.getErrorSummary(e)}');
+          failedRepos.add(repoName);
+          continue;
         } catch (e) {
           _logger.err('[$repoName] Error analyzing the changes: $e');
           failedRepos.add(repoName);
