@@ -13,6 +13,7 @@ import 'gemini_generator.dart';
 import 'github_generator.dart';
 import 'grok_generator.dart';
 import 'llama_generator.dart';
+import 'ollama_generator.dart';
 import 'openai_generator.dart';
 
 /// Factory for creating appropriate commit generators
@@ -21,6 +22,7 @@ class CommitGeneratorFactory {
     String model,
     String apiKey, {
     String? variant,
+    String? baseUrl,
   }) {
     return switch (model.toLowerCase()) {
       'claude' => ClaudeGenerator(
@@ -51,6 +53,14 @@ class CommitGeneratorFactory {
           apiKey,
           variant: variant,
         ),
+      'ollama' => switch (baseUrl) {
+          null => throw ArgumentError('Missing baseUrl for Ollama'),
+          _ => OllamaGenerator(
+              baseUrl,
+              apiKey,
+              variant: variant,
+            ),
+        },
       _ => throw ArgumentError('Unsupported model: $model'),
     };
   }

@@ -28,6 +28,7 @@ class SetDefaultsCommand extends Command<int> {
           'llama',
           'deepseek',
           'github',
+          'ollama',
         ],
         mandatory: true,
       )
@@ -36,7 +37,12 @@ class SetDefaultsCommand extends Command<int> {
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
         valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
-        mandatory: true,
+      )
+      ..addOption(
+        'base-url',
+        abbr: 'u',
+        help: 'Base URL to use for ollama, defaults to http://localhost:11434',
+        valueHelp: 'http://localhost:11434',
       );
   }
 
@@ -51,20 +57,48 @@ class SetDefaultsCommand extends Command<int> {
   @override
   Future<int> run() async {
     final modelName = argResults?['model'] as String;
-    final modelVariant = argResults?['model-variant'] as String;
+    final modelVariant = argResults?['model-variant'] as String?;
+    final baseUrl = argResults?['base-url'] as String?;
+
+    if (baseUrl != null && modelName != 'ollama') {
+      throw ArgumentError('Base URL can only be set for Ollama');
+    }
 
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
 
-    // Save the API key
-    configManager.setDefaults(modelName, modelVariant);
-    await configManager.save();
+    if (modelName != 'ollama') {
+      if (modelVariant != null) {
+        // Save the API key
+        configManager.setDefaults(modelName, modelVariant);
+        await configManager.save();
+      }
+    } else {
+      // Save the API key
+      if (modelVariant != null) {
+        configManager.setDefaults(modelName, modelVariant);
+        await configManager.save();
+      }
 
-    _logger.success(
-      '$modelName -> $modelVariant has been set as the default model for'
-      ' commits 🥳.',
-    );
+      if (baseUrl != null) {
+        configManager.setOllamaBaseURL(baseUrl);
+        await configManager.save();
+      }
+    }
+
+    if (modelVariant != null) {
+      _logger.success(
+        '$modelName -> $modelVariant has been set as the default model for'
+        ' commits.',
+      );
+    }
+
+    if (baseUrl != null) {
+      _logger.success(
+        '$modelName baseUrl has been set to $baseUrl.',
+      );
+    }
     return ExitCode.success.code;
   }
 }

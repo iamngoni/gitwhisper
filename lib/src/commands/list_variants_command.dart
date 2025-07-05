@@ -25,6 +25,7 @@ class ListVariantsCommand extends Command<int> {
         'llama',
         'deekseek',
         'github',
+        'ollama',
       ],
     );
   }
@@ -110,9 +111,19 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - Phi-4-mini-instruct');
         _logger.info('  - Codestral 25.01');
         _logger.info('  - Mistral Large 24.11');
-        _logger.info(
-          '  - etc. Check more on https://github.com/marketplace?type=models',
+        final url = link(
+          message: 'https://github.com/marketplace?type=models',
+          uri: Uri.parse('https://github.com/marketplace?type=models'),
         );
+        _logger.info(
+          '  - etc. Check more on $url',
+        );
+      case 'ollama':
+        final url = link(
+          message: 'here.',
+          uri: Uri.parse('https://ollama.com/search'),
+        );
+        _logger.info('Check Ollama models $url');
     }
   }
 
@@ -130,5 +141,7 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('deepseek');
     _logger.info('');
     _listVariantsForModel('github');
+    _logger.info('');
+    _listVariantsForModel('ollama');
   }
 }

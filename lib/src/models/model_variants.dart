@@ -29,6 +29,9 @@ class ModelVariants {
   /// Default Github model variant
   static const String githubDefault = 'gpt-4o';
 
+  /// Default Ollama model variant
+  static const String ollamaDefault = 'llama3.2:latest';
+
   /// Get the default model variant for a given model
   static String getDefault(String model) {
     return switch (model.toLowerCase()) {
@@ -39,6 +42,7 @@ class ModelVariants {
       'llama' => llamaDefault,
       'deepseek' => deepseekDefault,
       'github' => githubDefault,
+      'ollama' => ollamaDefault,
       _ => throw ArgumentError('Unknown model: $model'),
     };
   }

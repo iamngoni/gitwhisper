@@ -34,6 +34,7 @@ class CommitCommand extends Command<int> {
           'llama',
           'deepseek',
           'github',
+          'ollama',
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
@@ -43,6 +44,7 @@ class CommitCommand extends Command<int> {
           'llama': 'Meta Llama',
           'deepseek': 'DeepSeek, Inc.',
           'github': 'Github',
+          'ollama': 'Ollama',
         },
       )
       ..addOption(

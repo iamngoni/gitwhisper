@@ -39,13 +39,13 @@ class ConfigManager {
     await configFile.writeAsString(yamlString);
 
     // Set file permissions on Unix-like systems only
-      if (!Platform.isWindows) {
-        try {
-          await Process.run('chmod', ['600', _getConfigPath()]);
-        } catch (e) {
-          $logger.warn('Warning: Failed to set file permissions: $e');
-        }
+    if (!Platform.isWindows) {
+      try {
+        await Process.run('chmod', ['600', _getConfigPath()]);
+      } catch (e) {
+        $logger.warn('Warning: Failed to set file permissions: $e');
       }
+    }
   }
 
   /// Gets the API key for the specified model
@@ -83,6 +83,14 @@ class ConfigManager {
     }
     (_config['defaults'] as Map<String, dynamic>)['model'] = model;
     (_config['defaults'] as Map<String, dynamic>)['variant'] = modelVariant;
+  }
+
+  /// Sets the base URL to use for Ollama
+  void setOllamaBaseURL(String baseUrl) {
+    if (_config['ollamaBaseUrl'] == null) {
+      _config['ollamaBaseUrl'] = 'http://localhost:11434';
+    }
+    _config['ollamaBaseUrl'] = baseUrl;
   }
 
   /// Set always add value

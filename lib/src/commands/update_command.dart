@@ -52,10 +52,16 @@ class UpdateCommand extends Command<int> {
     try {
       await _pubUpdater.update(packageName: 'gitwhisper');
       updateProgress.complete('Updated to $latestVersion');
+      final url = link(
+        message:
+            'https://pub.dev/packages/gitwhisper/versions/$latestVersion/changelog',
+        uri: Uri.parse(
+            'https://pub.dev/packages/gitwhisper/versions/$latestVersion/changelog'),
+      );
       _logger
         ..info('')
         ..info(
-          'See the release notes here: https://pub.dev/packages/gitwhisper/versions/$latestVersion/changelog',
+          'See the release notes here: $url',
         );
 
       return ExitCode.success.code;

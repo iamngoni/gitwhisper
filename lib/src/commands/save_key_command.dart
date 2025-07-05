@@ -29,6 +29,7 @@ class SaveKeyCommand extends Command<int> {
           'llama',
           'deepseek',
           'github',
+          'ollama',
         ],
       )
       ..addOption(
