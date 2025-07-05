@@ -1,5 +1,5 @@
 ## 0.0.53
-- fix: 🐛 API key issue with Ollama
+- fix: 🐛 Fix API key to be optional
 
 ## 0.0.52
 - fix: 🐛 API key issue with Ollama
