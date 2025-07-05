@@ -1,3 +1,6 @@
+## 0.0.51
+- feat: ✨ Add Ollama support
+
 ## 0.0.50
 - feat: ✨ Make gitwhisper installable through Homebrew
 
