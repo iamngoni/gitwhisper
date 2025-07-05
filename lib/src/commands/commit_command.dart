@@ -197,11 +197,15 @@ class CommitCommand extends Command<int> {
     // Handle --auto-push, fallback to false if not provided
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
+    // Get ollamaBaseUrl from configs
+    final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
+
     // Create the appropriate AI generator based on model name
     final generator = CommitGeneratorFactory.create(
       modelName,
       apiKey,
       variant: modelVariant,
+      baseUrl: ollamaBaseUrl ?? 'http://localhost:11434',
     );
 
     // --- Single repo flow ---

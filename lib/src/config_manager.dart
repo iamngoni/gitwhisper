@@ -68,6 +68,16 @@ class ConfigManager {
     }
   }
 
+  /// Gets the API key for the specified model
+  String? getOllamaBaseURL() {
+    if (_config.containsKey('ollamaBaseUrl')) {
+      final String baseUrl = _config['ollamaBaseUrl'] as String;
+      return baseUrl;
+    } else {
+      return null;
+    }
+  }
+
   /// Sets the API key for the specified model
   void setApiKey(String model, String apiKey) {
     if (_config['api_keys'] == null) {
