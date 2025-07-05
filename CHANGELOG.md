@@ -1,3 +1,6 @@
+## 0.0.52
+- fix: 🐛 API key issue with Ollama
+
 ## 0.0.51
 - feat: ✨ Add Ollama support
 

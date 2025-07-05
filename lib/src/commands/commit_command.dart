@@ -184,7 +184,7 @@ class CommitCommand extends Command<int> {
     apiKey ??=
         configManager.getApiKey(modelName) ?? _getEnvironmentApiKey(modelName);
 
-    if (apiKey == null || apiKey.isEmpty) {
+    if ((apiKey == null || apiKey.isEmpty) && modelName != 'ollama') {
       _logger.err(
         'No API key provided for $modelName. Please provide an API key using --key.',
       );
