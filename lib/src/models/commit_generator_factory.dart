@@ -20,7 +20,7 @@ import 'openai_generator.dart';
 class CommitGeneratorFactory {
   static CommitGenerator create(
     String model,
-    String apiKey, {
+    String? apiKey, {
     String? variant,
     String? baseUrl,
   }) {

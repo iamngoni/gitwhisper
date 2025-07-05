@@ -198,6 +198,9 @@ GitWhisper supports a comprehensive range of model variants:
 To run GitHub models you may need the following:
 > To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
 
+### Ollama (self-hosted)
+- Check Ollama models here: [https://ollama.com/search](https://ollama.com/search)
+
 ## How It Works
 
 Git Whisper:

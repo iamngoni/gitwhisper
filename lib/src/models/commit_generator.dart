@@ -11,7 +11,7 @@ import 'dart:async';
 /// Abstract base class for AI commit message generators
 abstract class CommitGenerator {
   const CommitGenerator(this.apiKey, {this.variant});
-  final String apiKey;
+  final String? apiKey;
   final String? variant;
 
   /// Generate a commit message based on the git diff
