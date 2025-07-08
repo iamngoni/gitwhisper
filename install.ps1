@@ -1,39 +1,32 @@
 # Check for admin privileges
 $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-
 if (-not $IsAdmin) {
   Write-Error "❌ Please run this script as Administrator."
   exit 1
 }
 
-param (
-  [string]$Version = "latest"
-)
-
 $repo = "iamngoni/gitwhisper"
 $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
 
-# Determine latest version
-if ($Version -eq "latest") {
-  try {
-    Write-Host "📡 Fetching latest release..."
-    $headers = @{ 'User-Agent' = 'gitwhisper-installer' }
-    $latest = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-    $Version = $latest.tag_name
-    Write-Host "📦 Latest version: $Version"
-  } catch {
-    Write-Error "❌ Failed to fetch latest release. Please specify a version manually."
-    exit 1
-  }
+# Get latest version tag
+try {
+  Write-Host "📡 Fetching latest release..."
+  $headers = @{ 'User-Agent' = 'gitwhisper-installer' }
+  $latest = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+  $version = $latest.tag_name
+  Write-Host "📦 Latest version: $version"
+} catch {
+  Write-Error "❌ Failed to fetch latest release."
+  exit 1
 }
 
-$downloadUrl = "https://github.com/$repo/releases/download/$Version/gitwhisper-windows.tar.gz"
+$downloadUrl = "https://github.com/$repo/releases/download/$version/gitwhisper-windows.tar.gz"
 $tmpDir = "$env:TEMP\gitwhisper-install"
 $installDir = "$env:ProgramFiles\GitWhisper"
 
-Write-Host "⬇️  Downloading GitWhisper $Version..."
+Write-Host "⬇️  Downloading GitWhisper $version..."
 
-# Clean temp
+# Prepare install dirs
 if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
 New-Item -ItemType Directory -Path $tmpDir | Out-Null
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
@@ -42,11 +35,11 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Invoke-WebRequest -Uri $downloadUrl -OutFile "$tmpDir\gitwhisper.tar.gz"
 tar -xzf "$tmpDir\gitwhisper.tar.gz" -C $tmpDir
 
-# Move binary
+# Move binaries
 Move-Item "$tmpDir\gitwhisper.exe" "$installDir\gitwhisper.exe" -Force
 Copy-Item "$installDir\gitwhisper.exe" "$installDir\gw.exe" -Force
 
-# Update system PATH if needed
+# Update system PATH if not already added
 $envPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
 if ($envPath -notlike "*$installDir*") {
   [Environment]::SetEnvironmentVariable("Path", "$envPath;$installDir", [EnvironmentVariableTarget]::Machine)
