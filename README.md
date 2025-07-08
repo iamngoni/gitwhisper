@@ -12,6 +12,10 @@ Git Whisper is an AI-powered Git commit message generator that whispers the perf
 
 ---
 
+[Be nice and buy me a coffee alright or matcha 🤣](https://www.buymeacoffee.com/modestnerd)
+
+---
+
 ## Getting Started 🚀
 
 If you have `Dart` installed, activate globally via:
