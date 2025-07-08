@@ -1,3 +1,6 @@
+## 0.0.57
+- Make gitwhisper available on all platforms through various installation channels
+
 ## 0.0.53
 - fix: 🐛 Fix API key to be optional
 

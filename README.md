@@ -45,6 +45,11 @@ Or directly with curl:
 curl -sSL https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.sh | bash
 ```
 
+Or on the beloved Windows using Powershell (as Administrator):
+```bash
+irm https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.ps1 | iex
+```
+
 Or download the executable binary for your operating system directly [here.](https://github.com/iamngoni/gitwhisper/releases)
 
 ## Features
