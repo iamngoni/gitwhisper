@@ -45,7 +45,7 @@ tar -xzf "$tmpDir\gitwhisper.tar.gz" -C $tmpDir
 Move-Item "$tmpDir\gitwhisper.exe" "$installDir\gitwhisper.exe" -Force
 Copy-Item "$installDir\gitwhisper.exe" "$installDir\gw.exe" -Force
 
-# Add to PATH if needed
+# Add to PATH if not already present
 $envPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
 if ($envPath -notlike "*$installDir*") {
   [Environment]::SetEnvironmentVariable("Path", "$envPath;$installDir", [EnvironmentVariableTarget]::Machine)
