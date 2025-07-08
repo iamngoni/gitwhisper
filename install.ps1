@@ -1,7 +1,10 @@
 # Check for admin privileges
 $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 if (-not $IsAdmin) {
-  Write-Error "❌ Please run this script as Administrator."
+  Write-Host "`n❌ Please run this script as Administrator.`n" -ForegroundColor Red
+  Write-Host "Right-click on PowerShell and select 'Run as administrator'."
+  Write-Host "`nPress any key to exit..."
+  $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
   exit 1
 }
 
