@@ -1,8 +1,9 @@
-# Relaunch as admin if not elevated
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-  $args = "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`""
-  Start-Process powershell.exe -Verb RunAs -ArgumentList $args
-  exit
+# Check for admin privileges
+$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+
+if (-not $IsAdmin) {
+  Write-Error "❌ Please run this script as Administrator."
+  exit 1
 }
 
 param (
@@ -12,7 +13,7 @@ param (
 $repo = "iamngoni/gitwhisper"
 $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
 
-# Determine version if "latest"
+# Determine latest version
 if ($Version -eq "latest") {
   try {
     Write-Host "📡 Fetching latest release..."
@@ -32,7 +33,7 @@ $installDir = "$env:ProgramFiles\GitWhisper"
 
 Write-Host "⬇️  Downloading GitWhisper $Version..."
 
-# Create folders
+# Clean temp
 if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
 New-Item -ItemType Directory -Path $tmpDir | Out-Null
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
@@ -45,7 +46,7 @@ tar -xzf "$tmpDir\gitwhisper.tar.gz" -C $tmpDir
 Move-Item "$tmpDir\gitwhisper.exe" "$installDir\gitwhisper.exe" -Force
 Copy-Item "$installDir\gitwhisper.exe" "$installDir\gw.exe" -Force
 
-# Add to PATH if not already present
+# Update system PATH if needed
 $envPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
 if ($envPath -notlike "*$installDir*") {
   [Environment]::SetEnvironmentVariable("Path", "$envPath;$installDir", [EnvironmentVariableTarget]::Machine)
