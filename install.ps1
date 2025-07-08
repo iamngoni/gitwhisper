@@ -1,3 +1,10 @@
+# Relaunch as admin if not elevated
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+  Write-Host "🛡️  Elevating to administrator..."
+  Start-Process powershell.exe "-ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+  exit
+}
+
 param (
   [string]$Version = "latest"
 )
