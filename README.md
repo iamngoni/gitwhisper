@@ -40,6 +40,11 @@ sudo apt update
 sudo apt install gitwhisper
 ```
 
+Or directly with curl:
+```bash
+curl -sSL https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.sh | bash
+```
+
 Or download the executable binary for your operating system directly [here.](https://github.com/iamngoni/gitwhisper/releases)
 
 ## Features
