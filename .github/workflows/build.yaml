@@ -59,8 +59,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           version=${GITHUB_REF_NAME#v}
+
           mkdir -p deb/usr/local/bin
           cp gitwhisper deb/usr/local/bin/
+          ln -s /usr/local/bin/gitwhisper deb/usr/local/bin/gw
+
           mkdir -p deb/DEBIAN
           cat <<EOF > deb/DEBIAN/control
           Package: gitwhisper
@@ -69,7 +72,7 @@ jobs:
           Priority: optional
           Architecture: amd64
           Maintainer: Ngonidzashe Mangudya <you@example.com>
-          Description: AI-assisted Git commit CLI
+          Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
           EOF
 
           dpkg-deb --build deb
