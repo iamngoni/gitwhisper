@@ -1,3 +1,6 @@
+## 0.0.58
+- chore: 🔧 Update documentation
+
 ## 0.0.57
 - Make gitwhisper available on all platforms through various installation channels
 
