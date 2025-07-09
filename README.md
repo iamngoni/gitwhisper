@@ -123,6 +123,10 @@ gw set-defaults --model claude
 gitwhisper set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 gw set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 
+# Show current defaults
+gitwhisper show-defaults
+gw show-defaults
+
 # Clear defaults
 gitwhisper clear-defaults
 gw clear-defaults
@@ -150,6 +154,7 @@ GitWhisper uses a command-based structure:
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
 - `set-defaults`: Set default model and variant for future use (supports --base-url for Ollama)
+- `show-defaults`: Display current default settings
 - `clear-defaults`: Clear any set default preferences
 
 ## API Keys
