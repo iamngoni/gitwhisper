@@ -73,6 +73,7 @@ Or download the executable binary for your operating system directly [here.](htt
     - Grok (xAI)
     - Llama (Meta)
     - Deepseek (DeepSeek, Inc.)
+    - All Ollama models
 
 ## Usage
 
