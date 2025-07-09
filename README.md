@@ -111,9 +111,17 @@ gw list-variants --model claude
 gitwhisper save-key --model claude --key "your-claude-key"
 gw save-key --model claude --key "your-claude-key"
 
-# Set defaults
+# Set defaults (model is required, model-variant is optional)
 gitwhisper set-defaults --model openai --model-variant gpt-4o
 gw set-defaults --model openai --model-variant gpt-4o
+
+# Set just the default model (without variant)
+gitwhisper set-defaults --model claude
+gw set-defaults --model claude
+
+# Set defaults for Ollama with custom base URL
+gitwhisper set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
+gw set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 
 # Clear defaults
 gitwhisper clear-defaults
@@ -141,7 +149,7 @@ GitWhisper uses a command-based structure:
 - `list-variants`: Show available variants for each AI model
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
-- `set-defaults`: Set default model and variant for future use
+- `set-defaults`: Set default model and variant for future use (supports --base-url for Ollama)
 - `clear-defaults`: Clear any set default preferences
 
 ## API Keys
