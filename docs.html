@@ -1,0 +1,1865 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>GitWhisper Documentation - Complete Setup Guide</title>
+        <meta
+            name="description"
+            content="Complete documentation for GitWhisper - AI-powered Git commit message generator. Setup guides, API keys, and detailed usage instructions."
+        />
+        <meta
+            name="keywords"
+            content="git, commit, ai, documentation, setup, api keys, guide"
+        />
+
+        <!-- Open Graph Meta Tags -->
+        <meta
+            property="og:title"
+            content="GitWhisper Documentation - Complete Setup Guide"
+        />
+        <meta
+            property="og:description"
+            content="Complete setup guide for GitWhisper including API key configuration, usage examples, and troubleshooting."
+        />
+        <meta property="og:type" content="website" />
+        <meta
+            property="og:url"
+            content="https://iamngoni.github.io/gitwhisper/docs.html"
+        />
+
+        <!-- Favicon -->
+        <link
+            rel="icon"
+            href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>"
+        />
+
+        <!-- CSS Libraries -->
+        <link
+            href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+            rel="stylesheet"
+        />
+        <link
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+            rel="stylesheet"
+        />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+            rel="stylesheet"
+        />
+
+        <!-- Custom Styles -->
+        <style>
+            :root {
+                --primary: #6366f1;
+                --primary-dark: #4f46e5;
+                --secondary: #8b5cf6;
+                --accent: #06b6d4;
+                --dark: #0f172a;
+                --gray-dark: #1e293b;
+                --gray-medium: #475569;
+                --gray-light: #f1f5f9;
+                --success: #10b981;
+                --warning: #f59e0b;
+                --error: #ef4444;
+            }
+
+            * {
+                font-family: "Inter", sans-serif;
+            }
+
+            .font-mono {
+                font-family: "JetBrains Mono", monospace;
+            }
+
+            .gradient-bg {
+                background: linear-gradient(
+                    135deg,
+                    var(--primary) 0%,
+                    var(--secondary) 100%
+                );
+            }
+
+            .gradient-text {
+                background: linear-gradient(
+                    135deg,
+                    var(--primary),
+                    var(--secondary)
+                );
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+
+            .docs-nav {
+                position: sticky;
+                top: 80px;
+                max-height: calc(100vh - 100px);
+                overflow-y: auto;
+            }
+
+            .docs-content {
+                scroll-behavior: smooth;
+            }
+
+            .docs-content h2,
+            .docs-content h3,
+            .docs-content h4 {
+                scroll-margin-top: 100px;
+            }
+
+            .code-block {
+                background: var(--dark);
+                border-radius: 12px;
+                padding: 1.5rem;
+                position: relative;
+                overflow-x: auto;
+            }
+
+            .code-block::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(
+                    90deg,
+                    #ff6b6b,
+                    #4ecdc4,
+                    #45b7d1,
+                    #96ceb4
+                );
+            }
+
+            .copy-btn {
+                position: absolute;
+                top: 1rem;
+                right: 1rem;
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                color: white;
+                padding: 0.5rem;
+                border-radius: 0.5rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .copy-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+
+            .nav-link {
+                transition: all 0.3s ease;
+                border-left: 3px solid transparent;
+                padding: 0.75rem 1rem;
+                cursor: pointer;
+                border-radius: 0.5rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .nav-link:hover,
+            .nav-link.active {
+                border-left-color: var(--primary);
+                background: rgba(99, 102, 241, 0.1);
+                color: var(--primary);
+            }
+
+            .tab-content {
+                display: none !important;
+            }
+
+            .tab-content.active {
+                display: block !important;
+            }
+
+            .alert {
+                border-radius: 12px;
+                padding: 1rem 1.5rem;
+                margin: 1.5rem 0;
+                border-left: 4px solid;
+            }
+
+            .alert-info {
+                background: rgba(6, 182, 212, 0.1);
+                border-color: var(--accent);
+                color: #0891b2;
+            }
+
+            .alert-warning {
+                background: rgba(245, 158, 11, 0.1);
+                border-color: var(--warning);
+                color: #d97706;
+            }
+
+            .alert-success {
+                background: rgba(16, 185, 129, 0.1);
+                border-color: var(--success);
+                color: #059669;
+            }
+
+            .alert-error {
+                background: rgba(239, 68, 68, 0.1);
+                border-color: var(--error);
+                color: #dc2626;
+            }
+
+            .step-card {
+                background: white;
+                border-radius: 12px;
+                padding: 2rem;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                border: 1px solid #e5e7eb;
+                margin-bottom: 2rem;
+                transition: all 0.3s ease;
+            }
+
+            .step-card:hover {
+                box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+                transform: translateY(-2px);
+            }
+
+            .step-number {
+                background: var(--primary);
+                color: white;
+                width: 2.5rem;
+                height: 2.5rem;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                margin-bottom: 1rem;
+            }
+
+            .breadcrumb {
+                background: rgba(99, 102, 241, 0.1);
+                padding: 1rem 1.5rem;
+                border-radius: 12px;
+                margin-bottom: 2rem;
+            }
+
+            .table-container {
+                overflow-x: auto;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            }
+
+            .docs-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .docs-table th,
+            .docs-table td {
+                padding: 1rem;
+                text-align: left;
+                border-bottom: 1px solid #e5e7eb;
+            }
+
+            .docs-table th {
+                background: #f9fafb;
+                font-weight: 600;
+                color: #374151;
+            }
+
+            .docs-table tbody tr:hover {
+                background: #f9fafb;
+            }
+
+            .scroll-indicator {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 4px;
+                background: rgba(99, 102, 241, 0.2);
+                z-index: 1000;
+            }
+
+            .scroll-progress {
+                height: 100%;
+                background: linear-gradient(
+                    90deg,
+                    var(--primary),
+                    var(--secondary)
+                );
+                width: 0%;
+                transition: width 0.1s ease;
+            }
+
+            @media (max-width: 1024px) {
+                .docs-nav {
+                    position: static;
+                    max-height: none;
+                    margin-bottom: 2rem;
+                }
+
+                .grid.lg\\:grid-cols-4 {
+                    grid-template-columns: 1fr;
+                    gap: 1.5rem;
+                }
+            }
+
+            @media (max-width: 768px) {
+                .step-card {
+                    padding: 1.5rem;
+                    margin-bottom: 1.5rem;
+                }
+
+                .code-block {
+                    padding: 1rem;
+                    overflow-x: auto;
+                }
+
+                .docs-content h2,
+                .docs-content h3,
+                .docs-content h4 {
+                    scroll-margin-top: 120px;
+                }
+
+                .grid {
+                    grid-template-columns: 1fr !important;
+                    gap: 1rem !important;
+                }
+
+                .docs-table {
+                    font-size: 0.875rem;
+                }
+
+                .docs-table th,
+                .docs-table td {
+                    padding: 0.75rem;
+                }
+
+                .breadcrumb {
+                    padding: 0.75rem 1rem;
+                }
+
+                .alert {
+                    padding: 1rem;
+                    margin: 1rem 0;
+                }
+            }
+
+            @media (max-width: 640px) {
+                .step-card {
+                    padding: 1rem;
+                }
+
+                .code-block {
+                    padding: 0.75rem;
+                    font-size: 0.875rem;
+                }
+
+                .copy-btn {
+                    padding: 0.25rem;
+                    font-size: 0.75rem;
+                }
+
+                .step-number {
+                    width: 2rem;
+                    height: 2rem;
+                    font-size: 0.875rem;
+                }
+            }
+        </style>
+    </head>
+    <body class="bg-gray-50">
+        <!-- Scroll Progress Indicator -->
+        <div class="scroll-indicator">
+            <div class="scroll-progress" id="scrollProgress"></div>
+        </div>
+
+        <!-- Navigation -->
+        <nav
+            class="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-200"
+        >
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center space-x-4">
+                        <a
+                            href="index.html"
+                            class="flex items-center space-x-2"
+                        >
+                            <span class="text-2xl">🔮</span>
+                            <span class="text-xl font-bold gradient-text"
+                                >GitWhisper</span
+                            >
+                        </a>
+                        <span class="text-gray-400">/</span>
+                        <span class="text-gray-600 font-medium">Docs</span>
+                    </div>
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <a
+                            href="index.html"
+                            class="text-gray-600 hover:text-indigo-600 transition-colors text-sm sm:text-base"
+                        >
+                            <i class="fas fa-home mr-1"></i>
+                            <span class="hidden sm:inline">Home</span>
+                        </a>
+                        <a
+                            href="https://github.com/iamngoni/gitwhisper"
+                            target="_blank"
+                            class="text-gray-600 hover:text-indigo-600 transition-colors"
+                        >
+                            <i class="fab fa-github text-lg sm:text-xl"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="pt-16">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <!-- Breadcrumb -->
+                <div class="breadcrumb">
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol class="flex items-center space-x-2">
+                            <li>
+                                <a
+                                    href="index.html"
+                                    class="text-indigo-600 hover:text-indigo-800"
+                                >
+                                    Home
+                                </a>
+                            </li>
+                            <li>
+                                <span class="text-gray-400">/</span>
+                            </li>
+                            <li>
+                                <span class="text-gray-600 font-medium"
+                                    >Documentation</span
+                                >
+                            </li>
+                        </ol>
+                    </nav>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
+                    <!-- Sidebar Navigation -->
+                    <div class="lg:col-span-1 mb-8 lg:mb-0">
+                        <div
+                            class="docs-nav bg-white rounded-lg p-4 lg:p-0 lg:bg-transparent shadow-md lg:shadow-none"
+                        >
+                            <h3
+                                class="text-lg font-semibold text-gray-900 mb-4"
+                            >
+                                Table of Contents
+                            </h3>
+                            <nav class="space-y-2">
+                                <div
+                                    class="nav-link active block text-gray-600 hover:text-indigo-600"
+                                    data-tab="getting-started"
+                                >
+                                    Getting Started
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="installation"
+                                >
+                                    Installation
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="api-keys"
+                                >
+                                    API Keys Setup
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="first-commit"
+                                >
+                                    Your First Commit
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="configuration"
+                                >
+                                    Configuration
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="ai-models"
+                                >
+                                    AI Models
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="advanced-usage"
+                                >
+                                    Advanced Usage
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="troubleshooting"
+                                >
+                                    Troubleshooting
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="examples"
+                                >
+                                    Examples
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="faq"
+                                >
+                                    FAQ
+                                </div>
+                            </nav>
+                        </div>
+                    </div>
+
+                    <!-- Main Documentation Content -->
+                    <div class="lg:col-span-3 docs-content">
+                        <!-- Getting Started -->
+                        <div
+                            id="getting-started"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <!-- Header -->
+                            <div class="mb-12">
+                                <h1
+                                    class="text-4xl md:text-5xl font-bold text-gray-900 mb-4"
+                                >
+                                    GitWhisper
+                                    <span class="gradient-text"
+                                        >Documentation</span
+                                    >
+                                </h1>
+                                <p class="text-xl text-gray-600 max-w-3xl">
+                                    Complete guide to setting up and using
+                                    GitWhisper - the AI-powered Git commit
+                                    message generator that whispers the perfect
+                                    commit message for your changes.
+                                </p>
+                            </div>
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-rocket text-indigo-600 mr-3"
+                                ></i>
+                                Getting Started
+                            </h2>
+
+                            <div class="alert alert-info">
+                                <div class="flex items-start">
+                                    <i
+                                        class="fas fa-info-circle text-xl mr-3 mt-1"
+                                    ></i>
+                                    <div>
+                                        <strong>Prerequisites:</strong> Make
+                                        sure you have Git installed and are in a
+                                        Git repository. You'll also need an API
+                                        key from at least one AI provider.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="text-gray-600 mb-6">
+                                GitWhisper analyzes your staged Git changes and
+                                uses AI to generate meaningful commit messages
+                                following conventional commit format with
+                                emojis. It supports multiple AI models including
+                                OpenAI GPT, Claude, Gemini, and more.
+                            </p>
+
+                            <div
+                                class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8"
+                            >
+                                <div
+                                    class="text-center p-6 bg-white rounded-lg shadow-md"
+                                >
+                                    <i
+                                        class="fas fa-download text-3xl text-indigo-600 mb-4"
+                                    ></i>
+                                    <h3 class="text-lg font-semibold mb-2">
+                                        1. Install
+                                    </h3>
+                                    <p class="text-gray-600 text-sm">
+                                        Choose your preferred installation
+                                        method
+                                    </p>
+                                </div>
+                                <div
+                                    class="text-center p-6 bg-white rounded-lg shadow-md"
+                                >
+                                    <i
+                                        class="fas fa-key text-3xl text-indigo-600 mb-4"
+                                    ></i>
+                                    <h3 class="text-lg font-semibold mb-2">
+                                        2. Setup API Key
+                                    </h3>
+                                    <p class="text-gray-600 text-sm">
+                                        Configure your AI provider credentials
+                                    </p>
+                                </div>
+                                <div
+                                    class="text-center p-6 bg-white rounded-lg shadow-md"
+                                >
+                                    <i
+                                        class="fas fa-magic text-3xl text-indigo-600 mb-4"
+                                    ></i>
+                                    <h3 class="text-lg font-semibold mb-2">
+                                        3. Generate Commits
+                                    </h3>
+                                    <p class="text-gray-600 text-sm">
+                                        Let AI create perfect commit messages
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Installation -->
+                        <div
+                            id="installation"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-download text-indigo-600 mr-3"
+                                ></i>
+                                Installation
+                            </h2>
+
+                            <div class="space-y-6">
+                                <!-- Dart Installation -->
+                                <div class="step-card">
+                                    <div class="step-number">1</div>
+                                    <h3 class="text-xl font-semibold mb-3">
+                                        Dart Package Manager (Recommended)
+                                    </h3>
+                                    <p class="text-gray-600 mb-4">
+                                        If you have Dart installed, this is the
+                                        easiest method:
+                                    </p>
+                                    <div class="code-block">
+                                        <button
+                                            class="copy-btn"
+                                            data-copy="dart pub global activate gitwhisper"
+                                        >
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code>dart pub global activate gitwhisper</code></pre>
+                                    </div>
+                                </div>
+
+                                <!-- Homebrew Installation -->
+                                <div class="step-card">
+                                    <div class="step-number">2</div>
+                                    <h3 class="text-xl font-semibold mb-3">
+                                        Homebrew (macOS)
+                                    </h3>
+                                    <p class="text-gray-600 mb-4">
+                                        For macOS users with Homebrew:
+                                    </p>
+                                    <div class="code-block">
+                                        <button
+                                            class="copy-btn"
+                                            data-copy="brew tap iamngoni/homebrew-gitwhisper && brew install gitwhisper"
+                                        >
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code>brew tap iamngoni/homebrew-gitwhisper
+brew install gitwhisper</code></pre>
+                                    </div>
+                                </div>
+
+                                <!-- APT Installation -->
+                                <div class="step-card">
+                                    <div class="step-number">3</div>
+                                    <h3 class="text-xl font-semibold mb-3">
+                                        APT (Debian/Ubuntu)
+                                    </h3>
+                                    <p class="text-gray-600 mb-4">
+                                        For Debian-based Linux distributions:
+                                    </p>
+                                    <div class="code-block">
+                                        <button
+                                            class="copy-btn"
+                                            data-copy="echo 'deb [trusted=yes] https://iamngoni.github.io/gitwhisper-apt stable main' | sudo tee /etc/apt/sources.list.d/gitwhisper.list && sudo apt update && sudo apt install gitwhisper"
+                                        >
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code>echo "deb [trusted=yes] https://iamngoni.github.io/gitwhisper-apt stable main" | sudo tee /etc/apt/sources.list.d/gitwhisper.list
+sudo apt update
+sudo apt install gitwhisper</code></pre>
+                                    </div>
+                                </div>
+
+                                <!-- Direct Download -->
+                                <div class="step-card">
+                                    <div class="step-number">4</div>
+                                    <h3 class="text-xl font-semibold mb-3">
+                                        Direct Download
+                                    </h3>
+                                    <p class="text-gray-600 mb-4">
+                                        Download pre-compiled binaries for your
+                                        operating system:
+                                    </p>
+                                    <a
+                                        href="https://github.com/iamngoni/gitwhisper/releases"
+                                        target="_blank"
+                                        class="inline-flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors"
+                                    >
+                                        <i class="fas fa-download"></i>
+                                        <span>Download Latest Release</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-success mt-6">
+                                <div class="flex items-start">
+                                    <i
+                                        class="fas fa-check-circle text-xl mr-3 mt-1"
+                                    ></i>
+                                    <div>
+                                        <strong>Verify Installation:</strong>
+                                        Run
+                                        <code
+                                            class="bg-gray-200 px-2 py-1 rounded font-mono text-sm"
+                                            >gitwhisper --version</code
+                                        >
+                                        to confirm the installation was
+                                        successful.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- API Keys Setup -->
+                        <div
+                            id="api-keys"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i class="fas fa-key text-indigo-600 mr-3"></i>
+                                API Keys Setup
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                GitWhisper requires an API key from at least one
+                                AI provider. Here's how to get and configure API
+                                keys for each supported provider:
+                            </p>
+
+                            <!-- OpenAI -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fas fa-brain text-green-600 mr-2"
+                                    ></i>
+                                    OpenAI (GPT Models)
+                                </h3>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Getting Your API Key:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>
+                                            Visit
+                                            <a
+                                                href="https://platform.openai.com/api-keys"
+                                                target="_blank"
+                                                class="text-indigo-600 hover:underline"
+                                                >OpenAI API Keys</a
+                                            >
+                                        </li>
+                                        <li>Sign in or create an account</li>
+                                        <li>Click "Create new secret key"</li>
+                                        <li>
+                                            Copy the generated key (it starts
+                                            with 'sk-')
+                                        </li>
+                                    </ol>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Setting Up the Key:
+                                    </h4>
+                                    <div class="code-block">
+                                        <button
+                                            class="copy-btn"
+                                            data-copy="gitwhisper save-key --model openai --key 'your-openai-key'"
+                                        >
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code># Save API key permanently
+gitwhisper save-key --model openai --key "your-openai-key"
+
+# Or set as environment variable
+export OPENAI_API_KEY="your-openai-key"</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-warning">
+                                    <div class="flex items-start">
+                                        <i
+                                            class="fas fa-exclamation-triangle text-xl mr-3 mt-1"
+                                        ></i>
+                                        <div>
+                                            <strong>Note:</strong> OpenAI
+                                            requires a paid account with
+                                            credits. Free tier accounts cannot
+                                            access the API.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Claude -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fas fa-robot text-purple-600 mr-2"
+                                    ></i>
+                                    Anthropic Claude
+                                </h3>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Getting Your API Key:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>
+                                            Visit
+                                            <a
+                                                href="https://console.anthropic.com/"
+                                                target="_blank"
+                                                class="text-indigo-600 hover:underline"
+                                                >Anthropic Console</a
+                                            >
+                                        </li>
+                                        <li>
+                                            Create an account and verify your
+                                            phone number
+                                        </li>
+                                        <li>Go to "API Keys" section</li>
+                                        <li>Click "Create Key" and copy it</li>
+                                    </ol>
+                                </div>
+
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper save-key --model claude --key 'your-claude-key'"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Save API key permanently
+gitwhisper save-key --model claude --key "your-claude-key"
+
+# Or set as environment variable
+export ANTHROPIC_API_KEY="your-claude-key"</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Gemini -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fas fa-gem text-blue-600 mr-2"
+                                    ></i>
+                                    Google Gemini
+                                </h3>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Getting Your API Key:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>
+                                            Visit
+                                            <a
+                                                href="https://aistudio.google.com/app/apikey"
+                                                target="_blank"
+                                                class="text-indigo-600 hover:underline"
+                                                >Google AI Studio</a
+                                            >
+                                        </li>
+                                        <li>
+                                            Sign in with your Google account
+                                        </li>
+                                        <li>Click "Create API Key"</li>
+                                        <li>Copy the generated key</li>
+                                    </ol>
+                                </div>
+
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper save-key --model gemini --key 'your-gemini-key'"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Save API key permanently
+gitwhisper save-key --model gemini --key "your-gemini-key"
+
+# Or set as environment variable
+export GEMINI_API_KEY="your-gemini-key"</code></pre>
+                                </div>
+
+                                <div class="alert alert-success">
+                                    <div class="flex items-start">
+                                        <i
+                                            class="fas fa-check-circle text-xl mr-3 mt-1"
+                                        ></i>
+                                        <div>
+                                            <strong
+                                                >Great for beginners:</strong
+                                            >
+                                            Gemini offers a generous free tier,
+                                            making it perfect for getting
+                                            started with GitWhisper.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- GitHub Models -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fab fa-github text-gray-600 mr-2"
+                                    ></i>
+                                    GitHub Models (Free)
+                                </h3>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Getting Your Token:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>
+                                            Go to
+                                            <a
+                                                href="https://github.com/settings/tokens"
+                                                target="_blank"
+                                                class="text-indigo-600 hover:underline"
+                                                >GitHub Personal Access
+                                                Tokens</a
+                                            >
+                                        </li>
+                                        <li>
+                                            Click "Generate new token (classic)"
+                                        </li>
+                                        <li>
+                                            Select appropriate scopes (no
+                                            special scopes needed for model
+                                            access)
+                                        </li>
+                                        <li>Copy the generated token</li>
+                                    </ol>
+                                </div>
+
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper save-key --model github --key 'your-github-token'"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Save GitHub token permanently
+gitwhisper save-key --model github --key "your-github-token"</code></pre>
+                                </div>
+
+                                <div class="alert alert-info">
+                                    <div class="flex items-start">
+                                        <i
+                                            class="fas fa-info-circle text-xl mr-3 mt-1"
+                                        ></i>
+                                        <div>
+                                            <strong>Free to use:</strong> GitHub
+                                            Models are free but rate-limited.
+                                            Perfect for trying out GitWhisper
+                                            without any costs.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Your First Commit -->
+                        <div
+                            id="first-commit"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-magic text-indigo-600 mr-3"
+                                ></i>
+                                Your First Commit
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                Now that you have GitWhisper installed and your
+                                API key configured, let's create your first
+                                AI-generated commit message.
+                            </p>
+
+                            <div class="step-card">
+                                <div class="step-number">1</div>
+                                <h3 class="text-xl font-semibold mb-3">
+                                    Stage Your Changes
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    First, make some changes to your files and
+                                    stage them:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="git add ."
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Stage all changes
+git add .
+
+# Or stage specific files
+git add src/main.dart
+git add README.md</code></pre>
+                                </div>
+                            </div>
+
+                            <div class="step-card">
+                                <div class="step-number">2</div>
+                                <h3 class="text-xl font-semibold mb-3">
+                                    Generate Commit Message
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Use GitWhisper to analyze your changes and
+                                    generate a commit message:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper commit --model gemini"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Generate commit with Gemini (free option)
+gitwhisper commit --model gemini
+
+# Or use the shorthand
+gw commit --model gemini
+
+# Or just use defaults if configured
+gw</code></pre>
+                                </div>
+                            </div>
+
+                            <div class="step-card">
+                                <div class="step-number">3</div>
+                                <h3 class="text-xl font-semibold mb-3">
+                                    Review and Commit
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    GitWhisper will analyze your changes and
+                                    present a commit message for review:
+                                </p>
+                                <div class="code-block">
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code>🔮 Analyzing your changes...
+✨ Generated commit message:
+feat: ✨ Add user authentication system
+
+Apply this commit message? (y/n): y
+
+✅ Commit created successfully!</code></pre>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-success">
+                                <div class="flex items-start">
+                                    <i
+                                        class="fas fa-party-horn text-xl mr-3 mt-1"
+                                    ></i>
+                                    <div>
+                                        <strong>Congratulations!</strong> You've
+                                        just created your first AI-generated
+                                        commit message. GitWhisper analyzed your
+                                        changes and created a conventional
+                                        commit with appropriate emoji and
+                                        description.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Configuration -->
+                        <div
+                            id="configuration"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i class="fas fa-cog text-indigo-600 mr-3"></i>
+                                Configuration
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                Configure GitWhisper to match your preferences
+                                and workflow. All settings are stored in
+                                <code
+                                    class="bg-gray-200 px-2 py-1 rounded font-mono text-sm"
+                                    >~/.git_whisper.yaml</code
+                                >.
+                            </p>
+
+                            <!-- Set Defaults -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Set Default Model
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Save your preferred AI model and variant to
+                                    avoid specifying them every time:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper set-defaults --model gemini --model-variant gemini-2.0-flash"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Set default model and variant
+gitwhisper set-defaults --model gemini --model-variant gemini-2.0-flash
+
+# Set default model only
+gw set-defaults --model claude
+
+# For Ollama with custom URL
+gw set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Always Stage -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Auto-Stage Changes
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Configure GitWhisper to automatically stage
+                                    changes before generating commit messages:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper always-add true"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Enable auto-staging
+gitwhisper always-add true
+
+# Disable auto-staging
+gw always-add false</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- View Configuration -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    View Current Settings
+                                </h3>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper show-defaults"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Show current defaults
+gitwhisper show-defaults
+
+# Clear all defaults
+gw clear-defaults</code></pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AI Models -->
+                        <div
+                            id="ai-models"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-brain text-indigo-600 mr-3"
+                                ></i>
+                                AI Models & Variants
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                GitWhisper supports multiple AI models, each
+                                with different variants optimized for various
+                                use cases.
+                            </p>
+
+                            <!-- Model Overview Table -->
+                            <div class="table-container mb-8">
+                                <table class="docs-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Provider</th>
+                                            <th>Model</th>
+                                            <th>Cost</th>
+                                            <th>Best For</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Google</td>
+                                            <td>Gemini</td>
+                                            <td>Free (generous limits)</td>
+                                            <td>Getting started</td>
+                                        </tr>
+                                        <tr>
+                                            <td>GitHub</td>
+                                            <td>Various</td>
+                                            <td>Free (rate limited)</td>
+                                            <td>Experimentation</td>
+                                        </tr>
+                                        <tr>
+                                            <td>OpenAI</td>
+                                            <td>GPT-4, GPT-4o</td>
+                                            <td>Paid</td>
+                                            <td>High quality results</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Anthropic</td>
+                                            <td>Claude 3</td>
+                                            <td>Paid</td>
+                                            <td>Detailed analysis</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Ollama</td>
+                                            <td>Self-hosted</td>
+                                            <td>Free (your hardware)</td>
+                                            <td>Privacy & control</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- List Available Models -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Explore Available Models
+                                </h3>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper list-models"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># List all available models
+gitwhisper list-models
+
+# List variants for a specific model
+gw list-variants --model openai</code></pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced Usage -->
+                        <div
+                            id="advanced-usage"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-rocket text-indigo-600 mr-3"
+                                ></i>
+                                Advanced Usage
+                            </h2>
+
+                            <!-- Ticket Prefixes -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Ticket Number Prefixes
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Add ticket numbers or task IDs to your
+                                    commit messages:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper commit --prefix 'JIRA-123'"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Add ticket prefix
+gitwhisper commit --prefix "JIRA-123"
+
+# Result: fix: 🐛 JIRA-123 -> Fix login validation bug</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Auto Push -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Automatic Push
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Automatically push commits to remote
+                                    repository:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper commit --auto-push"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Commit and push in one command
+gitwhisper commit --auto-push
+
+# Shorthand
+gw commit -a</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Code Analysis -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Code Analysis
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Get detailed analysis and suggestions for
+                                    your code changes:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper analyze"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Analyze staged changes
+gitwhisper analyze
+
+# Analyze with specific model
+gw analyze --model claude</code></pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Troubleshooting -->
+                        <div
+                            id="troubleshooting"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-wrench text-indigo-600 mr-3"
+                                ></i>
+                                Troubleshooting
+                            </h2>
+
+                            <!-- Common Issues -->
+                            <div class="space-y-6">
+                                <div class="step-card">
+                                    <h3
+                                        class="text-xl font-semibold mb-3 text-red-600"
+                                    >
+                                        <i
+                                            class="fas fa-exclamation-triangle mr-2"
+                                        ></i>
+                                        "No staged changes found"
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        <strong>Problem:</strong> GitWhisper
+                                        requires staged changes to analyze.
+                                    </p>
+                                    <p class="text-gray-600 mb-4">
+                                        <strong>Solution:</strong>
+                                    </p>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code># Stage your changes first
+git add .
+
+# Then run GitWhisper
+gitwhisper commit</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3
+                                        class="text-xl font-semibold mb-3 text-red-600"
+                                    >
+                                        <i
+                                            class="fas fa-exclamation-triangle mr-2"
+                                        ></i>
+                                        "API key not found"
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        <strong>Problem:</strong> No API key
+                                        configured for the selected model.
+                                    </p>
+                                    <p class="text-gray-600 mb-4">
+                                        <strong>Solutions:</strong>
+                                    </p>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white"
+                                        ><code># Save API key permanently
+gitwhisper save-key --model openai --key "your-key"
+
+# Or provide key inline
+gitwhisper commit --model openai --key "your-key"
+
+# Or set environment variable
+export OPENAI_API_KEY="your-key"</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3
+                                        class="text-xl font-semibold mb-3 text-red-600"
+                                    >
+                                        <i
+                                            class="fas fa-exclamation-triangle mr-2"
+                                        ></i>
+                                        "Rate limit exceeded"
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        <strong>Problem:</strong> You've hit the
+                                        API rate limits.
+                                    </p>
+                                    <p class="text-gray-600 mb-4">
+                                        <strong>Solutions:</strong>
+                                    </p>
+                                    <ul
+                                        class="list-disc list-inside text-gray-600 space-y-1"
+                                    >
+                                        <li>
+                                            Wait a few minutes and try again
+                                        </li>
+                                        <li>Switch to a different AI model</li>
+                                        <li>
+                                            Upgrade your API plan if using a
+                                            paid service
+                                        </li>
+                                        <li>
+                                            Use GitHub models as a free
+                                            alternative
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Examples -->
+                        <div
+                            id="examples"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i class="fas fa-code text-indigo-600 mr-3"></i>
+                                Real Examples
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                Here are real examples of commit messages
+                                generated by GitWhisper:
+                            </p>
+
+                            <div
+                                class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6"
+                            >
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Feature Addition
+                                    </h3>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>feat: ✨ Add user authentication system
+
+- Implement JWT token generation
+- Add login/logout endpoints
+- Create user registration flow
+- Add password hashing with bcrypt</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Bug Fix
+                                    </h3>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>fix: 🐛 Resolve memory leak in image processing
+
+- Fix improper disposal of image objects
+- Add proper cleanup in finally blocks
+- Update unit tests for memory management</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Documentation
+                                    </h3>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>docs: 📚 Update API documentation
+
+- Add examples for new endpoints
+- Fix typos in authentication section
+- Update installation instructions</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Performance
+                                    </h3>
+                                    <div class="code-block">
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>perf: ⚡ Optimize database queries
+
+- Add indexes for frequently queried fields
+- Implement query result caching
+- Reduce N+1 query problems</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- FAQ -->
+                        <div
+                            id="faq"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-question-circle text-indigo-600 mr-3"
+                                ></i>
+                                Frequently Asked Questions
+                            </h2>
+
+                            <div class="space-y-6">
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Q: Which AI model should I choose?
+                                    </h3>
+                                    <p class="text-gray-600">
+                                        <strong>A:</strong> For beginners, start
+                                        with <strong>Gemini</strong> (free with
+                                        generous limits) or
+                                        <strong>GitHub models</strong> (free but
+                                        rate-limited). For production use,
+                                        <strong>OpenAI GPT-4</strong> or
+                                        <strong>Claude 3</strong> provide
+                                        excellent results.
+                                        <strong>Ollama</strong> is great if you
+                                        want complete privacy and control.
+                                    </p>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Q: Can I use GitWhisper without an
+                                        internet connection?
+                                    </h3>
+                                    <p class="text-gray-600">
+                                        <strong>A:</strong> Yes! You can use
+                                        <strong>Ollama</strong> with locally
+                                        hosted models for completely offline
+                                        operation. You'll need to install and
+                                        run Ollama with your preferred model
+                                        first.
+                                    </p>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Q: How much do the API calls cost?
+                                    </h3>
+                                    <p class="text-gray-600">
+                                        <strong>A:</strong> Costs vary by
+                                        provider. Gemini and GitHub models are
+                                        free. OpenAI and Claude are paid
+                                        services but very affordable for typical
+                                        usage - usually a few cents per month
+                                        for individual developers.
+                                    </p>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Q: Can I customize the commit message
+                                        format?
+                                    </h3>
+                                    <p class="text-gray-600">
+                                        <strong>A:</strong> GitWhisper follows
+                                        the conventional commit format with
+                                        emojis by default. The AI models are
+                                        trained to generate consistent,
+                                        well-formatted messages. For custom
+                                        formats, you can always edit the
+                                        generated message before committing.
+                                    </p>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-lg font-semibold mb-3">
+                                        Q: Is my code sent to external services?
+                                    </h3>
+                                    <p class="text-gray-600">
+                                        <strong>A:</strong> Only your git diff
+                                        (changes) are sent to the AI provider
+                                        for analysis, not your entire codebase.
+                                        If privacy is a concern, use Ollama with
+                                        local models for complete data control.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Support Section - Outside of tabs -->
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <div
+                        class="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-8 text-center"
+                    >
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">
+                            Need More Help?
+                        </h2>
+                        <p class="text-gray-600 mb-6">
+                            Can't find what you're looking for? We're here to
+                            help!
+                        </p>
+                        <div
+                            class="flex flex-col sm:flex-row gap-4 justify-center"
+                        >
+                            <a
+                                href="https://github.com/iamngoni/gitwhisper/issues"
+                                target="_blank"
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                            >
+                                <i class="fas fa-bug mr-2"></i>
+                                Report Issue
+                            </a>
+                            <a
+                                href="https://github.com/iamngoni/gitwhisper/discussions"
+                                target="_blank"
+                                class="bg-white hover:bg-gray-50 text-gray-900 px-6 py-3 rounded-lg font-semibold border border-gray-200 transition-colors"
+                            >
+                                <i class="fas fa-comments mr-2"></i>
+                                Ask Question
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JavaScript -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+        <script>
+            // Initialize syntax highlighting
+            hljs.highlightAll();
+
+            // Scroll Progress Indicator
+            window.addEventListener("scroll", () => {
+                const scrollTop = window.pageYOffset;
+                const docHeight =
+                    document.body.offsetHeight - window.innerHeight;
+                const scrollPercent = (scrollTop / docHeight) * 100;
+                document.getElementById("scrollProgress").style.width =
+                    scrollPercent + "%";
+            });
+
+            // Tab functionality
+            document.addEventListener("DOMContentLoaded", function () {
+                const navLinks = document.querySelectorAll(".nav-link");
+                const tabContents = document.querySelectorAll(".tab-content");
+
+                function showTab(tabId) {
+                    console.log("Switching to tab:", tabId);
+
+                    // First hide ALL tab contents with inline styles
+                    tabContents.forEach((tab) => {
+                        tab.style.display = "none";
+                        tab.style.visibility = "hidden";
+                        tab.classList.remove("active");
+                        console.log("Hiding tab:", tab.id);
+                    });
+
+                    // Remove active class from all nav links
+                    navLinks.forEach((link) => {
+                        link.classList.remove("active");
+                    });
+
+                    // Show ONLY the selected tab content
+                    const selectedTab = document.getElementById(tabId);
+                    if (selectedTab) {
+                        selectedTab.style.display = "block";
+                        selectedTab.style.visibility = "visible";
+                        selectedTab.classList.add("active");
+                        console.log("Showing tab:", selectedTab.id);
+                    } else {
+                        console.error("Tab not found:", tabId);
+                    }
+
+                    // Add active class to selected nav link
+                    const selectedNavLink = document.querySelector(
+                        `[data-tab="${tabId}"]`,
+                    );
+                    if (selectedNavLink) {
+                        selectedNavLink.classList.add("active");
+                    }
+
+                    // Scroll to top of content area
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+
+                // Add click event listeners to nav links
+                navLinks.forEach((link) => {
+                    link.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        const tabId = link.getAttribute("data-tab");
+                        if (tabId) {
+                            showTab(tabId);
+                        }
+                    });
+                });
+
+                // Initialize all tabs as hidden first
+                tabContents.forEach((tab) => {
+                    tab.style.display = "none";
+                    tab.style.visibility = "hidden";
+                });
+
+                // Initialize with getting-started tab after a small delay
+                setTimeout(() => {
+                    showTab("getting-started");
+                }, 200);
+
+                // Copy to clipboard functionality
+                const copyButtons = document.querySelectorAll(".copy-btn");
+                copyButtons.forEach((btn) => {
+                    btn.addEventListener("click", () => {
+                        const textToCopy = btn.dataset.copy;
+                        navigator.clipboard
+                            .writeText(textToCopy)
+                            .then(() => {
+                                // Visual feedback
+                                const originalIcon = btn.innerHTML;
+                                btn.innerHTML = '<i class="fas fa-check"></i>';
+                                btn.style.background =
+                                    "rgba(16, 185, 129, 0.2)";
+                                setTimeout(() => {
+                                    btn.innerHTML = originalIcon;
+                                    btn.style.background =
+                                        "rgba(255, 255, 255, 0.1)";
+                                }, 2000);
+                            })
+                            .catch((err) => {
+                                console.error("Failed to copy text: ", err);
+                            });
+                    });
+                });
+            });
+        </script>
+    </body>
+</html>
