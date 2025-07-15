@@ -217,6 +217,25 @@
                 .hero-title {
                     font-size: 2.5rem;
                 }
+
+                .hero-section {
+                    padding-top: 6rem;
+                }
+
+                .hero-content {
+                    margin-top: 2rem;
+                }
+            }
+
+            /* Section spacing for fixed navbar */
+            section {
+                scroll-margin-top: 80px;
+            }
+
+            @media (max-width: 768px) {
+                section {
+                    scroll-margin-top: 100px;
+                }
             }
         </style>
     </head>
@@ -282,13 +301,13 @@
 
         <!-- Hero Section -->
         <section
-            class="relative min-h-screen flex items-center justify-center overflow-hidden"
+            class="relative min-h-screen flex items-center justify-center overflow-hidden pt-20 sm:pt-16 hero-section"
         >
             <div class="absolute inset-0 gradient-bg opacity-10"></div>
             <div class="absolute inset-0 bg-grid-pattern opacity-5"></div>
 
             <div
-                class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center"
+                class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center hero-content"
             >
                 <div class="floating">
                     <h1
@@ -397,7 +416,7 @@
         </section>
 
         <!-- Features Section -->
-        <section id="features" class="py-20 bg-white">
+        <section id="features" class="py-20 bg-white pt-24 sm:pt-20">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="text-center mb-16">
                     <h2
@@ -506,7 +525,7 @@
         </section>
 
         <!-- Installation Section -->
-        <section id="installation" class="py-20 bg-gray-50">
+        <section id="installation" class="py-20 bg-gray-50 pt-24 sm:pt-20">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="text-center mb-16">
                     <h2
@@ -681,7 +700,7 @@ sudo apt install gitwhisper</code></pre>
         </section>
 
         <!-- AI Models Section -->
-        <section id="models" class="py-20 bg-white">
+        <section id="models" class="py-20 bg-white pt-24 sm:pt-20">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="text-center mb-16">
                     <h2
@@ -922,7 +941,7 @@ sudo apt install gitwhisper</code></pre>
         </section>
 
         <!-- Usage Section -->
-        <section id="usage" class="py-20 bg-gray-50">
+        <section id="usage" class="py-20 bg-gray-50 pt-24 sm:pt-20">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="text-center mb-16">
                     <h2
@@ -1489,7 +1508,9 @@ sudo apt install gitwhisper</code></pre>
                         const targetId = link.getAttribute("href").substring(1);
                         const targetElement = document.getElementById(targetId);
                         if (targetElement) {
-                            const offsetTop = targetElement.offsetTop - 80; // Account for fixed nav
+                            const isMobile = window.innerWidth <= 768;
+                            const offset = isMobile ? 100 : 80; // More offset for mobile
+                            const offsetTop = targetElement.offsetTop - offset;
                             window.scrollTo({
                                 top: offsetTop,
                                 behavior: "smooth",
