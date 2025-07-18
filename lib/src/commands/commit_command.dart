@@ -208,6 +208,9 @@ class CommitCommand extends Command<int> {
       baseUrl: ollamaBaseUrl ?? 'http://localhost:11434',
     );
 
+    // Get the language to use for commit messages
+    final language = configManager.getWhisperLanguage();
+
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
       final diff = await GitUtils.getStagedDiff();
@@ -224,6 +227,7 @@ class CommitCommand extends Command<int> {
         // Generate commit message with AI
         String commitMessage = await generator.generateCommitMessage(
           diff,
+          language,
           prefix: prefix,
         );
 
@@ -302,6 +306,7 @@ class CommitCommand extends Command<int> {
           // Generate commit message with AI
           String commitMessage = await generator.generateCommitMessage(
             diff,
+            language,
             prefix: prefix,
           );
 

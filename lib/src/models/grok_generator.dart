@@ -12,6 +12,7 @@ import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
 import 'commit_generator.dart';
+import 'language.dart';
 import 'model_variants.dart';
 
 class GrokGenerator extends CommitGenerator {
@@ -24,8 +25,12 @@ class GrokGenerator extends CommitGenerator {
   String get modelName => 'grok';
 
   @override
-  Future<String> generateCommitMessage(String diff, {String? prefix}) async {
-    final prompt = getCommitPrompt(diff, prefix: prefix);
+  Future<String> generateCommitMessage(
+    String diff,
+    Language language, {
+    String? prefix,
+  }) async {
+    final prompt = getCommitPrompt(diff, language, prefix: prefix);
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(
@@ -62,8 +67,8 @@ class GrokGenerator extends CommitGenerator {
   }
 
   @override
-  Future<String> analyzeChanges(String diff) async {
-    final prompt = getAnalysisPrompt(diff);
+  Future<String> analyzeChanges(String diff, Language language) async {
+    final prompt = getAnalysisPrompt(diff, language);
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(

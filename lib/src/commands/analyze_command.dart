@@ -74,6 +74,9 @@ class AnalyzeCommand extends Command<int> {
     final configManager = ConfigManager();
     await configManager.load();
 
+    // Get the language to use for analysis
+    final language = configManager.getWhisperLanguage();
+
     List<String>? subGitRepos;
 
     // Check if we're in a git repository; if not, check subfolders
@@ -160,7 +163,7 @@ class AnalyzeCommand extends Command<int> {
             '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}...');
 
         // Generate analysis with AI
-        final analysis = await generator.analyzeChanges(diff);
+        final analysis = await generator.analyzeChanges(diff, language);
 
         if (analysis.trim().isEmpty) {
           _logger.err('Error: Failed to generate analysis');
@@ -237,7 +240,7 @@ class AnalyzeCommand extends Command<int> {
               '[$repoName] Analyzing ${usedStaged ? 'staged' : 'unstaged'} changes using $modelName'
               '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}...');
 
-          final analysis = await generator.analyzeChanges(diff);
+          final analysis = await generator.analyzeChanges(diff, language);
 
           if (analysis.trim().isEmpty) {
             _logger.err('[$repoName] Error: Failed to generate analysis');

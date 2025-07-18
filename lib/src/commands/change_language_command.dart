@@ -34,7 +34,7 @@ class ChangeLanguageCommand extends Command<int> {
     const languages = Language.values;
 
     final Language language = _logger.chooseOne<Language>(
-      'Select the language you need as the default for commit messages',
+      'Please select your preferred language for commit messages:',
       choices: languages,
       defaultValue: Language.english,
       display: (language) {
@@ -46,7 +46,8 @@ class ChangeLanguageCommand extends Command<int> {
     await configManager.save();
 
     _logger.success(
-      '$language successfully set as the default language for GIT activities',
+      '✨ Great! ${language.name} has been set as your default language for '
+      'Git commit messages.',
     );
     return ExitCode.success.code;
   }

@@ -8,6 +8,8 @@
 
 import 'dart:async';
 
+import 'language.dart';
+
 /// Abstract base class for AI commit message generators
 abstract class CommitGenerator {
   const CommitGenerator(this.apiKey, {this.variant});
@@ -15,11 +17,18 @@ abstract class CommitGenerator {
   final String? variant;
 
   /// Generate a commit message based on the git diff
-  Future<String> generateCommitMessage(String diff, {String? prefix});
+  Future<String> generateCommitMessage(
+    String diff,
+    Language language, {
+    String? prefix,
+  });
 
   /// Generate an analysis of the provided diff for what's changed and possibly
   /// what can be made better
-  Future<String> analyzeChanges(String diff);
+  Future<String> analyzeChanges(
+    String diff,
+    Language language,
+  );
 
   /// Returns the name of the model
   String get modelName;

@@ -11,6 +11,7 @@ import 'package:dio/dio.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import 'commit_generator.dart';
+import 'language.dart';
 import 'model_variants.dart';
 
 class OpenAIGenerator extends CommitGenerator {
@@ -23,8 +24,12 @@ class OpenAIGenerator extends CommitGenerator {
   String get defaultVariant => ModelVariants.getDefault(modelName);
 
   @override
-  Future<String> generateCommitMessage(String diff, {String? prefix}) async {
-    final prompt = getCommitPrompt(diff, prefix: prefix);
+  Future<String> generateCommitMessage(
+    String diff,
+    Language language, {
+    String? prefix,
+  }) async {
+    final prompt = getCommitPrompt(diff, language, prefix: prefix);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
       'https://api.openai.com/v1/chat/completions',
@@ -56,8 +61,8 @@ class OpenAIGenerator extends CommitGenerator {
   }
 
   @override
-  Future<String> analyzeChanges(String diff) async {
-    final prompt = getAnalysisPrompt(diff);
+  Future<String> analyzeChanges(String diff, Language language) async {
+    final prompt = getAnalysisPrompt(diff, language);
 
     final Response<Map<String, dynamic>> response = await $dio.post(
       'https://api.openai.com/v1/chat/completions',
