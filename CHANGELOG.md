@@ -1,3 +1,6 @@
+## 0.0.59
+- feat: ✨ Add language support to commit and analysis generation
+
 ## 0.0.58
 - chore: 🔧 Update documentation
 

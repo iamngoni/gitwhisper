@@ -486,6 +486,12 @@
                                 </div>
                                 <div
                                     class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="language-config"
+                                >
+                                    Language Settings
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
                                     data-tab="ai-models"
                                 >
                                     AI Models
@@ -1285,6 +1291,215 @@ gitwhisper show-defaults
 
 # Clear all defaults
 gw clear-defaults</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Language Configuration -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Language Configuration
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Set your preferred language for AI-generated
+                                    commit messages and analysis. GitWhisper
+                                    supports over 20 languages while maintaining
+                                    conventional commit format compatibility:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper change-language"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Change language interactively
+gitwhisper change-language
+
+# Shorthand
+gw change-language</code></pre>
+                                </div>
+                                <div class="alert alert-info mt-4">
+                                    <strong>Language Behavior:</strong>
+                                    <ul class="mt-2 ml-4 list-disc">
+                                        <li>
+                                            <strong>Commit messages:</strong>
+                                            Type (feat:, fix:) and emoji stay in
+                                            English, description in your
+                                            language
+                                        </li>
+                                        <li>
+                                            <strong>Analysis:</strong> Complete
+                                            response in your selected language
+                                        </li>
+                                        <li>
+                                            <strong>Example:</strong>
+                                            <code
+                                                >feat: ✨ Agregar funcionalidad
+                                                de modo oscuro</code
+                                            >
+                                            (Spanish)
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Language Configuration -->
+                        <div
+                            id="language-config"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-language text-indigo-600 mr-3"
+                                ></i>
+                                Language Settings
+                            </h2>
+
+                            <p class="text-gray-600 mb-6">
+                                GitWhisper supports generating commit messages
+                                and analysis in over 20 languages. Configure
+                                your preferred language while maintaining
+                                conventional commit format compatibility.
+                            </p>
+
+                            <!-- Change Language -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Set Your Language
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Use the interactive language selector to
+                                    choose your preferred language:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper change-language"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Change language interactively
+gitwhisper change-language
+
+# Shorthand
+gw change-language</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Supported Languages -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Supported Languages
+                                </h3>
+                                <div
+                                    class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6"
+                                >
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>English</strong> (default)
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Spanish</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>French</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>German</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Chinese</strong> (Simplified &
+                                        Traditional)
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Japanese</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Korean</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Arabic</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Italian</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Portuguese</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Russian</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Dutch</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Swedish</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Norwegian</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Danish</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Finnish</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Greek</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Turkish</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Hindi</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Shona</strong>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded">
+                                        <strong>Zulu</strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Language Behavior -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    How Language Settings Work
+                                </h3>
+                                <div class="space-y-4">
+                                    <div class="alert alert-info">
+                                        <strong>Commit Messages:</strong>
+                                        <p class="mt-2">
+                                            The commit type (feat:, fix:, etc.)
+                                            and emoji remain in English for
+                                            universal tool compatibility, while
+                                            the description is generated in your
+                                            selected language.
+                                        </p>
+                                        <div
+                                            class="mt-3 bg-gray-800 text-white p-3 rounded font-mono text-sm"
+                                        >
+                                            feat: ✨ Agregar funcionalidad de
+                                            modo oscuro
+                                        </div>
+                                    </div>
+                                    <div class="alert alert-success">
+                                        <strong>Analysis:</strong>
+                                        <p class="mt-2">
+                                            The complete analysis response,
+                                            including headers, explanations, and
+                                            recommendations, is provided in your
+                                            selected language.
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

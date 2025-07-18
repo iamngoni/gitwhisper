@@ -108,6 +108,10 @@ gw list-models
 gitwhisper list-variants --model claude
 gw list-variants --model claude
 
+# Change the language for commit messages and analysis
+gitwhisper change-language
+gw change-language
+
 # Save an API key for future use
 gitwhisper save-key --model claude --key "your-claude-key"
 gw save-key --model claude --key "your-claude-key"
@@ -152,6 +156,7 @@ GitWhisper uses a command-based structure:
 - `analyze`: Examine changes (staged/unstaged) and provide detailed code analysis with suggestions for improvements
 - `list-models`: Show all supported AI models
 - `list-variants`: Show available variants for each AI model
+- `change-language`: Set the language for AI-generated commit messages and analysis
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
 - `set-defaults`: Set default model and variant for future use (supports --base-url for Ollama)
@@ -246,15 +251,59 @@ Git Whisper:
 5. Applies any prefix/ticket number if specified
 6. Submits the commit with the generated message
 
+## Language Support
+
+GitWhisper supports generating commit messages and analysis in multiple languages:
+
+- **English** (default)
+- **Spanish** 
+- **French**
+- **German**
+- **Chinese (Simplified & Traditional)**
+- **Japanese**
+- **Korean**
+- **Arabic**
+- **Italian**
+- **Portuguese**
+- **Russian**
+- **Dutch**
+- **Swedish**
+- **Norwegian**
+- **Danish**
+- **Finnish**
+- **Greek**
+- **Turkish**
+- **Hindi**
+- **Shona**
+- **Zulu**
+
+### Language Behavior
+
+When using non-English languages:
+- **Commit messages**: The commit type (e.g., `feat:`, `fix:`) and emoji remain in English for tool compatibility, while the description is generated in your selected language
+- **Analysis**: The entire analysis response is provided in your selected language
+
+Example commit message in Spanish:
+```
+feat: ✨ Agregar funcionalidad de modo oscuro
+```
+
+Use the `change-language` command to set your preferred language:
+```bash
+gitwhisper change-language
+gw change-language
+```
+
 ## Configuration
 
-Configuration is stored in `~/.git_whisper.yaml` and typically contains your saved API keys:
+Configuration is stored in `~/.git_whisper.yaml` and typically contains your saved API keys and language preference:
 
 ```yaml
 api_keys:
   claude: "your-claude-key"
   openai: "your-openai-key"
   # ...
+whisper_language: english
 ```
 
 ## Requirements
