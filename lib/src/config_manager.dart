@@ -13,6 +13,7 @@ import 'package:path/path.dart' as path;
 import 'package:yaml/yaml.dart';
 
 import 'constants.dart';
+import 'models/language.dart';
 
 /// Manages configuration and API keys for the application
 class ConfigManager {
@@ -84,6 +85,28 @@ class ConfigManager {
       _config['api_keys'] = <String, dynamic>{};
     }
     (_config['api_keys'] as Map<String, dynamic>)[model.toLowerCase()] = apiKey;
+  }
+
+  /// Get the language set for commit messages
+  Language getWhisperLanguage() {
+    if (_config['language'] == null) {
+      return Language.english;
+    }
+
+    final language = _config['language'].toString().split(';');
+
+    return Language.values
+            .where(
+              (e) => e.code == language.first && e.countryCode == language.last,
+            )
+            .firstOrNull ??
+        Language.english;
+  }
+
+  /// Set the default language to be used for commits
+  void setWhisperLanguage(Language language) {
+    final languageString = '${language.code};${language.countryCode}'.trim();
+    _config['language'] = languageString;
   }
 
   /// Sets the default model and default variant

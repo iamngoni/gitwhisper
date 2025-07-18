@@ -14,6 +14,7 @@ import 'package:pub_updater/pub_updater.dart';
 
 import 'commands/always_add_command.dart';
 import 'commands/analyze_command.dart';
+import 'commands/change_language_command.dart';
 import 'commands/clear_defaults_command.dart';
 import 'commands/commit_command.dart';
 import 'commands/list_models_command.dart';
@@ -53,6 +54,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     addCommand(ShowDefaultsCommand(logger: $logger));
     addCommand(ClearDefaultsCommand(logger: $logger));
     addCommand(AlwaysAddCommand(logger: $logger));
+    addCommand(ChangeLanguageCommand(logger: $logger));
     addCommand(UpdateCommand(logger: $logger, pubUpdater: _pubUpdater));
   }
 
