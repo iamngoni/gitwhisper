@@ -22,7 +22,7 @@ jobs:
             archive: gitwhisper-windows.tar.gz
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
 
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
