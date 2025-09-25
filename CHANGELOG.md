@@ -1,3 +1,11 @@
+## 0.1.0
+- feat: ✨ Interactive commit workflow - prompts to stage untracked files when no staged changes found
+- feat: ✨ Interactive save-key command - guides users through model selection and API key entry
+- enhancement: 🔧 Improved user experience with elegant prompts using _logger.chooseOne pattern
+- enhancement: 🔧 Added untracked file detection utilities in GitUtils
+- enhancement: 🔧 Enhanced save-key command with hidden input for secure API key entry
+- enhancement: 🔧 Special handling for Ollama in save-key (optional API key)
+
 ## 0.0.59
 - feat: ✨ Add language support to commit and analysis generation
 

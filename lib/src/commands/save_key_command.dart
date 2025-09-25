@@ -20,7 +20,6 @@ class SaveKeyCommand extends Command<int> {
         'model',
         abbr: 'm',
         help: 'AI model to save the key for',
-        defaultsTo: 'openai',
         allowed: [
           'claude',
           'openai',
@@ -31,12 +30,21 @@ class SaveKeyCommand extends Command<int> {
           'github',
           'ollama',
         ],
+        allowedHelp: {
+          'claude': 'Anthropic Claude',
+          'openai': 'OpenAI GPT models',
+          'gemini': 'Google Gemini',
+          'grok': 'xAI Grok',
+          'llama': 'Meta Llama',
+          'deepseek': 'DeepSeek, Inc.',
+          'github': 'Github',
+          'ollama': 'Ollama',
+        },
       )
       ..addOption(
         'key',
         abbr: 'k',
         help: 'API key to save',
-        mandatory: true,
       );
   }
 
@@ -50,15 +58,54 @@ class SaveKeyCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final modelName = argResults?['model'] as String;
-    final apiKey = argResults?['key'] as String;
+    // Get model name from args or prompt user to choose
+    String? modelName = argResults?['model'] as String?;
+    modelName ??= _logger.chooseOne(
+      'Select the AI model to save the key for:',
+      choices: [
+        'claude',
+        'openai',
+        'gemini',
+        'grok',
+        'llama',
+        'deepseek',
+        'github',
+        'ollama',
+      ],
+      defaultValue: 'openai',
+    );
+
+    // Get API key from args or prompt user to enter
+    String? apiKey = argResults?['key'] as String?;
+    if (apiKey == null) {
+      if (modelName == 'ollama') {
+        final bool needsKey = _logger.confirm(
+          'Ollama typically runs locally and doesn\'t require an API key. Do you still want to set one?',
+          defaultValue: false,
+        );
+        if (!needsKey) {
+          _logger.info('No API key needed for Ollama. Configuration complete.');
+          return ExitCode.success.code;
+        }
+      }
+
+      apiKey = _logger.prompt(
+        'Enter the API key for $modelName:',
+        hidden: true,
+      );
+
+      if (apiKey.trim().isEmpty) {
+        _logger.err('API key cannot be empty.');
+        return ExitCode.usage.code;
+      }
+    }
 
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
 
     // Save the API key
-    configManager.setApiKey(modelName, apiKey);
+    configManager.setApiKey(modelName!, apiKey);
     await configManager.save();
 
     _logger.success('API key for $modelName saved successfully.');

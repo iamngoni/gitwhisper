@@ -123,6 +123,34 @@ class GitUtils {
     return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
   }
 
+  /// Check if there are untracked files
+  static Future<bool> hasUntrackedFiles({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['ls-files', '--others', '--exclude-standard'],
+      workingDirectory: folderPath,
+    );
+    return result.exitCode == 0 && (result.stdout as String).trim().isNotEmpty;
+  }
+
+  /// Returns a list of folder paths (from the input) that have untracked files.
+  static Future<List<String>> foldersWithUntrackedFiles(
+      List<String> folders) async {
+    final result = <String>[];
+    for (final folder in folders) {
+      final gitResult = await Process.run(
+        'git',
+        ['ls-files', '--others', '--exclude-standard'],
+        workingDirectory: folder,
+      );
+      if (gitResult.exitCode == 0 &&
+          (gitResult.stdout as String).trim().isNotEmpty) {
+        result.add(folder);
+      }
+    }
+    return result;
+  }
+
   /// Check if the current directory is a Git repository
   static Future<bool> isGitRepository() async {
     final result =

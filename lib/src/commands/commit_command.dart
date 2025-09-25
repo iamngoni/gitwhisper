@@ -155,10 +155,58 @@ class CommitCommand extends Command<int> {
           return ExitCode.usage.code;
         }
       } else {
-        _logger.err(
-          'No staged changes found. Please stage your changes using `git add` first.',
-        );
-        return ExitCode.usage.code;
+        // Check for unstaged or untracked changes
+        final hasUnstagedChanges = !hasSubGitRepos
+            ? await GitUtils.hasUnstagedChanges()
+            : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
+                .isNotEmpty;
+
+        final hasUntrackedFiles = !hasSubGitRepos
+            ? await GitUtils.hasUntrackedFiles()
+            : (await GitUtils.foldersWithUntrackedFiles(subGitRepos))
+                .isNotEmpty;
+
+        if (hasUnstagedChanges || hasUntrackedFiles) {
+          final String response = _logger.chooseOne(
+            'No staged changes found, but there are ${hasUnstagedChanges ? 'unstaged changes' : ''}${hasUnstagedChanges && hasUntrackedFiles ? ' and ' : ''}${hasUntrackedFiles ? 'untracked files' : ''}. Would you like to stage them and continue?',
+            choices: ['yes', 'no'],
+            defaultValue: 'yes',
+          );
+
+          if (response == 'yes') {
+            _logger.info('Staging all changes and new files...');
+            if (!hasSubGitRepos) {
+              final int stagedFiles =
+                  await GitUtils.stageAllUnstagedFilesAndCount();
+              _logger.success('$stagedFiles files have been staged.');
+            } else {
+              final List<String> foldersWithChanges = <String>[];
+              if (hasUnstagedChanges) {
+                foldersWithChanges.addAll(
+                    await GitUtils.foldersWithUnstagedChanges(subGitRepos));
+              }
+              if (hasUntrackedFiles) {
+                foldersWithChanges.addAll(
+                    await GitUtils.foldersWithUntrackedFiles(subGitRepos));
+              }
+              // Remove duplicates
+              final uniqueFolders = foldersWithChanges.toSet().toList();
+
+              for (final f in uniqueFolders) {
+                final int stagedFiles =
+                    await GitUtils.stageAllUnstagedFilesAndCount(folderPath: f);
+                final folderName = path.basename(f);
+                _logger.success(
+                    '[$folderName] $stagedFiles files have been staged.');
+              }
+            }
+          } else {
+            return ExitCode.usage.code;
+          }
+        } else {
+          _logger.err('No staged, unstaged, or untracked changes found!');
+          return ExitCode.usage.code;
+        }
       }
     }
 
