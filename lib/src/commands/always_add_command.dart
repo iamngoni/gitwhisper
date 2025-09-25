@@ -29,18 +29,25 @@ class AlwaysAddCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    // Positional arguments are accessed via argResults.rest
-    if (argResults == null || argResults!.rest.isEmpty) {
-      _logger.err('You must specify "true" or "false".');
-      return ExitCode.usage.code;
-    }
+    bool alwaysAdd;
 
-    final arg = argResults!.rest.first;
-    if (arg != 'true' && arg != 'false') {
-      _logger.err('Value must be "true" or "false".');
-      return ExitCode.usage.code;
+    // Check if value provided as positional argument
+    if (argResults != null && argResults!.rest.isNotEmpty) {
+      final arg = argResults!.rest.first;
+      if (arg != 'true' && arg != 'false') {
+        _logger.err('Value must be "true" or "false".');
+        return ExitCode.usage.code;
+      }
+      alwaysAdd = arg == 'true';
+    } else {
+      // Use interactive prompt
+      final String choice = _logger.chooseOne(
+        'Should GitWhisper automatically stage unstaged changes when no staged changes are found?',
+        choices: ['yes', 'no'],
+        defaultValue: 'yes',
+      );
+      alwaysAdd = choice == 'yes';
     }
-    final alwaysAdd = arg == 'true';
 
     final configManager = ConfigManager();
     await configManager.load();

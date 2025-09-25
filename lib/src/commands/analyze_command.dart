@@ -110,6 +110,7 @@ class AnalyzeCommand extends Command<int> {
     String? modelName = argResults?['model'] as String?;
     String? modelVariant = argResults?['model-variant'] as String? ?? '';
 
+    // If modelName is not provided, use config or prompt user
     if (modelName == null) {
       final (String, String)? defaults =
           configManager.getDefaultModelAndVariant();
@@ -117,25 +118,39 @@ class AnalyzeCommand extends Command<int> {
         modelName = defaults.$1;
         modelVariant = defaults.$2;
       } else {
-        modelName = 'openai';
-        modelVariant = '';
+        // Prompt user to select model
+        modelName = _logger.chooseOne(
+          'Select the AI model for analysis:',
+          choices: [
+            'claude',
+            'openai',
+            'gemini',
+            'grok',
+            'llama',
+            'deepseek',
+            'github',
+            'ollama',
+          ],
+          defaultValue: 'openai',
+        );
       }
     }
 
     // Get API key (from args, config, or environment)
     var apiKey = argResults?['key'] as String?;
     apiKey ??=
-        configManager.getApiKey(modelName) ?? _getEnvironmentApiKey(modelName);
+        configManager.getApiKey(modelName!) ?? _getEnvironmentApiKey(modelName);
 
-    if (apiKey == null || apiKey.isEmpty) {
+    if ((apiKey == null || apiKey.isEmpty) && modelName != 'ollama') {
       _logger.err(
-          'No API key provided for $modelName. Please provide an API key using --key.');
+        'No API key provided for $modelName. Please provide an API key using --key or save one using "gw save-key".',
+      );
       return ExitCode.usage.code;
     }
 
     // Create the appropriate AI generator based on model name
     final generator = CommitGeneratorFactory.create(
-      modelName,
+      modelName!,
       apiKey,
       variant: modelVariant,
     );

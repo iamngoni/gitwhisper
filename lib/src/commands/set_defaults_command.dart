@@ -30,7 +30,16 @@ class SetDefaultsCommand extends Command<int> {
           'github',
           'ollama',
         ],
-        mandatory: true,
+        allowedHelp: {
+          'claude': 'Anthropic Claude',
+          'openai': 'OpenAI GPT models',
+          'gemini': 'Google Gemini',
+          'grok': 'xAI Grok',
+          'llama': 'Meta Llama',
+          'deepseek': 'DeepSeek, Inc.',
+          'github': 'Github',
+          'ollama': 'Ollama',
+        },
       )
       ..addOption(
         'model-variant',
@@ -56,12 +65,58 @@ class SetDefaultsCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final modelName = argResults?['model'] as String;
-    final modelVariant = argResults?['model-variant'] as String?;
-    final baseUrl = argResults?['base-url'] as String?;
+    // Get model name from args or prompt user to choose
+    String? modelName = argResults?['model'] as String?;
+    modelName ??= _logger.chooseOne(
+      'Select the AI model to set as default:',
+      choices: [
+        'claude',
+        'openai',
+        'gemini',
+        'grok',
+        'llama',
+        'deepseek',
+        'github',
+        'ollama',
+      ],
+      defaultValue: 'openai',
+    );
+
+    String? modelVariant = argResults?['model-variant'] as String?;
+    String? baseUrl = argResults?['base-url'] as String?;
+
+    // For Ollama, ask about base URL if not provided
+    if (modelName == 'ollama' && baseUrl == null) {
+      final bool customBaseUrl = _logger.confirm(
+        'Do you want to set a custom base URL for Ollama?',
+      );
+      if (customBaseUrl) {
+        baseUrl = _logger.prompt(
+          'Enter the base URL for Ollama:',
+          defaultValue: 'http://localhost:11434',
+        );
+      }
+    }
 
     if (baseUrl != null && modelName != 'ollama') {
-      throw ArgumentError('Base URL can only be set for Ollama');
+      _logger.err('Base URL can only be set for Ollama');
+      return ExitCode.usage.code;
+    }
+
+    // Prompt for model variant if not provided
+    if (modelVariant == null) {
+      final bool setVariant = _logger.confirm(
+        'Do you want to set a specific model variant for $modelName?',
+      );
+      if (setVariant) {
+        modelVariant = _logger.prompt(
+          'Enter the model variant (e.g., gpt-4o, claude-3-opus, gemini-pro):',
+        );
+        if (modelVariant.trim().isEmpty) {
+          _logger.warn('No variant specified, skipping variant setting.');
+          modelVariant = null;
+        }
+      }
     }
 
     // Initialize config manager
@@ -70,14 +125,12 @@ class SetDefaultsCommand extends Command<int> {
 
     if (modelName != 'ollama') {
       if (modelVariant != null) {
-        // Save the API key
-        configManager.setDefaults(modelName, modelVariant);
+        configManager.setDefaults(modelName!, modelVariant);
         await configManager.save();
       }
     } else {
-      // Save the API key
       if (modelVariant != null) {
-        configManager.setDefaults(modelName, modelVariant);
+        configManager.setDefaults(modelName!, modelVariant);
         await configManager.save();
       }
 
@@ -99,6 +152,13 @@ class SetDefaultsCommand extends Command<int> {
         '$modelName baseUrl has been set to $baseUrl.',
       );
     }
+
+    if (modelVariant == null && baseUrl == null) {
+      _logger.info(
+        'Default model set to $modelName (no specific variant or base URL configured).',
+      );
+    }
+
     return ExitCode.success.code;
   }
 }
