@@ -136,6 +136,16 @@ class ConfigManager {
     return _config['always_add'] as bool? ?? false;
   }
 
+  /// Set confirm commits value
+  void setConfirmCommits({required bool value}) {
+    _config['confirm_commits'] = value;
+  }
+
+  /// Get the value of confirm commits
+  bool shouldConfirmCommits() {
+    return _config['confirm_commits'] as bool? ?? false;
+  }
+
   /// Clears the default model and default variant
   void clearDefaults() {
     if (_config['defaults'] != null) {

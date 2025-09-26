@@ -52,6 +52,16 @@ class SetDefaultsCommand extends Command<int> {
         abbr: 'u',
         help: 'Base URL to use for ollama, defaults to http://localhost:11434',
         valueHelp: 'http://localhost:11434',
+      )
+      ..addFlag(
+        'confirm-commits',
+        help: 'Always confirm commit messages before applying',
+        defaultsTo: false,
+      )
+      ..addFlag(
+        'no-confirm-commits',
+        help: 'Never confirm commit messages (auto-commit)',
+        defaultsTo: false,
       );
   }
 
@@ -84,6 +94,17 @@ class SetDefaultsCommand extends Command<int> {
 
     String? modelVariant = argResults?['model-variant'] as String?;
     String? baseUrl = argResults?['base-url'] as String?;
+
+    // Handle confirm commits flags
+    final confirmCommits = argResults?['confirm-commits'] as bool? ?? false;
+    final noConfirmCommits =
+        argResults?['no-confirm-commits'] as bool? ?? false;
+
+    if (confirmCommits && noConfirmCommits) {
+      _logger.err(
+          'Cannot use both --confirm-commits and --no-confirm-commits flags.');
+      return ExitCode.usage.code;
+    }
 
     // For Ollama, ask about base URL if not provided
     if (modelName == 'ollama' && baseUrl == null) {
@@ -153,7 +174,39 @@ class SetDefaultsCommand extends Command<int> {
       );
     }
 
-    if (modelVariant == null && baseUrl == null) {
+    // Handle confirm commits setting
+    if (confirmCommits) {
+      configManager.setConfirmCommits(value: true);
+      await configManager.save();
+      _logger.success(
+          'Commit confirmation enabled. All commits will require confirmation.');
+    } else if (noConfirmCommits) {
+      configManager.setConfirmCommits(value: false);
+      await configManager.save();
+      _logger.success(
+          'Commit confirmation disabled. All commits will be automatic.');
+    } else if (modelName != null && !confirmCommits && !noConfirmCommits) {
+      // Ask about commit confirmation if setting up for first time
+      final bool shouldConfirm = _logger.confirm(
+        'Do you want to confirm commit messages before they are applied? (Recommended for new users)',
+        defaultValue: false,
+      );
+      configManager.setConfirmCommits(value: shouldConfirm);
+      await configManager.save();
+
+      if (shouldConfirm) {
+        _logger.info(
+            'Commit confirmation enabled. Use --confirm flag or set this as default.');
+      } else {
+        _logger
+            .info('Commit confirmation disabled. Commits will be automatic.');
+      }
+    }
+
+    if (modelVariant == null &&
+        baseUrl == null &&
+        !confirmCommits &&
+        !noConfirmCommits) {
       _logger.info(
         'Default model set to $modelName (no specific variant or base URL configured).',
       );

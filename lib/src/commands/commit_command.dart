@@ -15,7 +15,9 @@ import 'package:path/path.dart' as path;
 import '../config_manager.dart';
 import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
+import '../models/commit_generator.dart';
 import '../models/commit_generator_factory.dart';
+import '../models/language.dart';
 
 class CommitCommand extends Command<int> {
   CommitCommand({
@@ -68,6 +70,12 @@ class CommitCommand extends Command<int> {
         'auto-push',
         abbr: 'a',
         help: 'Automatically push the commit to the remote repository',
+      )
+      ..addFlag(
+        'confirm',
+        abbr: 'c',
+        help: 'Confirm commit message before applying',
+        defaultsTo: false,
       );
   }
 
@@ -245,6 +253,10 @@ class CommitCommand extends Command<int> {
     // Handle --auto-push, fallback to false if not provided
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
+    // Handle --confirm, fallback to global config, then false
+    final confirm = (argResults?['confirm'] as bool?) ??
+        configManager.shouldConfirmCommits();
+
     // Get ollamaBaseUrl from configs
     final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
 
@@ -290,10 +302,33 @@ class CommitCommand extends Command<int> {
           return ExitCode.software.code;
         }
 
-        _logger
-          ..info('\n---------------------------------\n')
-          ..info(commitMessage)
-          ..info('\n---------------------------------\n');
+        // Handle confirmation workflow if enabled
+        if (confirm) {
+          final finalMessage = await _handleCommitConfirmation(
+            commitMessage: commitMessage,
+            generator: generator,
+            diff: diff,
+            language: language,
+            prefix: prefix,
+            modelName: modelName,
+            modelVariant: modelVariant,
+            ollamaBaseUrl: ollamaBaseUrl,
+            configManager: configManager,
+          );
+
+          if (finalMessage == null) {
+            // User cancelled
+            return ExitCode.usage.code;
+          }
+
+          commitMessage = finalMessage;
+        } else {
+          // Show message without confirmation
+          _logger
+            ..info('\n---------------------------------\n')
+            ..info(commitMessage)
+            ..info('\n---------------------------------\n');
+        }
 
         try {
           await GitUtils.runGitCommit(
@@ -371,10 +406,36 @@ class CommitCommand extends Command<int> {
             continue;
           }
 
-          _logger
-            ..info('\n----------- $folderName -----------\n')
-            ..info(commitMessage)
-            ..info('\n-----------------------------------\n');
+          // Handle confirmation workflow if enabled
+          if (confirm) {
+            _logger.info('[$folderName] Review commit message:');
+            final finalMessage = await _handleCommitConfirmation(
+              commitMessage: commitMessage,
+              generator: generator,
+              diff: diff,
+              language: language,
+              prefix: prefix,
+              modelName: modelName,
+              modelVariant: modelVariant,
+              ollamaBaseUrl: ollamaBaseUrl,
+              configManager: configManager,
+            );
+
+            if (finalMessage == null) {
+              // User cancelled this repo
+              _logger.warn('[$folderName] Commit cancelled by user.');
+              failedRepos.add(folderName);
+              continue;
+            }
+
+            commitMessage = finalMessage;
+          } else {
+            // Show message without confirmation
+            _logger
+              ..info('\n----------- $folderName -----------\n')
+              ..info(commitMessage)
+              ..info('\n-----------------------------------\n');
+          }
 
           try {
             await GitUtils.runGitCommit(
@@ -425,5 +486,156 @@ class CommitCommand extends Command<int> {
       'deepseek' => Platform.environment['DEEPSEEK_API_KEY'],
       _ => null,
     };
+  }
+
+  /// Handles the confirmation workflow for commit messages
+  /// Returns the final commit message to use, or null if user cancelled
+  Future<String?> _handleCommitConfirmation({
+    required String commitMessage,
+    required CommitGenerator generator,
+    required String diff,
+    required Language language,
+    required String? prefix,
+    required String modelName,
+    required String modelVariant,
+    required String? ollamaBaseUrl,
+    required ConfigManager configManager,
+  }) async {
+    String currentMessage = commitMessage;
+
+    while (true) {
+      _logger
+        ..info('\n---------------------------------\n')
+        ..info(currentMessage)
+        ..info('\n---------------------------------\n');
+
+      final action = _logger.chooseOne(
+        'What would you like to do with this commit message?',
+        choices: ['commit', 'edit', 'retry', 'discard'],
+        defaultValue: 'commit',
+      );
+
+      switch (action) {
+        case 'commit':
+          return currentMessage;
+
+        case 'edit':
+          final editedMessage = _logger.prompt(
+            'Edit your commit message:',
+            defaultValue: currentMessage,
+          );
+          if (editedMessage.trim().isNotEmpty) {
+            return editedMessage;
+          } else {
+            _logger.warn('Empty commit message, returning to options...');
+            continue;
+          }
+
+        case 'retry':
+          final retryOption = _logger.chooseOne(
+            'How would you like to retry?',
+            choices: ['same model', 'different model', 'add context'],
+            defaultValue: 'same model',
+          );
+
+          switch (retryOption) {
+            case 'same model':
+              _logger.info('Regenerating with $modelName...');
+              try {
+                currentMessage = await generator.generateCommitMessage(
+                  diff,
+                  language,
+                  prefix: prefix,
+                );
+                currentMessage =
+                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+              } catch (e) {
+                _logger.err('Failed to regenerate commit message: $e');
+                continue;
+              }
+              break;
+
+            case 'different model':
+              final newModelName = _logger.chooseOne(
+                'Select a different model:',
+                choices: [
+                  'claude',
+                  'openai',
+                  'gemini',
+                  'grok',
+                  'llama',
+                  'deepseek',
+                  'github',
+                  'ollama',
+                ],
+                defaultValue: modelName == 'openai' ? 'claude' : 'openai',
+              );
+
+              // Get API key for new model
+              var newApiKey = configManager.getApiKey(newModelName) ??
+                  _getEnvironmentApiKey(newModelName);
+
+              if ((newApiKey == null || newApiKey.isEmpty) &&
+                  newModelName != 'ollama') {
+                _logger.err(
+                    'No API key found for $newModelName. Please save one using "gw save-key".');
+                continue;
+              }
+
+              // Create new generator
+              final newGenerator = CommitGeneratorFactory.create(
+                newModelName,
+                newApiKey,
+                baseUrl: ollamaBaseUrl ?? 'http://localhost:11434',
+              );
+
+              _logger.info('Regenerating with $newModelName...');
+              try {
+                currentMessage = await newGenerator.generateCommitMessage(
+                  diff,
+                  language,
+                  prefix: prefix,
+                );
+                currentMessage =
+                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+              } catch (e) {
+                _logger.err(
+                    'Failed to generate commit message with $newModelName: $e');
+                continue;
+              }
+              break;
+
+            case 'add context':
+              final context = _logger.prompt(
+                'Add context or instructions for the AI (e.g., "make it more technical", "focus on performance"):',
+              );
+
+              if (context.trim().isEmpty) {
+                _logger.warn('No context provided, using same model...');
+              }
+
+              _logger.info('Regenerating with additional context...');
+              try {
+                // For now, we'll just regenerate - in the future, we could modify the prompt
+                currentMessage = await generator.generateCommitMessage(
+                  diff,
+                  language,
+                  prefix: prefix,
+                );
+                currentMessage =
+                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+              } catch (e) {
+                _logger.err('Failed to regenerate commit message: $e');
+                continue;
+              }
+              break;
+          }
+          continue;
+
+        case 'discard':
+          _logger.info('Commit cancelled.');
+          return null;
+      }
+    }
   }
 }
