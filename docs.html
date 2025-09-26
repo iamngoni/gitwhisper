@@ -481,6 +481,12 @@
                                 </div>
                                 <div
                                     class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="interactive-workflow"
+                                >
+                                    Interactive Workflow
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
                                     data-tab="configuration"
                                 >
                                     Configuration
@@ -577,8 +583,9 @@
                                 GitWhisper analyzes your staged Git changes and
                                 uses AI to generate meaningful commit messages
                                 following conventional commit format with
-                                emojis. It supports multiple AI models including
-                                OpenAI GPT, Claude, Gemini, and more.
+                                emojis. It features an interactive confirmation workflow
+                                and supports multiple AI models including
+                                OpenAI GPT, Claude, Gemini, GitHub Models, and more.
                             </p>
 
                             <div
@@ -1160,11 +1167,11 @@ gw</code></pre>
                             <div class="step-card">
                                 <div class="step-number">3</div>
                                 <h3 class="text-xl font-semibold mb-3">
-                                    Review and Commit
+                                    Interactive Commit Confirmation
                                 </h3>
                                 <p class="text-gray-600 mb-4">
                                     GitWhisper will analyze your changes and
-                                    present a commit message for review:
+                                    present an interactive confirmation workflow:
                                 </p>
                                 <div class="code-block">
                                     <pre
@@ -1173,7 +1180,14 @@ gw</code></pre>
 ✨ Generated commit message:
 feat: ✨ Add user authentication system
 
-Apply this commit message? (y/n): y
+Options:
+[A] Apply commit message
+[E] Edit commit message
+[R] Retry with same model
+[M] Try different model
+[D] Discard and exit
+
+What would you like to do? (A/e/r/m/d): A
 
 ✅ Commit created successfully!</code></pre>
                                 </div>
@@ -1191,6 +1205,108 @@ Apply this commit message? (y/n): y
                                         changes and created a conventional
                                         commit with appropriate emoji and
                                         description.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Interactive Workflow -->
+                        <div
+                            id="interactive-workflow"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i
+                                    class="fas fa-check-circle text-indigo-600 mr-3"
+                                ></i>
+                                Interactive Workflow
+                            </h2>
+
+                            <p class="text-gray-600 mb-8">
+                                GitWhisper's interactive confirmation workflow gives you full control over your commit messages. After generating a message, you can choose from several options to ensure the perfect commit.
+                            </p>
+
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                                <div class="step-card">
+                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
+                                        <i class="fas fa-check text-green-600 mr-2"></i>
+                                        Apply Commit Message
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        Use the generated commit message as-is and proceed with the commit.
+                                    </p>
+                                    <div class="code-block">
+                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): A
+✅ Commit created successfully!</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
+                                        <i class="fas fa-edit text-blue-600 mr-2"></i>
+                                        Edit Commit Message
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        Modify the generated message before committing. Opens your default editor.
+                                    </p>
+                                    <div class="code-block">
+                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): E
+Opening editor to modify commit message...</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
+                                        <i class="fas fa-redo text-orange-600 mr-2"></i>
+                                        Retry with Same Model
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        Generate a new message using the same AI model for different variations.
+                                    </p>
+                                    <div class="code-block">
+                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): R
+🔮 Generating new message...</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
+                                        <i class="fas fa-robot text-purple-600 mr-2"></i>
+                                        Try Different Model
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        Generate a message with a different AI model for varied perspectives.
+                                    </p>
+                                    <div class="code-block">
+                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): M
+Available models: openai, claude, gemini...
+Select model: claude</code></pre>
+                                    </div>
+                                </div>
+
+                                <div class="step-card">
+                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
+                                        <i class="fas fa-times text-red-600 mr-2"></i>
+                                        Discard and Exit
+                                    </h3>
+                                    <p class="text-gray-600 mb-3">
+                                        Cancel the operation and exit without creating a commit.
+                                    </p>
+                                    <div class="code-block">
+                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): D
+❌ Operation cancelled. No commit created.</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info">
+                                <div class="flex items-start">
+                                    <i class="fas fa-lightbulb text-xl mr-3 mt-1"></i>
+                                    <div>
+                                        <strong>Pro Tip:</strong> The interactive workflow works seamlessly across single and multiple repositories, giving you consistent control over your commits regardless of your project setup.
                                     </div>
                                 </div>
                             </div>

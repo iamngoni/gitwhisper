@@ -62,12 +62,14 @@ Or download the executable binary for your operating system directly [here.](htt
 
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
 - 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
+- ✨ **Interactive commit confirmation** - Review, edit, retry with different models, or discard generated messages
 - 📋 Pre-fills the Git commit editor for easy review and modification
 - 🚀️ Supports automatic pushing of commits to the remote repository
 - 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
 - 🔑 Securely saves API keys for future use
+- 🌍 Multi-language support for commit messages and analysis
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
     - OpenAI (GPT)
@@ -75,6 +77,7 @@ Or download the executable binary for your operating system directly [here.](htt
     - Grok (xAI)
     - Llama (Meta)
     - Deepseek (DeepSeek, Inc.)
+    - GitHub Models (Free, rate-limited)
     - All Ollama models
 
 ## Usage
@@ -150,11 +153,38 @@ gw --help
 ## Shorter Command
 Instead of using the full `gitwhisper` command you can also use the shortened one `gw`. Both `gitwhisper` and `gw` without any subcommands will automatically run the `commit` command by default.
 
+## Interactive Commit Confirmation
+
+GitWhisper now features an interactive commit confirmation workflow that gives you full control over your commit messages:
+
+### What You Can Do:
+- **Apply**: Use the generated commit message as-is
+- **Edit**: Modify the commit message before applying
+- **Retry**: Generate a new message with the same model  
+- **Try Different Model**: Generate with a different AI model
+- **Discard**: Cancel and exit without committing
+
+### Example Workflow:
+```bash
+$ gitwhisper commit
+🔮 Analyzing your changes...
+✨ Generated commit message: feat: ✨ Add user authentication system
+
+Options:
+[A] Apply commit message
+[E] Edit commit message
+[R] Retry with same model
+[M] Try different model
+[D] Discard and exit
+
+What would you like to do? (A/e/r/m/d): 
+```
+
 ## Command Structure
 
 GitWhisper uses a command-based structure:
 
-- `commit`: Generate and apply a commit message (main command)
+- `commit`: Generate and apply a commit message with interactive confirmation (main command)
 - `analyze`: Examine changes (staged/unstaged) and provide detailed code analysis with suggestions for improvements
 - `list-models`: Show all supported AI models
 - `list-variants`: Show available variants for each AI model
@@ -250,8 +280,9 @@ Git Whisper:
 2. Retrieves the diff of your staged changes
 3. Sends the diff to the selected AI model
 4. Generates a commit message following the conventional commit format with emojis
-5. Applies any prefix/ticket number if specified
-6. Submits the commit with the generated message
+5. **Shows you an interactive confirmation** - review, edit, retry, or discard the message
+6. Applies any prefix/ticket number if specified
+7. Submits the commit with the confirmed message
 
 ## Language Support
 
