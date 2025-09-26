@@ -260,6 +260,11 @@
                     </div>
                     <div class="hidden md:flex space-x-8">
                         <a
+                            href="#integrations"
+                            class="text-gray-600 hover:text-indigo-600 transition-colors"
+                            >Integrations</a
+                        >
+                        <a
                             href="#features"
                             class="text-gray-600 hover:text-indigo-600 transition-colors"
                             >Features</a
@@ -385,9 +390,7 @@
                             <div class="text-white mt-2 pl-4">
                                 feat: ✨ Add user authentication system
                             </div>
-                            <div class="text-cyan-400 mt-3">
-                                Options:
-                            </div>
+                            <div class="text-cyan-400 mt-3">Options:</div>
                             <div class="text-gray-300 pl-2">
                                 [A] Apply commit message
                             </div>
@@ -436,6 +439,138 @@
                 style="animation-delay: -3s"
             >
                 🚀
+            </div>
+        </section>
+
+        <!-- Editor Integrations Section -->
+        <section id="integrations" class="py-20 bg-indigo-50 pt-24 sm:pt-20">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-16">
+                    <h2
+                        class="text-4xl md:text-5xl font-bold text-gray-900 mb-4"
+                    >
+                        Editor <span class="gradient-text">Integrations</span>
+                    </h2>
+                    <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+                        Use GitWhisper directly in your favorite code editor
+                    </p>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+                    <!-- VS Code Extension -->
+                    <div
+                        class="card-hover bg-white rounded-2xl p-8 shadow-lg border border-gray-100"
+                    >
+                        <div class="flex items-center mb-6">
+                            <div
+                                class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mr-4"
+                            >
+                                <i
+                                    class="fab fa-microsoft text-2xl text-blue-600"
+                                ></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-900">
+                                    Visual Studio Code
+                                </h3>
+                                <p class="text-gray-600 text-sm">
+                                    by Panashe Mushinyi
+                                </p>
+                            </div>
+                        </div>
+
+                        <p class="text-gray-600 mb-6">
+                            Generate commit messages directly within VS Code's
+                            Git interface. Seamlessly integrated with your
+                            workflow.
+                        </p>
+
+                        <div class="mb-6">
+                            <h4 class="font-semibold text-gray-900 mb-2">
+                                Features:
+                            </h4>
+                            <ul class="text-gray-600 space-y-1">
+                                <li>
+                                    • Generate commit messages from staged
+                                    changes
+                                </li>
+                                <li>
+                                    • Works with VS Code's built-in Git tools
+                                </li>
+                                <li>• Easy one-click installation</li>
+                            </ul>
+                        </div>
+
+                        <a
+                            href="https://marketplace.visualstudio.com/items?itemName=gitwhisper.gitwhisper"
+                            target="_blank"
+                            class="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors font-semibold"
+                        >
+                            <i class="fas fa-download"></i>
+                            <span>Install Extension</span>
+                        </a>
+                    </div>
+
+                    <!-- JetBrains Plugin -->
+                    <div
+                        class="card-hover bg-white rounded-2xl p-8 shadow-lg border border-gray-100"
+                    >
+                        <div class="flex items-center mb-6">
+                            <div
+                                class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mr-4"
+                            >
+                                <i
+                                    class="fas fa-code text-2xl text-purple-600"
+                                ></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-900">
+                                    JetBrains IDEs
+                                </h3>
+                                <p class="text-gray-600 text-sm">
+                                    by Panashe Mushinyi
+                                </p>
+                            </div>
+                        </div>
+
+                        <p class="text-gray-600 mb-6">
+                            Available for all JetBrains IDEs including IntelliJ
+                            IDEA, WebStorm, PhpStorm, PyCharm, and more.
+                        </p>
+
+                        <div class="mb-6">
+                            <h4 class="font-semibold text-gray-900 mb-2">
+                                Features:
+                            </h4>
+                            <ul class="text-gray-600 space-y-1">
+                                <li>• Integrated with JetBrains VCS tools</li>
+                                <li>• Support for all JetBrains IDEs</li>
+                                <li>• Native IDE experience</li>
+                            </ul>
+                        </div>
+
+                        <a
+                            href="https://plugins.jetbrains.com/plugin/28057-gitwhisper"
+                            target="_blank"
+                            class="inline-flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg transition-colors font-semibold"
+                        >
+                            <i class="fas fa-download"></i>
+                            <span>Install Plugin</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="text-center mt-12">
+                    <p class="text-gray-600">
+                        Prefer the command line?
+                        <a
+                            href="#installation"
+                            class="text-indigo-600 hover:underline font-semibold"
+                        >
+                            Install the CLI tool below
+                        </a>
+                    </p>
+                </div>
             </div>
         </section>
 
@@ -495,8 +630,8 @@
                             Interactive Confirmation
                         </h3>
                         <p class="text-gray-600">
-                            Review, edit, retry with different models, or discard 
-                            generated messages before committing
+                            Review, edit, retry with different models, or
+                            discard generated messages before committing
                         </p>
                     </div>
 
@@ -540,8 +675,9 @@
                             Multi-Language Support
                         </h3>
                         <p class="text-gray-600">
-                            Generate commit messages and analysis in 20+ languages
-                            including English, Spanish, French, German, and more
+                            Generate commit messages and analysis in 20+
+                            languages including English, Spanish, French,
+                            German, and more
                         </p>
                     </div>
                 </div>

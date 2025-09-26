@@ -463,6 +463,12 @@
                                 </div>
                                 <div
                                     class="nav-link block text-gray-600 hover:text-indigo-600"
+                                    data-tab="editor-integrations"
+                                >
+                                    Editor Integrations
+                                </div>
+                                <div
+                                    class="nav-link block text-gray-600 hover:text-indigo-600"
                                     data-tab="installation"
                                 >
                                     Installation
@@ -583,9 +589,10 @@
                                 GitWhisper analyzes your staged Git changes and
                                 uses AI to generate meaningful commit messages
                                 following conventional commit format with
-                                emojis. It features an interactive confirmation workflow
-                                and supports multiple AI models including
-                                OpenAI GPT, Claude, Gemini, GitHub Models, and more.
+                                emojis. It features an interactive confirmation
+                                workflow and supports multiple AI models
+                                including OpenAI GPT, Claude, Gemini, GitHub
+                                Models, and more.
                             </p>
 
                             <div
@@ -630,6 +637,243 @@
                                     <p class="text-gray-600 text-sm">
                                         Let AI create perfect commit messages
                                     </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Editor Integrations -->
+                        <div
+                            id="editor-integrations"
+                            class="tab-content mb-16"
+                            style="display: none"
+                        >
+                            <h2
+                                class="text-3xl font-bold text-gray-900 mb-6 flex items-center"
+                            >
+                                <i class="fas fa-plug text-indigo-600 mr-3"></i>
+                                Editor Integrations
+                            </h2>
+
+                            <p class="text-gray-600 mb-8">
+                                GitWhisper is available as plugins for popular
+                                code editors, providing seamless integration
+                                with your existing workflow. These plugins allow
+                                you to generate commit messages directly within
+                                your IDE without switching to the command line.
+                            </p>
+
+                            <!-- VS Code Extension -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fab fa-microsoft text-blue-600 mr-2"
+                                    ></i>
+                                    Visual Studio Code Extension
+                                </h3>
+
+                                <div class="mb-4">
+                                    <p class="text-gray-600 mb-3">
+                                        <strong>Developer:</strong> Panashe
+                                        Mushinyi
+                                    </p>
+                                    <p class="text-gray-600 mb-4">
+                                        The VS Code extension provides seamless
+                                        integration with Visual Studio Code's
+                                        built-in Git interface, allowing you to
+                                        generate AI-powered commit messages
+                                        without leaving your editor.
+                                    </p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4
+                                        class="font-semibold text-gray-900 mb-2"
+                                    >
+                                        Features:
+                                    </h4>
+                                    <ul class="text-gray-600 space-y-1 ml-4">
+                                        <li>
+                                            • Generate commit messages from
+                                            staged changes
+                                        </li>
+                                        <li>
+                                            • Works with VS Code's built-in Git
+                                            tools
+                                        </li>
+                                        <li>• Easy one-click installation</li>
+                                        <li>• No command line required</li>
+                                        <li>
+                                            • Supports all GitWhisper AI models
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4
+                                        class="font-semibold text-gray-900 mb-2"
+                                    >
+                                        Installation:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>Open VS Code</li>
+                                        <li>Go to Extensions (Ctrl+Shift+X)</li>
+                                        <li>Search for "GitWhisper"</li>
+                                        <li>
+                                            Click "Install" on the GitWhisper
+                                            extension
+                                        </li>
+                                    </ol>
+
+                                    <p class="text-gray-600 mb-4">
+                                        Or install directly from the
+                                        marketplace:
+                                    </p>
+
+                                    <a
+                                        href="https://marketplace.visualstudio.com/items?itemName=gitwhisper.gitwhisper"
+                                        target="_blank"
+                                        class="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+                                    >
+                                        <i class="fas fa-external-link-alt"></i>
+                                        <span>View in VS Code Marketplace</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- JetBrains Plugin -->
+                            <div class="step-card">
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fas fa-code text-purple-600 mr-2"
+                                    ></i>
+                                    JetBrains IDEs Plugin
+                                </h3>
+
+                                <div class="mb-4">
+                                    <p class="text-gray-600 mb-3">
+                                        <strong>Developer:</strong> Panashe
+                                        Mushinyi
+                                    </p>
+                                    <p class="text-gray-600 mb-4">
+                                        The JetBrains plugin is compatible with
+                                        all JetBrains IDEs including IntelliJ
+                                        IDEA, WebStorm, PhpStorm, PyCharm,
+                                        RubyMine, CLion, GoLand, DataGrip, and
+                                        more.
+                                    </p>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4
+                                        class="font-semibold text-gray-900 mb-2"
+                                    >
+                                        Features:
+                                    </h4>
+                                    <ul class="text-gray-600 space-y-1 ml-4">
+                                        <li>
+                                            • Integrated with JetBrains VCS
+                                            tools
+                                        </li>
+                                        <li>
+                                            • Support for all JetBrains IDEs
+                                        </li>
+                                        <li>• Native IDE experience</li>
+                                        <li>
+                                            • Context-aware commit message
+                                            generation
+                                        </li>
+                                        <li>
+                                            • Works with built-in Git
+                                            integration
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4
+                                        class="font-semibold text-gray-900 mb-2"
+                                    >
+                                        Supported IDEs:
+                                    </h4>
+                                    <div
+                                        class="grid grid-cols-2 md:grid-cols-3 gap-2 text-gray-600 text-sm mb-4"
+                                    >
+                                        <div>• IntelliJ IDEA</div>
+                                        <div>• WebStorm</div>
+                                        <div>• PhpStorm</div>
+                                        <div>• PyCharm</div>
+                                        <div>• RubyMine</div>
+                                        <div>• CLion</div>
+                                        <div>• GoLand</div>
+                                        <div>• DataGrip</div>
+                                        <div>• Rider</div>
+                                        <div>• AppCode</div>
+                                        <div>• Android Studio</div>
+                                        <div>• And more...</div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <h4
+                                        class="font-semibold text-gray-900 mb-2"
+                                    >
+                                        Installation:
+                                    </h4>
+                                    <ol
+                                        class="list-decimal list-inside space-y-2 text-gray-600 mb-4"
+                                    >
+                                        <li>Open your JetBrains IDE</li>
+                                        <li>
+                                            Go to File → Settings (or
+                                            Preferences on Mac)
+                                        </li>
+                                        <li>Navigate to Plugins</li>
+                                        <li>Click on "Marketplace" tab</li>
+                                        <li>Search for "GitWhisper"</li>
+                                        <li>
+                                            Click "Install" and restart your IDE
+                                        </li>
+                                    </ol>
+
+                                    <p class="text-gray-600 mb-4">
+                                        Or install directly from the JetBrains
+                                        Plugin Repository:
+                                    </p>
+
+                                    <a
+                                        href="https://plugins.jetbrains.com/plugin/28057-gitwhisper"
+                                        target="_blank"
+                                        class="inline-flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+                                    >
+                                        <i class="fas fa-external-link-alt"></i>
+                                        <span
+                                            >View in JetBrains Repository</span
+                                        >
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info">
+                                <div class="flex items-start">
+                                    <i
+                                        class="fas fa-info-circle text-xl mr-3 mt-1"
+                                    ></i>
+                                    <div>
+                                        <strong>Note:</strong> Both plugins
+                                        require the same API key setup as the
+                                        CLI tool. You can configure your API
+                                        keys through the plugin settings or use
+                                        environment variables. <br /><br />
+                                        For command line users, you can still
+                                        install the CLI tool alongside these
+                                        plugins for maximum flexibility.
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1171,7 +1415,8 @@ gw</code></pre>
                                 </h3>
                                 <p class="text-gray-600 mb-4">
                                     GitWhisper will analyze your changes and
-                                    present an interactive confirmation workflow:
+                                    present an interactive confirmation
+                                    workflow:
                                 </p>
                                 <div class="code-block">
                                     <pre
@@ -1226,77 +1471,118 @@ What would you like to do? (A/e/r/m/d): A
                             </h2>
 
                             <p class="text-gray-600 mb-8">
-                                GitWhisper's interactive confirmation workflow gives you full control over your commit messages. After generating a message, you can choose from several options to ensure the perfect commit.
+                                GitWhisper's interactive confirmation workflow
+                                gives you full control over your commit
+                                messages. After generating a message, you can
+                                choose from several options to ensure the
+                                perfect commit.
                             </p>
 
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                            <div
+                                class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8"
+                            >
                                 <div class="step-card">
-                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
-                                        <i class="fas fa-check text-green-600 mr-2"></i>
+                                    <h3
+                                        class="text-xl font-semibold mb-4 flex items-center"
+                                    >
+                                        <i
+                                            class="fas fa-check text-green-600 mr-2"
+                                        ></i>
                                         Apply Commit Message
                                     </h3>
                                     <p class="text-gray-600 mb-3">
-                                        Use the generated commit message as-is and proceed with the commit.
+                                        Use the generated commit message as-is
+                                        and proceed with the commit.
                                     </p>
                                     <div class="code-block">
-                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): A
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>What would you like to do? (A/e/r/m/d): A
 ✅ Commit created successfully!</code></pre>
                                     </div>
                                 </div>
 
                                 <div class="step-card">
-                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
-                                        <i class="fas fa-edit text-blue-600 mr-2"></i>
+                                    <h3
+                                        class="text-xl font-semibold mb-4 flex items-center"
+                                    >
+                                        <i
+                                            class="fas fa-edit text-blue-600 mr-2"
+                                        ></i>
                                         Edit Commit Message
                                     </h3>
                                     <p class="text-gray-600 mb-3">
-                                        Modify the generated message before committing. Opens your default editor.
+                                        Modify the generated message before
+                                        committing. Opens your default editor.
                                     </p>
                                     <div class="code-block">
-                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): E
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>What would you like to do? (A/e/r/m/d): E
 Opening editor to modify commit message...</code></pre>
                                     </div>
                                 </div>
 
                                 <div class="step-card">
-                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
-                                        <i class="fas fa-redo text-orange-600 mr-2"></i>
+                                    <h3
+                                        class="text-xl font-semibold mb-4 flex items-center"
+                                    >
+                                        <i
+                                            class="fas fa-redo text-orange-600 mr-2"
+                                        ></i>
                                         Retry with Same Model
                                     </h3>
                                     <p class="text-gray-600 mb-3">
-                                        Generate a new message using the same AI model for different variations.
+                                        Generate a new message using the same AI
+                                        model for different variations.
                                     </p>
                                     <div class="code-block">
-                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): R
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>What would you like to do? (A/e/r/m/d): R
 🔮 Generating new message...</code></pre>
                                     </div>
                                 </div>
 
                                 <div class="step-card">
-                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
-                                        <i class="fas fa-robot text-purple-600 mr-2"></i>
+                                    <h3
+                                        class="text-xl font-semibold mb-4 flex items-center"
+                                    >
+                                        <i
+                                            class="fas fa-robot text-purple-600 mr-2"
+                                        ></i>
                                         Try Different Model
                                     </h3>
                                     <p class="text-gray-600 mb-3">
-                                        Generate a message with a different AI model for varied perspectives.
+                                        Generate a message with a different AI
+                                        model for varied perspectives.
                                     </p>
                                     <div class="code-block">
-                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): M
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>What would you like to do? (A/e/r/m/d): M
 Available models: openai, claude, gemini...
 Select model: claude</code></pre>
                                     </div>
                                 </div>
 
                                 <div class="step-card">
-                                    <h3 class="text-xl font-semibold mb-4 flex items-center">
-                                        <i class="fas fa-times text-red-600 mr-2"></i>
+                                    <h3
+                                        class="text-xl font-semibold mb-4 flex items-center"
+                                    >
+                                        <i
+                                            class="fas fa-times text-red-600 mr-2"
+                                        ></i>
                                         Discard and Exit
                                     </h3>
                                     <p class="text-gray-600 mb-3">
-                                        Cancel the operation and exit without creating a commit.
+                                        Cancel the operation and exit without
+                                        creating a commit.
                                     </p>
                                     <div class="code-block">
-                                        <pre class="font-mono text-white text-sm"><code>What would you like to do? (A/e/r/m/d): D
+                                        <pre
+                                            class="font-mono text-white text-sm"
+                                        ><code>What would you like to do? (A/e/r/m/d): D
 ❌ Operation cancelled. No commit created.</code></pre>
                                     </div>
                                 </div>
@@ -1304,9 +1590,16 @@ Select model: claude</code></pre>
 
                             <div class="alert alert-info">
                                 <div class="flex items-start">
-                                    <i class="fas fa-lightbulb text-xl mr-3 mt-1"></i>
+                                    <i
+                                        class="fas fa-lightbulb text-xl mr-3 mt-1"
+                                    ></i>
                                     <div>
-                                        <strong>Pro Tip:</strong> The interactive workflow works seamlessly across single and multiple repositories, giving you consistent control over your commits regardless of your project setup.
+                                        <strong>Pro Tip:</strong> The
+                                        interactive workflow works seamlessly
+                                        across single and multiple repositories,
+                                        giving you consistent control over your
+                                        commits regardless of your project
+                                        setup.
                                     </div>
                                 </div>
                             </div>

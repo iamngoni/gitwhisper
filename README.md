@@ -18,6 +18,22 @@ Git Whisper is an AI-powered Git commit message generator that whispers the perf
 
 ---
 
+## Editor Integrations 🔌
+
+GitWhisper is also available as plugins for popular editors:
+
+### Visual Studio Code
+Install the GitWhisper extension directly from the marketplace:
+- **Extension**: [GitWhisper for VS Code](https://marketplace.visualstudio.com/items?itemName=gitwhisper.gitwhisper)
+- **Developer**: Panashe Mushinyi
+- **Features**: Generate commit messages directly within VS Code's Git interface
+
+### JetBrains IDEs
+Available for all JetBrains IDEs (IntelliJ IDEA, WebStorm, PhpStorm, etc.):
+- **Plugin**: [GitWhisper for JetBrains](https://plugins.jetbrains.com/plugin/28057-gitwhisper)  
+- **Developer**: Panashe Mushinyi
+- **Features**: Seamless integration with JetBrains VCS tools
+
 ## Getting Started 🚀
 
 If you have `Dart` installed, activate globally via:
