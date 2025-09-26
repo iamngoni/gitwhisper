@@ -1,6 +1,6 @@
-## 0.1.0
+## 0.1.1
 - **Interactive Commit Confirmation** - Review, edit, retry with different models, or discard AI-generated messages
-- **Enhanced User Experience** - All commands now use interactive prompts with smart defaults and guided workflows  
+- **Enhanced User Experience** - All commands now use interactive prompts with smart defaults and guided workflows
 - **Multi-repo Support** - Confirmation workflow works across single and multiple repositories
 - **Improved Security** - Hidden input for API keys and better Ollama handling
 
