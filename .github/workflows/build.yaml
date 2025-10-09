@@ -41,8 +41,16 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install yq
 
-      - name: Compile binary
+      - name: Compile binary (Unix)
+        if: runner.os != 'Windows'
         run: dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o ${{ matrix.target }}
+
+      - name: Compile binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = yq '.version' pubspec.yaml
+          dart compile exe -DAPP_VERSION=$version bin/main.dart -o ${{ matrix.target }}
 
       - name: Archive binary
         run: tar -czf ${{ matrix.archive }} ${{ matrix.target }}
