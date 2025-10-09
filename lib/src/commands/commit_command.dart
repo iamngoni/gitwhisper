@@ -254,12 +254,10 @@ class CommitCommand extends Command<int> {
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
     // Handle --confirm, fallback to global config, then false
-    // When negatable=true, the flag returns null if not provided
-    final confirmArg = argResults?['confirm'] as bool?;
-    final confirm = confirmArg ?? configManager.shouldConfirmCommits();
-
-    print(
-        'DEBUG: confirmArg=$confirmArg, shouldConfirmCommits=${configManager.shouldConfirmCommits()}, final confirm=$confirm');
+    // Check if --confirm or --no-confirm was explicitly provided
+    final confirm = argResults?.wasParsed('confirm') == true
+        ? (argResults?['confirm'] as bool)
+        : configManager.shouldConfirmCommits();
 
     // Get ollamaBaseUrl from configs
     final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
