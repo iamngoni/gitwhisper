@@ -27,8 +27,19 @@ jobs:
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
 
-      - name: Install yq
-        uses: mikefarah/yq@master
+      - name: Install yq (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod a+x /usr/local/bin/yq
+
+      - name: Install yq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install yq
+
+      - name: Install yq (Windows)
+        if: runner.os == 'Windows'
+        run: choco install yq
 
       - name: Compile binary
         run: dart compile exe bin/main.dart -o ${{ matrix.target }} -DAPP_VERSION=$(yq '.version' pubspec.yaml)
