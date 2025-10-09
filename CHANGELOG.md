@@ -1,3 +1,14 @@
+## 0.1.3
+- **Emoji Control** - New `--allow-emojis` / `--no-allow-emojis` flag to control emoji inclusion in commit messages (defaults to enabled)
+- **Updated Model Variants** - Refreshed all AI model variants with latest releases:
+  - OpenAI: Added GPT-5 family (gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro), GPT-4.1 family, and gpt-realtime models
+  - Claude: Added claude-sonnet-4-5-20250929 and claude-opus-4-1-20250805
+  - Gemini: Updated to Gemini 2.5 family (gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-flash-image, gemini-2.5-computer-use)
+  - Grok: Added grok-4, grok-4-heavy, grok-4-fast, and grok-code-fast-1
+  - DeepSeek: Added deepseek-v3.2-exp, deepseek-v3.1, deepseek-r1-0528, and more
+- **Build Improvements** - Added dynamic version injection via yq in build workflow
+- **Code Documentation** - Added comprehensive method documentation for commit prompt utilities
+
 ## 0.1.2
 - **Interactive Commit Confirmation** - Review, edit, retry with different models, or discard AI-generated messages
 - **Enhanced User Experience** - All commands now use interactive prompts with smart defaults and guided workflows

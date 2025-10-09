@@ -62,6 +62,12 @@ class SetDefaultsCommand extends Command<int> {
         'no-confirm-commits',
         help: 'Never confirm commit messages (auto-commit)',
         defaultsTo: false,
+      )
+      ..addFlag(
+        'allow-emojis',
+        help: 'Include emojis in commit messages',
+        defaultsTo: true,
+        negatable: true,
       );
   }
 
@@ -105,6 +111,9 @@ class SetDefaultsCommand extends Command<int> {
           'Cannot use both --confirm-commits and --no-confirm-commits flags.');
       return ExitCode.usage.code;
     }
+
+    // Handle emoji flag
+    final allowEmojis = argResults?['allow-emojis'] as bool?;
 
     // For Ollama, ask about base URL if not provided
     if (modelName == 'ollama' && baseUrl == null) {
@@ -201,6 +210,17 @@ class SetDefaultsCommand extends Command<int> {
         _logger
             .info('Commit confirmation disabled. Commits will be automatic.');
       }
+    }
+
+    // Handle emoji setting
+    if (allowEmojis != null) {
+      configManager.setAllowEmojis(value: allowEmojis);
+      await configManager.save();
+      _logger.success(
+        allowEmojis
+            ? 'Emojis enabled in commit messages.'
+            : 'Emojis disabled in commit messages.',
+      );
     }
 
     if (modelVariant == null &&

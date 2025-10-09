@@ -30,8 +30,14 @@ class GeminiGenerator extends CommitGenerator {
     String diff,
     Language language, {
     String? prefix,
+    bool withEmoji = true,
   }) async {
-    final prompt = getCommitPrompt(diff, language, prefix: prefix);
+    final prompt = getCommitPrompt(
+      diff,
+      language,
+      prefix: prefix,
+      withEmoji: withEmoji,
+    );
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(

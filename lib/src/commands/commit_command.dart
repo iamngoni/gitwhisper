@@ -271,6 +271,9 @@ class CommitCommand extends Command<int> {
     // Get the language to use for commit messages
     final language = configManager.getWhisperLanguage();
 
+    // Get emoji setting
+    final withEmoji = configManager.shouldAllowEmojis();
+
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
       final diff = await GitUtils.getStagedDiff();
@@ -289,6 +292,7 @@ class CommitCommand extends Command<int> {
           diff,
           language,
           prefix: prefix,
+          withEmoji: withEmoji,
         );
 
         try {
@@ -314,6 +318,7 @@ class CommitCommand extends Command<int> {
             modelVariant: modelVariant,
             ollamaBaseUrl: ollamaBaseUrl,
             configManager: configManager,
+            withEmoji: withEmoji,
           );
 
           if (finalMessage == null) {
@@ -391,6 +396,7 @@ class CommitCommand extends Command<int> {
             diff,
             language,
             prefix: prefix,
+            withEmoji: withEmoji,
           );
 
           try {
@@ -419,6 +425,7 @@ class CommitCommand extends Command<int> {
               modelVariant: modelVariant,
               ollamaBaseUrl: ollamaBaseUrl,
               configManager: configManager,
+              withEmoji: withEmoji,
             );
 
             if (finalMessage == null) {
@@ -500,6 +507,7 @@ class CommitCommand extends Command<int> {
     required String modelVariant,
     required String? ollamaBaseUrl,
     required ConfigManager configManager,
+    required bool withEmoji,
   }) async {
     String currentMessage = commitMessage;
 
@@ -546,6 +554,7 @@ class CommitCommand extends Command<int> {
                   diff,
                   language,
                   prefix: prefix,
+                  withEmoji: withEmoji,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);
@@ -595,6 +604,7 @@ class CommitCommand extends Command<int> {
                   diff,
                   language,
                   prefix: prefix,
+                  withEmoji: withEmoji,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);
@@ -621,6 +631,7 @@ class CommitCommand extends Command<int> {
                   diff,
                   language,
                   prefix: prefix,
+                  withEmoji: withEmoji,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);

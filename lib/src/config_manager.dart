@@ -146,6 +146,16 @@ class ConfigManager {
     return _config['confirm_commits'] as bool? ?? false;
   }
 
+  /// Set allow emojis value
+  void setAllowEmojis({required bool value}) {
+    _config['allow_emojis'] = value;
+  }
+
+  /// Get the value of allow emojis
+  bool shouldAllowEmojis() {
+    return _config['allow_emojis'] as bool? ?? true;
+  }
+
   /// Clears the default model and default variant
   void clearDefaults() {
     if (_config['defaults'] != null) {

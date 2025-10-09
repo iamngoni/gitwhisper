@@ -21,6 +21,7 @@ abstract class CommitGenerator {
     String diff,
     Language language, {
     String? prefix,
+    bool withEmoji = true,
   });
 
   /// Generate an analysis of the provided diff for what's changed and possibly
