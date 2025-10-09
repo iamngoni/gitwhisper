@@ -33,6 +33,9 @@ class ShowDefaultsCommand extends Command<int> {
     // Get the current defaults
     final defaults = configManager.getDefaultModelAndVariant();
     final ollamaBaseUrl = configManager.getOllamaBaseURL();
+    final confirmCommits = configManager.shouldConfirmCommits();
+    final allowEmojis = configManager.shouldAllowEmojis();
+    final alwaysAdd = configManager.shouldAlwaysAdd();
 
     if (defaults == null) {
       _logger
@@ -53,6 +56,14 @@ class ShowDefaultsCommand extends Command<int> {
     if (model == 'ollama' && ollamaBaseUrl != null) {
       _logger.info('  ${lightCyan.wrap('Base URL')}: $ollamaBaseUrl');
     }
+
+    _logger
+      ..info(
+          '  ${lightCyan.wrap('Confirm commits')}: ${confirmCommits ? 'enabled' : 'disabled'}')
+      ..info(
+          '  ${lightCyan.wrap('Allow emojis')}: ${allowEmojis ? 'enabled' : 'disabled'}')
+      ..info(
+          '  ${lightCyan.wrap('Always add')}: ${alwaysAdd ? 'enabled' : 'disabled'}');
 
     return ExitCode.success.code;
   }
