@@ -153,31 +153,25 @@ class SetDefaultsCommand extends Command<int> {
     final configManager = ConfigManager();
     await configManager.load();
 
-    if (modelName != 'ollama') {
-      if (modelVariant != null) {
-        configManager.setDefaults(modelName!, modelVariant);
-        await configManager.save();
-      }
-    } else {
-      if (modelVariant != null) {
-        configManager.setDefaults(modelName!, modelVariant);
-        await configManager.save();
-      }
+    // Set default model and variant (pass null if variant not provided)
+    configManager.setDefaults(modelName!, modelVariant);
+    await configManager.save();
 
-      if (baseUrl != null) {
-        configManager.setOllamaBaseURL(baseUrl);
-        await configManager.save();
-      }
-    }
-
-    if (modelVariant != null) {
+    if (modelVariant != null && modelVariant.isNotEmpty) {
       _logger.success(
         '$modelName -> $modelVariant has been set as the default model for'
         ' commits.',
       );
+    } else {
+      _logger.success(
+        '$modelName has been set as the default model (will use default variant).',
+      );
     }
 
-    if (baseUrl != null) {
+    // Handle Ollama-specific base URL
+    if (modelName == 'ollama' && baseUrl != null) {
+      configManager.setOllamaBaseURL(baseUrl);
+      await configManager.save();
       _logger.success(
         '$modelName baseUrl has been set to $baseUrl.',
       );

@@ -60,10 +60,11 @@ class ConfigManager {
     if (_config.containsKey('defaults')) {
       final String model =
           (_config['defaults'] as Map<String, dynamic>)['model'] as String;
-      final String variant =
-          (_config['defaults'] as Map<String, dynamic>)['variant'] as String;
+      final String? variant =
+          (_config['defaults'] as Map<String, dynamic>)['variant'] as String?;
 
-      return (model, variant);
+      // Return empty string if variant is not set, commit command will use generator default
+      return (model, variant ?? '');
     } else {
       return null;
     }
@@ -110,12 +111,17 @@ class ConfigManager {
   }
 
   /// Sets the default model and default variant
-  void setDefaults(String model, String modelVariant) {
+  void setDefaults(String model, String? modelVariant) {
     if (_config['defaults'] == null) {
       _config['defaults'] = <String, dynamic>{};
     }
     (_config['defaults'] as Map<String, dynamic>)['model'] = model;
-    (_config['defaults'] as Map<String, dynamic>)['variant'] = modelVariant;
+    if (modelVariant != null && modelVariant.isNotEmpty) {
+      (_config['defaults'] as Map<String, dynamic>)['variant'] = modelVariant;
+    } else {
+      // Remove variant from config if null/empty so it falls back to generator default
+      (_config['defaults'] as Map<String, dynamic>).remove('variant');
+    }
   }
 
   /// Sets the base URL to use for Ollama

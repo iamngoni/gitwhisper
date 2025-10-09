@@ -12,7 +12,7 @@ class ModelVariants {
   static const String openaiDefault = 'gpt-4o';
 
   /// Default Claude model variant
-  static const String claudeDefault = 'claude-sonnet-4-20250514';
+  static const String claudeDefault = 'claude-sonnet-4-5-20250929';
 
   /// Default Gemini model variant
   static const String geminiDefault = 'gemini-2.0-flash';

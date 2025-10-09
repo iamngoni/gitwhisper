@@ -1,4 +1,4 @@
-## 0.1.8
+## 0.1.9
 - **Emoji Control** - New `--allow-emojis` / `--no-allow-emojis` flag to control emoji inclusion in commit messages (defaults to enabled)
 - **Updated Model Variants** - Refreshed all AI model variants with latest releases:
   - OpenAI: Added GPT-5 family (gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro), GPT-4.1 family, and gpt-realtime models
