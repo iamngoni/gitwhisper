@@ -42,7 +42,7 @@ jobs:
         run: choco install yq
 
       - name: Compile binary
-        run: dart compile exe bin/main.dart -o ${{ matrix.target }} -DAPP_VERSION=$(yq '.version' pubspec.yaml)
+        run: dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o ${{ matrix.target }}
 
       - name: Archive binary
         run: tar -czf ${{ matrix.archive }} ${{ matrix.target }}

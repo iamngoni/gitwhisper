@@ -1656,6 +1656,80 @@ gw set-defaults --model ollama --model-variant llama3 --base-url http://localhos
                                 </div>
                             </div>
 
+                            <!-- Commit Confirmation -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Commit Confirmation
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Enable interactive commit confirmation to
+                                    review, edit, or regenerate commit messages
+                                    before applying:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper set-defaults --confirm-commits"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Enable commit confirmation
+gitwhisper set-defaults --confirm-commits
+
+# Disable commit confirmation
+gw set-defaults --no-confirm-commits</code></pre>
+                                </div>
+                            </div>
+
+                            <!-- Emoji Control -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Emoji Control
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Control whether emojis are included in
+                                    commit messages (enabled by default):
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper set-defaults --no-allow-emojis"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Disable emojis in commit messages
+gitwhisper set-defaults --no-allow-emojis
+
+# Re-enable emojis
+gw set-defaults --allow-emojis</code></pre>
+                                </div>
+                                <div class="alert alert-info mt-4">
+                                    <strong>Examples:</strong>
+                                    <ul class="mt-2 ml-4 list-disc">
+                                        <li>
+                                            <strong
+                                                >With emojis (default):</strong
+                                            >
+                                            <code
+                                                >feat: ✨ Add dark mode
+                                                toggle</code
+                                            >
+                                        </li>
+                                        <li>
+                                            <strong>Without emojis:</strong>
+                                            <code
+                                                >feat: Add dark mode
+                                                toggle</code
+                                            >
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
                             <!-- Always Stage -->
                             <div class="step-card">
                                 <h3 class="text-xl font-semibold mb-4">
@@ -1941,7 +2015,7 @@ gw change-language</code></pre>
                                     <thead>
                                         <tr>
                                             <th>Provider</th>
-                                            <th>Model</th>
+                                            <th>Latest Models</th>
                                             <th>Cost</th>
                                             <th>Best For</th>
                                         </tr>
@@ -1949,36 +2023,73 @@ gw change-language</code></pre>
                                     <tbody>
                                         <tr>
                                             <td>Google</td>
-                                            <td>Gemini</td>
+                                            <td>Gemini 2.5 Pro/Flash</td>
                                             <td>Free (generous limits)</td>
-                                            <td>Getting started</td>
+                                            <td>
+                                                Getting started, thinking models
+                                            </td>
                                         </tr>
                                         <tr>
                                             <td>GitHub</td>
-                                            <td>Various</td>
+                                            <td>
+                                                Various (GPT-4o, DeepSeek, etc.)
+                                            </td>
                                             <td>Free (rate limited)</td>
                                             <td>Experimentation</td>
                                         </tr>
                                         <tr>
                                             <td>OpenAI</td>
-                                            <td>GPT-4, GPT-4o</td>
+                                            <td>GPT-5, GPT-4.1, GPT-4o</td>
                                             <td>Paid</td>
-                                            <td>High quality results</td>
+                                            <td>High quality, latest AI</td>
                                         </tr>
                                         <tr>
                                             <td>Anthropic</td>
-                                            <td>Claude 3</td>
+                                            <td>Claude Sonnet 4.5, Opus 4.1</td>
                                             <td>Paid</td>
-                                            <td>Detailed analysis</td>
+                                            <td>Detailed analysis, coding</td>
+                                        </tr>
+                                        <tr>
+                                            <td>xAI</td>
+                                            <td>Grok 4, Grok Code Fast</td>
+                                            <td>Paid</td>
+                                            <td>Real-time, agentic coding</td>
+                                        </tr>
+                                        <tr>
+                                            <td>DeepSeek</td>
+                                            <td>DeepSeek V3.2, R1</td>
+                                            <td>Paid</td>
+                                            <td>Cost-effective, reasoning</td>
                                         </tr>
                                         <tr>
                                             <td>Ollama</td>
-                                            <td>Self-hosted</td>
+                                            <td>Self-hosted (Llama, etc.)</td>
                                             <td>Free (your hardware)</td>
                                             <td>Privacy & control</td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+
+                            <div class="alert alert-info mb-8">
+                                <div class="flex items-start">
+                                    <i
+                                        class="fas fa-info-circle text-xl mr-3 mt-1"
+                                    ></i>
+                                    <div>
+                                        <strong>Latest Updates (2025):</strong>
+                                        GitWhisper now supports the newest model
+                                        releases including GPT-5 family, Claude
+                                        Sonnet 4.5, Gemini 2.5 with thinking
+                                        capabilities, Grok 4 series, and
+                                        DeepSeek V3.2. Use
+                                        <code
+                                            >gw list-variants --model
+                                            [provider]</code
+                                        >
+                                        to see all available variants.
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- List Available Models -->
