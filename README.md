@@ -55,7 +55,7 @@ brew tap iamngoni/homebrew-gitwhisper
 brew install gitwhisper
 ```
 
-Or on Debian using APT:
+Or on Debian/Ubuntu using APT (supports amd64 and arm64):
 ```bash
 echo "deb [trusted=yes] https://iamngoni.github.io/gitwhisper-apt stable main" | sudo tee /etc/apt/sources.list.d/gitwhisper.list
 sudo apt update

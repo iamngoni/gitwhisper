@@ -82,12 +82,13 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
 
-          mkdir -p deb/usr/local/bin
-          cp gitwhisper deb/usr/local/bin/
-          ln -s /usr/local/bin/gitwhisper deb/usr/local/bin/gw
+          # Build amd64 package
+          mkdir -p deb-amd64/usr/local/bin
+          cp gitwhisper deb-amd64/usr/local/bin/
+          ln -s /usr/local/bin/gitwhisper deb-amd64/usr/local/bin/gw
 
-          mkdir -p deb/DEBIAN
-          cat <<EOF > deb/DEBIAN/control
+          mkdir -p deb-amd64/DEBIAN
+          cat <<EOF > deb-amd64/DEBIAN/control
           Package: gitwhisper
           Version: ${version}
           Section: utils
@@ -97,8 +98,29 @@ jobs:
           Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
           EOF
 
-          dpkg-deb --build deb
-          mv deb.deb gitwhisper_${version}_amd64.deb
+          dpkg-deb --build deb-amd64
+          mv deb-amd64.deb gitwhisper_${version}_amd64.deb
+
+          # Build arm64 package (cross-compile)
+          dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o gitwhisper-arm64 --target-os linux
+
+          mkdir -p deb-arm64/usr/local/bin
+          cp gitwhisper-arm64 deb-arm64/usr/local/bin/gitwhisper
+          ln -s /usr/local/bin/gitwhisper deb-arm64/usr/local/bin/gw
+
+          mkdir -p deb-arm64/DEBIAN
+          cat <<EOF > deb-arm64/DEBIAN/control
+          Package: gitwhisper
+          Version: ${version}
+          Section: utils
+          Priority: optional
+          Architecture: arm64
+          Maintainer: Ngonidzashe Mangudya <you@example.com>
+          Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
+          EOF
+
+          dpkg-deb --build deb-arm64
+          mv deb-arm64.deb gitwhisper_${version}_arm64.deb
 
           # Clone and update APT repo
           git clone --depth=1 --branch=gh-pages https://github.com/iamngoni/gitwhisper-apt apt-repo
@@ -106,15 +128,34 @@ jobs:
 
           mkdir -p pool/main/g/gitwhisper
           mkdir -p dists/stable/main/binary-amd64
-          cp ../gitwhisper_${version}_amd64.deb pool/main/g/gitwhisper/
+          mkdir -p dists/stable/main/binary-arm64
 
-          dpkg-scanpackages pool /dev/null > dists/stable/main/binary-amd64/Packages
+          # Copy packages
+          cp ../gitwhisper_${version}_amd64.deb pool/main/g/gitwhisper/
+          cp ../gitwhisper_${version}_arm64.deb pool/main/g/gitwhisper/
+
+          # Generate package indices
+          dpkg-scanpackages --arch amd64 pool /dev/null > dists/stable/main/binary-amd64/Packages
           gzip -kf dists/stable/main/binary-amd64/Packages
+
+          dpkg-scanpackages --arch arm64 pool /dev/null > dists/stable/main/binary-arm64/Packages
+          gzip -kf dists/stable/main/binary-arm64/Packages
+
+          # Create Release file
+          cat <<EOF > dists/stable/Release
+          Origin: GitWhisper
+          Label: GitWhisper
+          Suite: stable
+          Codename: stable
+          Architectures: amd64 arm64
+          Components: main
+          Description: GitWhisper APT Repository
+          EOF
 
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add .
-          git commit -m "Publish gitwhisper ${version}"
+          git commit -m "Publish gitwhisper ${version} (amd64 and arm64)"
           git push https://x-access-token:${{ secrets.HOMEBREW_TAP_PAT }}@github.com/iamngoni/gitwhisper-apt gh-pages
 
   update-homebrew:
