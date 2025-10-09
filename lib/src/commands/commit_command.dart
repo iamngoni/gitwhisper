@@ -254,8 +254,12 @@ class CommitCommand extends Command<int> {
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
     // Handle --confirm, fallback to global config, then false
-    final confirm = (argResults?['confirm'] as bool?) ??
-        configManager.shouldConfirmCommits();
+    final confirmFlag = argResults?['confirm'] as bool?;
+    final configConfirm = configManager.shouldConfirmCommits();
+    final confirm = confirmFlag ?? configConfirm;
+
+    _logger.detail(
+        'Confirm flag: $confirmFlag, Config confirm: $configConfirm, Final confirm: $confirm');
 
     // Get ollamaBaseUrl from configs
     final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
