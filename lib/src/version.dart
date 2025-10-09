@@ -1,2 +1,5 @@
 // Generated code. Do not modify.
-const packageVersion = '0.0.58';
+const packageVersion = String.fromEnvironment(
+  'APP_VERSION',
+  defaultValue: '0.1.2',
+);

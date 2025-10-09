@@ -23,7 +23,7 @@ class ListVariantsCommand extends Command<int> {
         'gemini',
         'grok',
         'llama',
-        'deekseek',
+        'deepseek',
         'github',
         'ollama',
       ],
@@ -56,41 +56,53 @@ class ListVariantsCommand extends Command<int> {
 
     switch (model) {
       case 'openai':
-        _logger.info('  - gpt-4 (default)');
-        _logger.info('  - gpt-4-turbo-2024-04-09');
+        _logger.info('  - gpt-4o (default)');
+        _logger.info('  - gpt-5');
+        _logger.info('  - gpt-5-mini');
+        _logger.info('  - gpt-5-nano');
+        _logger.info('  - gpt-5-pro');
+        _logger.info('  - gpt-4.1');
+        _logger.info('  - gpt-4.1-mini');
+        _logger.info('  - gpt-4.1-nano');
+        _logger.info('  - gpt-4.5-preview');
         _logger.info('  - gpt-4o');
         _logger.info('  - gpt-4o-mini');
-        _logger.info('  - gpt-4.5-preview');
-        _logger.info('  - gpt-3.5-turbo-0125');
-        _logger.info('  - gpt-3.5-turbo-instruct');
+        _logger.info('  - gpt-realtime');
+        _logger.info('  - gpt-realtime-mini');
         _logger.info('  - o1-preview');
         _logger.info('  - o1-mini');
         _logger.info('  - o3-mini');
       case 'claude':
         _logger.info('  - claude-sonnet-4-20250514 (default)');
+        _logger.info('  - claude-sonnet-4-5-20250929');
+        _logger.info('  - claude-opus-4-1-20250805');
         _logger.info('  - claude-opus-4-20250514');
         _logger.info('  - claude-3-7-sonnet-20250219');
         _logger.info('  - claude-3-7-sonnet-latest');
         _logger.info('  - claude-3-5-sonnet-latest');
+        _logger.info('  - claude-3-5-sonnet-20241022');
+        _logger.info('  - claude-3-5-sonnet-20240620');
         _logger.info('  - claude-3-opus-20240307');
         _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
-        _logger.info('  - claude-3-5-sonnet-20240620');
-        _logger.info('  - claude-3-5-sonnet-20241022');
-        _logger.info('  - claude-3-7-sonnet-20250219');
       case 'gemini':
-        _logger.info('  - gemini-2.5-pro-preview-05-06 (advanced reasoning)');
-        _logger.info('  - gemini-2.5-flash-preview-04-17 (adaptive thinking)');
         _logger.info('  - gemini-2.0-flash (default)');
-        _logger.info('  - gemini-2.0-flash-lite (low latency)');
+        _logger.info('  - gemini-2.5-pro (advanced reasoning with thinking)');
+        _logger.info('  - gemini-2.5-flash (updated Sep 2025)');
+        _logger.info('  - gemini-2.5-flash-lite (most cost-efficient)');
+        _logger.info('  - gemini-2.5-flash-image (image generation)');
+        _logger.info('  - gemini-2.5-computer-use (agent interaction)');
         _logger.info('  - gemini-1.5-pro-002 (2M tokens)');
         _logger.info('  - gemini-1.5-flash-002 (1M tokens)');
         _logger.info('  - gemini-1.5-flash-8b (cost effective)');
       case 'grok':
-        _logger.info('  - grok-1 (default)');
-        _logger.info('  - grok-2');
-        _logger.info('  - grok-3');
-        _logger.info('  - grok-2-mini');
+        _logger.info('  - grok-2-latest (default)');
+        _logger.info('  - grok-4 (most intelligent)');
+        _logger.info('  - grok-4-heavy (most powerful)');
+        _logger.info('  - grok-4-fast (efficient reasoning)');
+        _logger.info('  - grok-code-fast-1 (agentic coding)');
+        _logger.info('  - grok-3 (reasoning capabilities)');
+        _logger.info('  - grok-3-mini (faster responses)');
       case 'llama':
         _logger.info('  - llama-3-70b-instruct (default)');
         _logger.info('  - llama-3-8b-instruct');
@@ -102,6 +114,11 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - llama-3.3-70b-instruct');
       case 'deepseek':
         _logger.info('  - deepseek-chat (default)');
+        _logger.info('  - deepseek-v3.2-exp (latest experimental)');
+        _logger.info('  - deepseek-v3.1 (hybrid reasoning)');
+        _logger.info('  - deepseek-v3.1-terminus');
+        _logger.info('  - deepseek-r1-0528 (upgraded reasoning)');
+        _logger.info('  - deepseek-v3-0324 (improved post-training)');
         _logger.info('  - deepseek-reasoner');
       case 'github':
         _logger.info('  - gpt-4o (default)');
