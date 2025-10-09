@@ -273,6 +273,71 @@ class GitUtils {
     return after.difference(before).length;
   }
 
+  /// Opens the user's configured Git editor to edit a commit message.
+  ///
+  /// This function:
+  /// 1. Gets the user's Git editor configuration (or falls back to $EDITOR or vi)
+  /// 2. Writes the initial message to a temporary file
+  /// 3. Opens the editor for the user to edit the message
+  /// 4. Reads back the edited message and cleans it up
+  ///
+  /// Returns the edited message, or null if the user left it empty or the editor failed.
+  static Future<String?> openGitEditor(String initialMessage) async {
+    // Get the configured Git editor
+    final editorResult = await Process.run('git', ['var', 'GIT_EDITOR']);
+    String editor;
+
+    if (editorResult.exitCode == 0 &&
+        (editorResult.stdout as String).trim().isNotEmpty) {
+      editor = (editorResult.stdout as String).trim();
+    } else {
+      // Fall back to EDITOR environment variable or vi
+      editor = Platform.environment['EDITOR'] ?? 'vi';
+    }
+
+    // Create a temporary file for the commit message
+    final tempDir = Directory.systemTemp;
+    final tempFile = File(
+        '${tempDir.path}/GITWHISPER_EDITMSG_${DateTime.now().millisecondsSinceEpoch}');
+
+    try {
+      // Write the initial message to the temp file
+      await tempFile.writeAsString(initialMessage);
+
+      // Open the editor (use Process.start to allow interactive editing)
+      final process = await Process.start(
+        '/bin/sh',
+        ['-c', '$editor "${tempFile.path}"'],
+        mode: ProcessStartMode.inheritStdio,
+      );
+
+      final exitCode = await process.exitCode;
+
+      if (exitCode != 0) {
+        $logger.err('Editor exited with code $exitCode');
+        return null;
+      }
+
+      // Read the edited message
+      final editedMessage = await tempFile.readAsString();
+
+      // Clean up: remove comment lines (lines starting with #) and trim
+      final cleanedLines = editedMessage
+          .split('\n')
+          .where((line) => !line.trimLeft().startsWith('#'))
+          .toList();
+
+      final cleaned = cleanedLines.join('\n').trim();
+
+      return cleaned.isNotEmpty ? cleaned : null;
+    } finally {
+      // Clean up the temp file
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+    }
+  }
+
   /// Removes Markdown-style code block markers (``` or ```dart) from a string.
   ///
   /// This is useful when dealing with AI-generated or Markdown-formatted text

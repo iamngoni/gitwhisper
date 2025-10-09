@@ -530,14 +530,14 @@ class CommitCommand extends Command<int> {
           return currentMessage;
 
         case 'edit':
-          final editedMessage = _logger.prompt(
-            'Edit your commit message:',
-            defaultValue: currentMessage,
-          );
-          if (editedMessage.trim().isNotEmpty) {
-            return editedMessage;
+          _logger.info('Opening editor...');
+          final editedMessage = await GitUtils.openGitEditor(currentMessage);
+          if (editedMessage != null && editedMessage.trim().isNotEmpty) {
+            currentMessage = editedMessage;
+            continue;
           } else {
-            _logger.warn('Empty commit message, returning to options...');
+            _logger.warn(
+                'Empty commit message or editor cancelled, returning to options...');
             continue;
           }
 
