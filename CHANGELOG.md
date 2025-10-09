@@ -1,3 +1,8 @@
+## 0.1.10
+- **Git Editor Integration** - Edit commit messages in your preferred Git editor (vim, nano, VS Code, etc.) instead of inline prompt
+- **Improved Edit Workflow** - After editing, the commit message returns to the confirmation menu for review instead of auto-committing
+- **Better UX** - Respects Git's editor configuration hierarchy: `GIT_EDITOR` → `$EDITOR` → `vi` as fallback
+
 ## 0.1.9
 - **Emoji Control** - New `--allow-emojis` / `--no-allow-emojis` flag to control emoji inclusion in commit messages (defaults to enabled)
 - **Updated Model Variants** - Refreshed all AI model variants with latest releases:
