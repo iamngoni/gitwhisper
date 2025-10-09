@@ -302,7 +302,7 @@ class CommitCommand extends Command<int> {
         }
 
         if (commitMessage.trim().isEmpty) {
-          _logger.err('Error: Generated commit message is empty');
+          _logger.err('Error: Generated commit message is empty!');
           return ExitCode.software.code;
         }
 
