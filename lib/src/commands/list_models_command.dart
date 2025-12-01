@@ -33,7 +33,8 @@ class ListModelsCommand extends Command<int> {
       ..info('  - llama (Meta Llama)')
       ..info('  - deepseek (DeepSeek, Inc.)')
       ..info('  - github (GitHub)')
-      ..info('  - ollama (Ollama)');
+      ..info('  - ollama (Ollama)')
+      ..info('  - free (LLM7.io - No API key required)');
     return ExitCode.success.code;
   }
 }

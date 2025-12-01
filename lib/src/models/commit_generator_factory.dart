@@ -9,6 +9,7 @@
 import 'claude_generator.dart';
 import 'commit_generator.dart';
 import 'deepseek_generator.dart';
+import 'free_generator.dart';
 import 'gemini_generator.dart';
 import 'github_generator.dart';
 import 'grok_generator.dart';
@@ -61,6 +62,7 @@ class CommitGeneratorFactory {
               variant: variant,
             ),
         },
+      'free' => FreeGenerator(),
       _ => throw ArgumentError('Unsupported model: $model'),
     };
   }

@@ -96,6 +96,7 @@ Or download the executable binary for your operating system directly [here.](htt
     - Deepseek (DeepSeek, Inc.)
     - GitHub Models (Free, rate-limited)
     - All Ollama models
+    - Free (LLM7.io) - No API key required!
 
 ## Usage
 
@@ -124,6 +125,10 @@ gw commit -t v1.0.0
 
 # Combine tag with auto-push to push both commit and tag
 gw commit -t v1.0.0 -a
+
+# Use free model (no API key required!)
+gitwhisper commit --model free
+gw commit -m free
 
 # Analyze your changes (staged/unstaged) with AI
 gitwhisper analyze
@@ -296,6 +301,17 @@ To run GitHub models you may need the following:
 
 ### Ollama (self-hosted)
 - Check Ollama models here: [https://ollama.com/search](https://ollama.com/search)
+
+### Free (LLM7.io) - No API Key Required!
+A completely free option powered by [LLM7.io](https://llm7.io). No signup, no API key needed - just use it!
+
+**Anonymous tier limits:**
+- 8k chars per request
+- 60 requests per hour
+- 10 requests per minute
+- 1 request per second
+
+> **Note:** The free model is powered by a third-party service. Your code diffs will be sent to LLM7.io servers. Service availability is not guaranteed. For production use, consider a paid API provider.
 
 ## How It Works
 

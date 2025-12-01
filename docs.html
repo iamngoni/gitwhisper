@@ -1069,6 +1069,87 @@ sudo apt install gitwhisper</code></pre>
                                 keys for each supported provider:
                             </p>
 
+                            <!-- Free Model - No API Key -->
+                            <div
+                                class="step-card"
+                                style="
+                                    border: 2px solid #10b981;
+                                    background: linear-gradient(
+                                        135deg,
+                                        rgba(16, 185, 129, 0.05),
+                                        rgba(6, 182, 212, 0.05)
+                                    );
+                                "
+                            >
+                                <h3
+                                    class="text-xl font-semibold mb-4 flex items-center"
+                                >
+                                    <i
+                                        class="fas fa-gift text-green-600 mr-2"
+                                    ></i>
+                                    Free Model (No API Key Required!)
+                                </h3>
+
+                                <p class="text-gray-600 mb-4">
+                                    <strong
+                                        >Want to try GitWhisper without setting
+                                        up any API keys?</strong
+                                    >
+                                    Use our free model powered by LLM7.io - no
+                                    signup, no API key, just works!
+                                </p>
+
+                                <div class="mb-4">
+                                    <h4 class="font-semibold mb-2">
+                                        Anonymous Tier Limits:
+                                    </h4>
+                                    <ul class="text-gray-600 space-y-1 ml-4">
+                                        <li>• 8k chars per request</li>
+                                        <li>• 60 requests per hour</li>
+                                        <li>• 10 requests per minute</li>
+                                        <li>• 1 request per second</li>
+                                    </ul>
+                                </div>
+
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gw commit --model free"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Just use it - no setup needed!
+gw commit --model free
+
+# Or set as default
+gw set-defaults --model free</code></pre>
+                                </div>
+
+                                <div class="alert alert-info mt-4">
+                                    <div class="flex items-start">
+                                        <i
+                                            class="fas fa-info-circle text-xl mr-3 mt-1"
+                                        ></i>
+                                        <div>
+                                            <strong>Note:</strong> The free
+                                            model is powered by
+                                            <a
+                                                href="https://llm7.io"
+                                                target="_blank"
+                                                class="text-indigo-600 hover:underline"
+                                                >LLM7.io</a
+                                            >, a third-party service. Your code
+                                            diffs will be sent to their servers.
+                                            Service availability is not
+                                            guaranteed. For production use,
+                                            consider a paid API provider.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- OpenAI -->
                             <div class="step-card">
                                 <h3

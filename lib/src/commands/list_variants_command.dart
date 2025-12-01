@@ -26,6 +26,7 @@ class ListVariantsCommand extends Command<int> {
         'deepseek',
         'github',
         'ollama',
+        'free',
       ],
     );
   }
@@ -141,6 +142,18 @@ class ListVariantsCommand extends Command<int> {
           uri: Uri.parse('https://ollama.com/search'),
         );
         _logger.info('Check Ollama models $url');
+      case 'free':
+        _logger.info('  No variant selection - uses LLM7.io default model');
+        _logger.info('');
+        _logger.info('  Anonymous tier limits:');
+        _logger.info('  • 8k chars per request');
+        _logger.info('  • 60 requests/hour, 10 requests/min, 1 request/sec');
+        _logger.info('');
+        final freeUrl = link(
+          message: 'LLM7.io',
+          uri: Uri.parse('https://llm7.io'),
+        );
+        _logger.info('  Powered by $freeUrl - No API key required!');
     }
   }
 
@@ -160,5 +173,7 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('github');
     _logger.info('');
     _listVariantsForModel('ollama');
+    _logger.info('');
+    _listVariantsForModel('free');
   }
 }

@@ -37,6 +37,7 @@ class CommitCommand extends Command<int> {
           'deepseek',
           'github',
           'ollama',
+          'free',
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
@@ -47,6 +48,7 @@ class CommitCommand extends Command<int> {
           'deepseek': 'DeepSeek, Inc.',
           'github': 'Github',
           'ollama': 'Ollama',
+          'free': 'Free (LLM7.io) - No API key required',
         },
       )
       ..addOption(
@@ -246,11 +248,70 @@ class CommitCommand extends Command<int> {
     apiKey ??=
         configManager.getApiKey(modelName) ?? _getEnvironmentApiKey(modelName);
 
-    if ((apiKey == null || apiKey.isEmpty) && modelName != 'ollama') {
+    if ((apiKey == null || apiKey.isEmpty) &&
+        modelName != 'ollama' &&
+        modelName != 'free') {
       _logger.err(
         'No API key provided for $modelName. Please provide an API key using --key.',
       );
       return ExitCode.usage.code;
+    }
+
+    // Show disclaimer for free model on first use
+    if (modelName == 'free' && !configManager.hasAcceptedFreeDisclaimer()) {
+      _logger
+        ..info('')
+        ..info(
+            '┌─────────────────────────────────────────────────────────────┐')
+        ..info(
+            '│                    FREE MODEL DISCLAIMER                    │')
+        ..info(
+            '├─────────────────────────────────────────────────────────────┤')
+        ..info(
+            '│ This free model is powered by LLM7.io - a third-party       │')
+        ..info(
+            '│ service providing free, anonymous access to AI models.      │')
+        ..info(
+            '│                                                             │')
+        ..info(
+            '│ Anonymous tier limits:                                      │')
+        ..info(
+            '│ • 8k chars per request                                      │')
+        ..info(
+            '│ • 60 requests/hour, 10 requests/min, 1 request/sec          │')
+        ..info(
+            '│                                                             │')
+        ..info(
+            '│ Please note:                                                │')
+        ..info(
+            '│ • Your code diffs will be sent to LLM7.io servers           │')
+        ..info(
+            '│ • Service availability is not guaranteed                    │')
+        ..info(
+            '│ • For production use, consider a paid API provider          │')
+        ..info(
+            '│                                                             │')
+        ..info(
+            '│ Learn more: https://llm7.io                                 │')
+        ..info(
+            '└─────────────────────────────────────────────────────────────┘')
+        ..info('');
+
+      final response = _logger.chooseOne(
+        'Do you accept these terms and wish to continue?',
+        choices: ['yes', 'no'],
+        defaultValue: 'yes',
+      );
+
+      if (response == 'no') {
+        _logger.info('Free model usage cancelled.');
+        return ExitCode.usage.code;
+      }
+
+      // Save acceptance so we don't show again
+      configManager.setFreeDisclaimerAccepted();
+      await configManager.save();
+      _logger.success('Disclaimer accepted. You won\'t see this again.');
     }
 
     // Get prefix if available for things like ticket numbers

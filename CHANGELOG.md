@@ -1,4 +1,5 @@
 ## 0.1.12
+- **Free Model (No API Key Required!)** - New `free` model option powered by LLM7.io. Use GitWhisper without any API key setup: `gw commit --model free`
 - **Git Tagging Support** - New `--tag` / `-t` flag to create a git tag alongside your commit (e.g., `gw commit -t v1.0.0`)
 - **Auto-push Tags** - When using `--auto-push` with `--tag`, both the commit and tag are pushed to the remote
 - **Improved Ticket Prefix** - Fixed ticket prefix formatting to correctly include the prefix in generated commit messages (e.g., `JIRA-123 -> fix: 🐛 Fix bug`)

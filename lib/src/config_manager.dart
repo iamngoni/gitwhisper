@@ -162,6 +162,16 @@ class ConfigManager {
     return _config['allow_emojis'] as bool? ?? true;
   }
 
+  /// Check if user has accepted the free model disclaimer
+  bool hasAcceptedFreeDisclaimer() {
+    return _config['free_disclaimer_accepted'] as bool? ?? false;
+  }
+
+  /// Set that user has accepted the free model disclaimer
+  void setFreeDisclaimerAccepted() {
+    _config['free_disclaimer_accepted'] = true;
+  }
+
   /// Clears the default model and default variant
   void clearDefaults() {
     if (_config['defaults'] != null) {

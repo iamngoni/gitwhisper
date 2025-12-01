@@ -29,6 +29,7 @@ class SetDefaultsCommand extends Command<int> {
           'deepseek',
           'github',
           'ollama',
+          'free',
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
@@ -39,6 +40,7 @@ class SetDefaultsCommand extends Command<int> {
           'deepseek': 'DeepSeek, Inc.',
           'github': 'Github',
           'ollama': 'Ollama',
+          'free': 'Free (LLM7.io) - No API key required',
         },
       )
       ..addOption(
