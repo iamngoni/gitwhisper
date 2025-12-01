@@ -41,17 +41,14 @@ String getCommitPromptWithEmoji(
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
-If a prefix is provided, format it like this:
+TICKET PREFIX REQUIREMENT:
+You MUST include the ticket prefix "$prefix ->" at the start of EVERY commit message.
 
-- For a **single commit message**:
-  fix: 🐛 **PREFIX** -> Fix login validation, handle empty input
+Format for commit messages with prefix:
+$prefix -> fix: 🐛 Fix login validation, handle empty input
+$prefix -> feat: ✨ Add dark mode toggle, persist setting
 
-- For **multiple unrelated messages**:
-  **PREFIX**
-  feat: ✨ Add dark mode toggle, persist setting
-  fix: 🐛 Fix login bug, validate inputs
-
-  Here's the commit prefix: $prefix
+The prefix "$prefix ->" must appear BEFORE the commit type on every line.
 '''
       : '';
 
@@ -133,17 +130,14 @@ String getCommitPromptWithNoEmoji(
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
-If a prefix is provided, format it like this:
+TICKET PREFIX REQUIREMENT:
+You MUST include the ticket prefix "$prefix ->" at the start of EVERY commit message.
 
-- For a **single commit message**:
-  fix: **PREFIX** -> Fix login validation, handle empty input
+Format for commit messages with prefix:
+$prefix -> fix: Fix login validation, handle empty input
+$prefix -> feat: Add dark mode toggle, persist setting
 
-- For **multiple unrelated messages**:
-  **PREFIX**
-  feat: Add dark mode toggle, persist setting
-  fix: Fix login bug, validate inputs
-
-  Here's the commit prefix: $prefix
+The prefix "$prefix ->" must appear BEFORE the commit type on every line.
 '''
       : '';
 
