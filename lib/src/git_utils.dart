@@ -163,6 +163,7 @@ class GitUtils {
     required String message,
     bool autoPush = false,
     String? folderPath,
+    String? tag,
   }) async {
     final args = ['commit', '-m', message];
     final result = await Process.run(
@@ -173,6 +174,24 @@ class GitUtils {
     if (result.exitCode != 0) {
       throw Exception('Error during git commit: ${result.stderr}');
     } else {
+      // Create tag if provided
+      if (tag != null && tag.isNotEmpty) {
+        final tagResult = await Process.run(
+          'git',
+          ['tag', tag],
+          workingDirectory: folderPath,
+        );
+        if (tagResult.exitCode != 0) {
+          throw Exception('Error creating tag: ${tagResult.stderr}');
+        }
+        if (folderPath != null) {
+          final folderName = path.basename(folderPath);
+          $logger.success('[$folderName] Tag $tag created successfully!');
+        } else {
+          $logger.success('Tag $tag created successfully!');
+        }
+      }
+
       if (!autoPush) {
         if (folderPath != null) {
           final folderName = path.basename(folderPath);
@@ -216,6 +235,25 @@ class GitUtils {
           } else {
             $logger
                 .success('Pushed to $remoteNoneUrl/$branch successfully! 🎉');
+          }
+        }
+
+        // Push tag if it was created
+        if (tag != null && tag.isNotEmpty) {
+          final pushTagResult = await Process.run(
+            'git',
+            ['push', remoteNoneUrl, tag],
+            workingDirectory: folderPath,
+          );
+          if (pushTagResult.exitCode != 0) {
+            throw Exception('Error pushing tag: ${pushTagResult.stderr}');
+          } else {
+            if (folderPath != null) {
+              final folderName = path.basename(folderPath);
+              $logger.success('[$folderName] Tag $tag pushed successfully!');
+            } else {
+              $logger.success('Tag $tag pushed successfully!');
+            }
           }
         }
       }

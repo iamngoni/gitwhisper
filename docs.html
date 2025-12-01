@@ -2181,6 +2181,35 @@ gw commit -a</code></pre>
                                 </div>
                             </div>
 
+                            <!-- Git Tagging -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Git Tagging
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Create a git tag alongside your commit for
+                                    releases and versioning:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gitwhisper commit --tag v1.0.0"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Create a commit with a tag
+gitwhisper commit --tag v1.0.0
+
+# Shorthand
+gw commit -t v1.0.0
+
+# Combine with auto-push to push both commit and tag
+gw commit -t v1.0.0 -a</code></pre>
+                                </div>
+                            </div>
+
                             <!-- Code Analysis -->
                             <div class="step-card">
                                 <h3 class="text-xl font-semibold mb-4">

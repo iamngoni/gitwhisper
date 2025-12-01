@@ -76,6 +76,12 @@ class CommitCommand extends Command<int> {
         abbr: 'c',
         help: 'Confirm commit message before applying',
         negatable: true,
+      )
+      ..addOption(
+        'tag',
+        abbr: 't',
+        help: 'Create a git tag for this commit',
+        valueHelp: 'v1.0.0',
       );
   }
 
@@ -250,6 +256,9 @@ class CommitCommand extends Command<int> {
     // Get prefix if available for things like ticket numbers
     final prefix = argResults?['prefix'] as String?;
 
+    // Get tag if provided
+    final tag = argResults?['tag'] as String?;
+
     // Handle --auto-push, fallback to false if not provided
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
@@ -341,6 +350,7 @@ class CommitCommand extends Command<int> {
           await GitUtils.runGitCommit(
             message: commitMessage,
             autoPush: autoPush,
+            tag: tag,
           );
         } catch (e) {
           _logger.err('Error setting commit message: $e');
@@ -451,6 +461,7 @@ class CommitCommand extends Command<int> {
               message: commitMessage,
               autoPush: autoPush,
               folderPath: f,
+              tag: tag,
             );
             successCount++;
           } catch (e) {

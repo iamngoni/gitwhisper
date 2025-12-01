@@ -83,6 +83,7 @@ Or download the executable binary for your operating system directly [here.](htt
 - 🚀️ Supports automatic pushing of commits to the remote repository
 - 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
+- 🏷️ Create git tags alongside commits with optional auto-push
 - 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
 - 🔑 Securely saves API keys for future use
 - 🌍 Multi-language support for commit messages and analysis
@@ -116,6 +117,13 @@ gw commit --prefix "JIRA-123"
 gitwhisper commit --auto-push
 gw commit --auto-push
 gw commit -a # shorthand for --auto-push
+
+# Create a git tag for this commit
+gitwhisper commit --tag v1.0.0
+gw commit -t v1.0.0
+
+# Combine tag with auto-push to push both commit and tag
+gw commit -t v1.0.0 -a
 
 # Analyze your changes (staged/unstaged) with AI
 gitwhisper analyze
