@@ -72,7 +72,7 @@ Or on the beloved Windows using Powershell (as Administrator):
 irm https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.ps1 | iex
 ```
 
-Or download the executable binary for your operating system directly [here.](https://github.com/iamngoni/gitwhisper/releases)
+Or download the executable binary that will work on your operating system directly [here.](https://github.com/iamngoni/gitwhisper/releases)
 
 ## Features
 
