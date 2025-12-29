@@ -398,4 +398,154 @@ class GitUtils {
     final codeBlockPattern = RegExp(r'^```(\w+)?\n?|```$', multiLine: true);
     return input.replaceAll(codeBlockPattern, '').trim();
   }
+
+  /// Estimates the size of a diff in characters for API limitations
+  static int estimateDiffSize(String diff) {
+    return diff.length;
+  }
+
+  /// Checks if a diff is too large for AI processing
+  static bool isDiffTooLarge(String diff, {int maxSize = 10000}) {
+    return estimateDiffSize(diff) > maxSize;
+  }
+
+  /// Splits a diff into individual hunks for per-hunk processing
+  static List<DiffHunk> splitDiffIntoHunks(String diff) {
+    if (diff.isEmpty) return [];
+
+    final hunks = <DiffHunk>[];
+    final lines = diff.split('\n');
+
+    DiffHunk? currentHunk;
+    final currentFile = <String>[];
+    String? currentFileName;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+
+      // New file header
+      if (line.startsWith('diff --git')) {
+        // Save previous hunk if exists
+        if (currentHunk != null) {
+          hunks.add(currentHunk);
+        }
+
+        // Extract filename from "diff --git a/file b/file"
+        final match = RegExp(r'diff --git a/(.*?) b/(.*)').firstMatch(line);
+        currentFileName = match?.group(2) ?? 'unknown';
+        currentFile.clear();
+        currentFile.add(line);
+        currentHunk = null;
+      }
+      // File metadata (index, ---, +++)
+      else if (line.startsWith('index ') ||
+               line.startsWith('---') ||
+               line.startsWith('+++')||
+               line.startsWith('new file mode') ||
+               line.startsWith('deleted file mode')) {
+        currentFile.add(line);
+      }
+      // Hunk header (@@)
+      else if (line.startsWith('@@')) {
+        // Save previous hunk if exists
+        if (currentHunk != null) {
+          hunks.add(currentHunk);
+        }
+
+        // Start new hunk
+        currentHunk = DiffHunk(
+          fileName: currentFileName ?? 'unknown',
+          header: List<String>.from(currentFile)..add(line),
+          lines: [],
+        );
+      }
+      // Hunk content lines
+      else if (currentHunk != null &&
+               (line.startsWith(' ') || line.startsWith('+') || line.startsWith('-'))) {
+        currentHunk.lines.add(line);
+      }
+      // Handle empty lines or other content
+      else if (currentHunk != null) {
+        currentHunk.lines.add(line);
+      } else {
+        currentFile.add(line);
+      }
+    }
+
+    // Add the last hunk
+    if (currentHunk != null) {
+      hunks.add(currentHunk);
+    }
+
+    return hunks;
+  }
+
+  /// Stages only specific hunks interactively
+  static Future<void> stageHunk(DiffHunk hunk, {String? folderPath}) async {
+    // Create a patch file from the hunk
+    final patchContent = (hunk.header + hunk.lines).join('\n');
+    final patchFile = File('${Directory.systemTemp.path}/gitwhisper_hunk.patch');
+
+    try {
+      await patchFile.writeAsString(patchContent);
+
+      // Apply the patch to staging area
+      final result = await Process.run(
+        'git',
+        ['apply', '--cached', patchFile.path],
+        workingDirectory: folderPath,
+      );
+
+      if (result.exitCode != 0) {
+        throw Exception('Failed to stage hunk: ${result.stderr}');
+      }
+    } finally {
+      if (await patchFile.exists()) {
+        await patchFile.delete();
+      }
+    }
+  }
+
+  /// Unstages all currently staged changes
+  static Future<void> unstageAll({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['reset', 'HEAD'],
+      workingDirectory: folderPath,
+    );
+
+    if (result.exitCode != 0) {
+      throw Exception('Failed to unstage changes: ${result.stderr}');
+    }
+  }
+}
+
+/// Represents a single hunk in a git diff
+class DiffHunk {
+  final String fileName;
+  final List<String> header; // File info + hunk header
+  final List<String> lines;  // The actual diff lines
+
+  DiffHunk({
+    required this.fileName,
+    required this.header,
+    required this.lines,
+  });
+
+  /// Gets a human-readable description of what this hunk changes
+  String get description {
+    final addedLines = lines.where((line) => line.startsWith('+')).length;
+    final removedLines = lines.where((line) => line.startsWith('-')).length;
+
+    final parts = <String>[];
+    if (addedLines > 0) parts.add('$addedLines added');
+    if (removedLines > 0) parts.add('$removedLines removed');
+
+    return '$fileName (${parts.isEmpty ? 'no changes' : parts.join(', ')})';
+  }
+
+  /// Estimates the complexity/size of this hunk
+  int get complexity {
+    return lines.length;
+  }
 }
