@@ -70,6 +70,11 @@ class ConfigManager {
     }
   }
 
+  /// Returns the config file data
+  Map<String, dynamic> getConfig() {
+    return _config;
+  }
+
   /// Gets the API key for the specified model
   String? getOllamaBaseURL() {
     if (_config.containsKey('ollamaBaseUrl')) {

@@ -1,3 +1,6 @@
+## 0.1.13
+- **New command** - `gw show-config` can show you the whole config file formatted in a nice way without having to remember where the file is stored
+
 ## 0.1.12
 - **Free Model (No API Key Required!)** - New `free` model option powered by LLM7.io. Use GitWhisper without any API key setup: `gw commit --model free`
 - **Git Tagging Support** - New `--tag` / `-t` flag to create a git tag alongside your commit (e.g., `gw commit -t v1.0.0`)

@@ -21,6 +21,7 @@ import 'commands/list_models_command.dart';
 import 'commands/list_variants_command.dart';
 import 'commands/save_key_command.dart';
 import 'commands/set_defaults_command.dart';
+import 'commands/show_config_command.dart';
 import 'commands/show_defaults_command.dart';
 import 'commands/update_command.dart';
 import 'constants.dart';
@@ -51,6 +52,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     addCommand(ListVariantsCommand(logger: $logger));
     addCommand(SaveKeyCommand(logger: $logger));
     addCommand(SetDefaultsCommand(logger: $logger));
+    addCommand(ShowConfigCommand(logger: $logger));
     addCommand(ShowDefaultsCommand(logger: $logger));
     addCommand(ClearDefaultsCommand(logger: $logger));
     addCommand(AlwaysAddCommand(logger: $logger));
