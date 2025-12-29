@@ -16,3 +16,5 @@ coverage/
 
 *.DS_Store
 AGENT.md
+gitwhisper
+gw-test
