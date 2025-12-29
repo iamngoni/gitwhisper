@@ -79,8 +79,8 @@ Where:
 
 Do NOT include:
 - Blank lines
-- Multiline messages
-- Commit bodies or footers below the header
+- Multiline messages 
+- Commit bodies or footers below the header (NEVER add a commit body unless grouping multiple related fixes under one type/prefix)
 - Summaries, intros, or explanations
 
 MANDATORY FORMAT RULES:
@@ -169,8 +169,8 @@ Where:
 
 Do NOT include:
 - Blank lines
-- Multiline messages
-- Commit bodies or footers below the header
+- Multiline messages 
+- Commit bodies or footers below the header (NEVER add a commit body unless grouping multiple related fixes under one type/prefix)
 - Summaries, intros, or explanations
 
 MANDATORY FORMAT RULES:

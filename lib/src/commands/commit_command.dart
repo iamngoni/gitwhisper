@@ -77,7 +77,6 @@ class CommitCommand extends Command<int> {
         'confirm',
         abbr: 'c',
         help: 'Confirm commit message before applying',
-        negatable: true,
       )
       ..addOption(
         'tag',
@@ -150,7 +149,8 @@ class CommitCommand extends Command<int> {
 
         if (hasUnstagedChanges) {
           _logger.info(
-              'Unstaged changes found. Staging all changes and new files...');
+            'Unstaged changes found. Staging all changes and new files...',
+          );
           if (!hasSubGitRepos) {
             final int stagedFiles =
                 await GitUtils.stageAllUnstagedFilesAndCount();
@@ -163,7 +163,8 @@ class CommitCommand extends Command<int> {
                   await GitUtils.stageAllUnstagedFilesAndCount(folderPath: f);
               final folderName = path.basename(f);
               _logger.success(
-                  '[$folderName] $stagedFiles files have been staged.');
+                '[$folderName] $stagedFiles files have been staged.',
+              );
             }
           }
         } else {
@@ -199,11 +200,13 @@ class CommitCommand extends Command<int> {
               final List<String> foldersWithChanges = <String>[];
               if (hasUnstagedChanges) {
                 foldersWithChanges.addAll(
-                    await GitUtils.foldersWithUnstagedChanges(subGitRepos));
+                  await GitUtils.foldersWithUnstagedChanges(subGitRepos),
+                );
               }
               if (hasUntrackedFiles) {
                 foldersWithChanges.addAll(
-                    await GitUtils.foldersWithUntrackedFiles(subGitRepos));
+                  await GitUtils.foldersWithUntrackedFiles(subGitRepos),
+                );
               }
               // Remove duplicates
               final uniqueFolders = foldersWithChanges.toSet().toList();
@@ -213,7 +216,8 @@ class CommitCommand extends Command<int> {
                     await GitUtils.stageAllUnstagedFilesAndCount(folderPath: f);
                 final folderName = path.basename(f);
                 _logger.success(
-                    '[$folderName] $stagedFiles files have been staged.');
+                  '[$folderName] $stagedFiles files have been staged.',
+                );
               }
             }
           } else {
@@ -262,39 +266,56 @@ class CommitCommand extends Command<int> {
       _logger
         ..info('')
         ..info(
-            '┌─────────────────────────────────────────────────────────────┐')
+          '┌─────────────────────────────────────────────────────────────┐',
+        )
         ..info(
-            '│                    FREE MODEL DISCLAIMER                    │')
+          '│                    FREE MODEL DISCLAIMER                    │',
+        )
         ..info(
-            '├─────────────────────────────────────────────────────────────┤')
+          '├─────────────────────────────────────────────────────────────┤',
+        )
         ..info(
-            '│ This free model is powered by LLM7.io - a third-party       │')
+          '│ This free model is powered by LLM7.io - a third-party       │',
+        )
         ..info(
-            '│ service providing free, anonymous access to AI models.      │')
+          '│ service providing free, anonymous access to AI models.      │',
+        )
         ..info(
-            '│                                                             │')
+          '│                                                             │',
+        )
         ..info(
-            '│ Anonymous tier limits:                                      │')
+          '│ Anonymous tier limits:                                      │',
+        )
         ..info(
-            '│ • 8k chars per request                                      │')
+          '│ • 8k chars per request                                      │',
+        )
         ..info(
-            '│ • 60 requests/hour, 10 requests/min, 1 request/sec          │')
+          '│ • 60 requests/hour, 10 requests/min, 1 request/sec          │',
+        )
         ..info(
-            '│                                                             │')
+          '│                                                             │',
+        )
         ..info(
-            '│ Please note:                                                │')
+          '│ Please note:                                                │',
+        )
         ..info(
-            '│ • Your code diffs will be sent to LLM7.io servers           │')
+          '│ • Your code diffs will be sent to LLM7.io servers           │',
+        )
         ..info(
-            '│ • Service availability is not guaranteed                    │')
+          '│ • Service availability is not guaranteed                    │',
+        )
         ..info(
-            '│ • For production use, consider a paid API provider          │')
+          '│ • For production use, consider a paid API provider          │',
+        )
         ..info(
-            '│                                                             │')
+          '│                                                             │',
+        )
         ..info(
-            '│ Learn more: https://llm7.io                                 │')
+          '│ Learn more: https://llm7.io                                 │',
+        )
         ..info(
-            '└─────────────────────────────────────────────────────────────┘')
+          '└─────────────────────────────────────────────────────────────┘',
+        )
         ..info('');
 
       final response = _logger.chooseOne(
@@ -311,7 +332,7 @@ class CommitCommand extends Command<int> {
       // Save acceptance so we don't show again
       configManager.setFreeDisclaimerAccepted();
       await configManager.save();
-      _logger.success('Disclaimer accepted. You won\'t see this again.');
+      _logger.success("Disclaimer accepted. You won't see this again.");
     }
 
     // Get prefix if available for things like ticket numbers
@@ -325,7 +346,7 @@ class CommitCommand extends Command<int> {
 
     // Handle --confirm, fallback to global config, then false
     // Check if --confirm or --no-confirm was explicitly provided
-    final confirm = argResults?.wasParsed('confirm') == true
+    final confirm = argResults?.wasParsed('confirm') ?? false
         ? (argResults?['confirm'] as bool)
         : configManager.shouldConfirmCommits();
 
@@ -352,6 +373,40 @@ class CommitCommand extends Command<int> {
       if (diff.isEmpty) {
         _logger.err('No changes detected in staged files.');
         return ExitCode.usage.code;
+      }
+
+      // Check if diff is too large and suggest interactive staging
+      if (GitUtils.isDiffTooLarge(diff)) {
+        _logger.warn(
+            '\n⚠️  Large diff detected (${GitUtils.estimateDiffSize(diff)} characters)\n');
+
+        final choice = _logger.chooseOne(
+          '💡 Large diffs can result in poor commit message quality',
+          choices: [
+            'Use interactive staging for focused commits',
+            'Commit all changes together anyway',
+            'Cancel',
+          ],
+        );
+
+        switch (choice) {
+          case 'Use interactive staging for focused commits':
+            return _handleInteractiveStaging(
+              generator,
+              language,
+              prefix,
+              withEmoji,
+              autoPush,
+              tag,
+              !confirm,
+            );
+          case 'Commit all changes together anyway':
+            // Continue with normal flow
+            break;
+          case 'Cancel':
+            _logger.info('Commit cancelled.');
+            return ExitCode.success.code;
+        }
       }
 
       try {
@@ -455,7 +510,8 @@ class CommitCommand extends Command<int> {
         final diff = await GitUtils.getStagedDiff(folderPath: f);
         if (diff.isEmpty) {
           _logger.warn(
-              '[$folderName] No changes detected in staged files, skipping.');
+            '[$folderName] No changes detected in staged files, skipping.',
+          );
           continue;
         }
 
@@ -609,7 +665,8 @@ class CommitCommand extends Command<int> {
             continue;
           } else {
             _logger.warn(
-                'Empty commit message or editor cancelled, returning to options...');
+              'Empty commit message or editor cancelled, returning to options...',
+            );
             continue;
           }
 
@@ -636,7 +693,6 @@ class CommitCommand extends Command<int> {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
               }
-              break;
 
             case 'different model':
               final newModelName = _logger.chooseOne(
@@ -655,13 +711,14 @@ class CommitCommand extends Command<int> {
               );
 
               // Get API key for new model
-              var newApiKey = configManager.getApiKey(newModelName) ??
+              final newApiKey = configManager.getApiKey(newModelName) ??
                   _getEnvironmentApiKey(newModelName);
 
               if ((newApiKey == null || newApiKey.isEmpty) &&
                   newModelName != 'ollama') {
                 _logger.err(
-                    'No API key found for $newModelName. Please save one using "gw save-key".');
+                  'No API key found for $newModelName. Please save one using "gw save-key".',
+                );
                 continue;
               }
 
@@ -684,10 +741,10 @@ class CommitCommand extends Command<int> {
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);
               } catch (e) {
                 _logger.err(
-                    'Failed to generate commit message with $newModelName: $e');
+                  'Failed to generate commit message with $newModelName: $e',
+                );
                 continue;
               }
-              break;
 
             case 'add context':
               final context = _logger.prompt(
@@ -713,7 +770,6 @@ class CommitCommand extends Command<int> {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
               }
-              break;
           }
           continue;
 
@@ -721,6 +777,412 @@ class CommitCommand extends Command<int> {
           _logger.info('Commit cancelled.');
           return null;
       }
+    }
+  }
+
+  /// Handles interactive staging workflow for large diffs
+  Future<int> _handleInteractiveStaging(
+    CommitGenerator generator,
+    Language language,
+    String? prefix,
+    bool withEmoji,
+    bool autoPush,
+    String? tag,
+    bool noConfirm,
+  ) async {
+    // First, unstage everything to start fresh
+    await GitUtils.unstageAll();
+
+    // Show overview of changes
+    await _showChangesOverview();
+    _logger.info(''); // Add spacing
+    
+    var commitCount = 0;
+
+    while (true) {
+      // Check if there are any unstaged changes left
+      final hasUnstaged = await GitUtils.hasUnstagedChanges();
+      if (!hasUnstaged) {
+        if (commitCount > 0) {
+          _logger.success('🎉 Created $commitCount focused commits!');
+        } else {
+          _logger.info('No changes to commit.');
+        }
+        break;
+      }
+
+      final choice = _logger.chooseOne(
+        '\nCommit ${commitCount + 1}',
+        choices: [
+          'Stage specific files',
+          'Stage hunks interactively',
+          'Commit all remaining changes',
+          'Finish',
+        ],
+      );
+
+      switch (choice) {
+        case 'Stage specific files':
+          final staged = await _stageSpecificFiles(
+            generator,
+            language,
+            prefix,
+            withEmoji,
+            noConfirm,
+          );
+          if (staged) {
+            commitCount++;
+          }
+          break;
+
+        case 'Stage hunks interactively':
+          final staged = await _stageHunksWithGitAddPatch(
+            generator,
+            language,
+            prefix,
+            withEmoji,
+            noConfirm,
+          );
+          if (staged) {
+            commitCount++;
+          }
+          break;
+
+        case 'Commit all remaining changes':
+          await GitUtils.stageAllUnstagedFilesAndCount();
+          await _generateAndCommitStaged(
+            generator,
+            language,
+            prefix,
+            withEmoji,
+            noConfirm,
+          );
+          commitCount++;
+          break;
+
+        case 'Finish':
+          if (commitCount > 0) {
+            _logger.success('Created $commitCount commits.');
+          }
+          return ExitCode.success.code;
+      }
+    }
+
+    // Push all commits if auto-push is enabled
+    if (autoPush && commitCount > 0) {
+      try {
+        final branchResult =
+            await Process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+        final branch = (branchResult.stdout as String).trim();
+        final remoteResult = await Process.run('git', ['remote']);
+        final remote = (remoteResult.stdout as String).trim();
+
+        if (remoteResult.exitCode == 0 && remote.isNotEmpty) {
+          _logger.info('Pushing $commitCount commits...');
+          await Process.run('git', ['push', remote, branch]);
+          _logger.success('Pushed to $remote/$branch successfully! 🎉');
+        }
+      } catch (e) {
+        _logger.err('Failed to push commits: $e');
+      }
+    }
+
+    return ExitCode.success.code;
+  }
+
+  /// Helper to generate commit message and commit staged changes
+  Future<void> _generateAndCommitStaged(
+    CommitGenerator generator,
+    Language language,
+    String? prefix,
+    bool withEmoji,
+    bool noConfirm,
+  ) async {
+    final stagedDiff = await GitUtils.getStagedDiff();
+    if (stagedDiff.isEmpty) {
+      _logger.info('No staged changes to commit.');
+      return;
+    }
+
+    _logger.info('Generating commit message for staged changes...');
+    try {
+      final commitMessage = await generator.generateCommitMessage(
+        stagedDiff,
+        language,
+        prefix: prefix,
+        withEmoji: withEmoji,
+      );
+
+      final finalMessage = noConfirm
+          ? commitMessage
+          : await _handleCommitConfirmation(
+              commitMessage: commitMessage,
+              generator: generator,
+              diff: stagedDiff,
+              language: language,
+              prefix: prefix,
+              modelName: generator.modelName,
+              modelVariant: generator.actualVariant,
+              ollamaBaseUrl: null,
+              configManager: ConfigManager(),
+              withEmoji: withEmoji,
+            );
+
+      if (finalMessage != null) {
+        await GitUtils.runGitCommit(
+          message: finalMessage,
+        );
+        _logger.success('✅ Commit created successfully!');
+      } else {
+        _logger.info('Commit cancelled. Changes remain staged.');
+      }
+    } catch (e) {
+      _logger.err('Failed to generate commit message: $e');
+    }
+  }
+
+  /// Shows an overview of changed files and stats
+  Future<void> _showChangesOverview() async {
+    try {
+      // Get list of modified files with stats
+      final result = await Process.run('git', ['diff', '--stat']);
+      if (result.exitCode == 0 && result.stdout.toString().trim().isNotEmpty) {
+        _logger.info('📋 Changes Overview:');
+        _logger.info(result.stdout.toString().trim());
+      } else {
+        _logger.info('No changes to show.');
+      }
+    } catch (e) {
+      _logger.err('Failed to get changes overview: $e');
+    }
+  }
+
+  /// Stage specific files by letting user select from changed files
+  Future<bool> _stageSpecificFiles(
+    CommitGenerator generator,
+    Language language,
+    String? prefix,
+    bool withEmoji,
+    bool noConfirm,
+  ) async {
+    try {
+      // Get list of changed files
+      final result = await Process.run('git', ['diff', '--name-only']);
+      if (result.exitCode != 0 || result.stdout.toString().trim().isEmpty) {
+        _logger.info('No changed files to stage.');
+        return false;
+      }
+
+      final changedFiles = result.stdout.toString().trim().split('\n');
+      
+      // Let user select files to stage
+      final selectedFiles = _logger.chooseAny(
+        'Select files to stage',
+        choices: changedFiles,
+      );
+      
+      if (selectedFiles.isEmpty) {
+        _logger.info('No files selected for staging.');
+        return false;
+      }
+      
+      // Stage selected files
+      for (final file in selectedFiles) {
+        final stageResult = await Process.run('git', ['add', file]);
+        if (stageResult.exitCode != 0) {
+          _logger.err('Failed to stage $file: ${stageResult.stderr}');
+        } else {
+          _logger.success('Staged $file');
+        }
+      }
+      
+      // Generate commit message for staged files
+      await _generateAndCommitStaged(
+        generator,
+        language,
+        prefix,
+        withEmoji,
+        noConfirm,
+      );
+      
+      return true;
+      
+    } catch (e) {
+      _logger.err('Error staging specific files: $e');
+      return false;
+    }
+  }
+
+  /// Stage hunks using native git add -p
+  Future<bool> _stageHunksWithGitAddPatch(
+    CommitGenerator generator,
+    Language language,
+    String? prefix,
+    bool withEmoji,
+    bool noConfirm,
+  ) async {
+    try {
+      _logger.info('Running git add -p (interactive staging)...');
+      _logger.info('💡 Use: y=yes, n=no, s=split, q=quit, ?=help\n');
+      
+      final result = await Process.start(
+        'git',
+        ['add', '-p'],
+        mode: ProcessStartMode.inheritStdio,
+      );
+      final exitCode = await result.exitCode;
+      
+      if (exitCode != 0) {
+        _logger.info('Interactive staging cancelled.');
+        return false;
+      }
+      
+      // Check if anything was staged
+      final hasStaged = await GitUtils.hasStagedChanges();
+      if (!hasStaged) {
+        _logger.info('No changes staged.');
+        return false;
+      }
+      
+      // Generate commit message for staged changes
+      await _generateAndCommitStaged(
+        generator,
+        language,
+        prefix,
+        withEmoji,
+        noConfirm,
+      );
+      
+      return true;
+      
+    } catch (e) {
+      _logger.err('Error during interactive staging: $e');
+      return false;
+    }
+  }
+
+  /// Interactively stage hunks by showing diff content for each
+  Future<bool> _stageHunksInteractively(
+    CommitGenerator generator,
+    Language language,
+    String? prefix,
+    bool withEmoji,
+    bool noConfirm,
+  ) async {
+    try {
+      // Get full diff and split into hunks
+      final fullDiff = await GitUtils.getUnstagedDiff();
+      if (fullDiff.isEmpty) {
+        _logger.info('No unstaged changes to review.');
+        return false;
+      }
+
+      final hunks = GitUtils.splitDiffIntoHunks(fullDiff);
+      if (hunks.isEmpty) {
+        _logger.info('No hunks found in diff.');
+        return false;
+      }
+
+      _logger.info('🔍 Found ${hunks.length} hunks to review:\n');
+
+      var stagedAny = false;
+
+      for (var i = 0; i < hunks.length; i++) {
+        final hunk = hunks[i];
+
+        _logger
+          ..info('\n--- Hunk ${i + 1}/${hunks.length}: ${hunk.fileName} ---')
+          ..info('Changes: ${hunk.description}');
+
+        // Show the hunk diff content
+        final hunkDiff = (hunk.header + hunk.lines).join('\n');
+        _logger
+          ..info('\nDiff:')
+          ..info('----------------------------------')
+          ..info('${green.wrap(hunkDiff)}')
+          ..info('----------------------------------\n');
+
+        final choice = _logger.chooseOne(
+          'What would you like to do with this hunk?',
+          choices: [
+            'Stage this hunk and commit',
+            'Skip this hunk',
+            "Stage this hunk (don't commit yet)",
+            'Stop reviewing hunks',
+          ],
+        );
+
+        switch (choice) {
+          case 'Stage this hunk and commit':
+            try {
+              await GitUtils.stageHunk(hunk);
+              await _generateAndCommitStaged(
+                generator,
+                language,
+                prefix,
+                withEmoji,
+                noConfirm,
+              );
+              stagedAny = true;
+            } catch (e) {
+              _logger.err('Failed to stage/commit hunk: $e');
+            }
+
+          case 'Skip this hunk':
+            _logger.info('Skipping hunk.');
+
+          case "Stage this hunk (don't commit yet)":
+            try {
+              await GitUtils.stageHunk(hunk);
+              _logger.success('Hunk staged. Will commit later.');
+              stagedAny = true;
+            } catch (e) {
+              _logger.err('Failed to stage hunk: $e');
+            }
+
+          case 'Stop reviewing hunks':
+            _logger.info('Stopped reviewing hunks.');
+            // Check if we have anything staged to commit
+            final hasStaged = await GitUtils.hasStagedChanges();
+            if (hasStaged) {
+              final shouldCommit =
+                  _logger.confirm('You have staged changes. Commit them now?');
+              if (shouldCommit) {
+                await _generateAndCommitStaged(
+                  generator,
+                  language,
+                  prefix,
+                  withEmoji,
+                  noConfirm,
+                );
+                stagedAny = true;
+              }
+            }
+            return stagedAny;
+        }
+      }
+
+      // After reviewing all hunks, check if we have anything staged to commit
+      final hasStaged = await GitUtils.hasStagedChanges();
+      if (hasStaged) {
+        final shouldCommit =
+            _logger.confirm('You have staged changes. Commit them now?');
+        if (shouldCommit) {
+          await _generateAndCommitStaged(
+            generator,
+            language,
+            prefix,
+            withEmoji,
+            noConfirm,
+          );
+          stagedAny = true;
+        }
+      }
+
+      return stagedAny;
+    } catch (e) {
+      _logger.err('Error during interactive staging: $e');
+      return false;
     }
   }
 }
