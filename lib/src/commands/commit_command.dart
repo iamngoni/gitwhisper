@@ -913,6 +913,12 @@ class CommitCommand extends Command<int> {
         withEmoji: withEmoji,
       );
 
+      // Show the generated commit message
+      _logger
+        ..info('\n---------------------------------')
+        ..info(commitMessage)
+        ..info('---------------------------------\n');
+
       final finalMessage = noConfirm
           ? commitMessage
           : await _handleCommitConfirmation(
