@@ -70,6 +70,12 @@ class SetDefaultsCommand extends Command<int> {
         help: 'Include emojis in commit messages',
         defaultsTo: true,
         negatable: true,
+      )
+      ..addOption(
+        'max-diff-size',
+        help: 'Maximum diff size (in characters) before prompting for '
+            'interactive staging (default: 50000)',
+        valueHelp: '50000',
       );
   }
 
@@ -116,6 +122,9 @@ class SetDefaultsCommand extends Command<int> {
 
     // Handle emoji flag
     final allowEmojis = argResults?['allow-emojis'] as bool?;
+
+    // Handle max diff size
+    final maxDiffSizeStr = argResults?['max-diff-size'] as String?;
 
     // For Ollama, ask about base URL if not provided
     if (modelName == 'ollama' && baseUrl == null) {
@@ -217,6 +226,18 @@ class SetDefaultsCommand extends Command<int> {
             ? 'Emojis enabled in commit messages.'
             : 'Emojis disabled in commit messages.',
       );
+    }
+
+    // Handle max diff size setting
+    if (maxDiffSizeStr != null) {
+      final maxDiffSize = int.tryParse(maxDiffSizeStr);
+      if (maxDiffSize == null || maxDiffSize <= 0) {
+        _logger.err('Invalid max-diff-size value. Must be a positive integer.');
+        return ExitCode.usage.code;
+      }
+      configManager.setMaxDiffSize(maxDiffSize);
+      await configManager.save();
+      _logger.success('Max diff size set to $maxDiffSize characters.');
     }
 
     if (modelVariant == null &&

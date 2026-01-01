@@ -167,6 +167,16 @@ class ConfigManager {
     return _config['allow_emojis'] as bool? ?? true;
   }
 
+  /// Set max diff size for AI processing
+  void setMaxDiffSize(int size) {
+    _config['max_diff_size'] = size;
+  }
+
+  /// Get the max diff size for AI processing (default: 50000)
+  int getMaxDiffSize() {
+    return _config['max_diff_size'] as int? ?? 50000;
+  }
+
   /// Check if user has accepted the free model disclaimer
   bool hasAcceptedFreeDisclaimer() {
     return _config['free_disclaimer_accepted'] as bool? ?? false;

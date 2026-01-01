@@ -405,7 +405,7 @@ class GitUtils {
   }
 
   /// Checks if a diff is too large for AI processing
-  static bool isDiffTooLarge(String diff, {int maxSize = 10000}) {
+  static bool isDiffTooLarge(String diff, {int maxSize = 50000}) {
     return estimateDiffSize(diff) > maxSize;
   }
 
@@ -439,10 +439,10 @@ class GitUtils {
       }
       // File metadata (index, ---, +++)
       else if (line.startsWith('index ') ||
-               line.startsWith('---') ||
-               line.startsWith('+++')||
-               line.startsWith('new file mode') ||
-               line.startsWith('deleted file mode')) {
+          line.startsWith('---') ||
+          line.startsWith('+++') ||
+          line.startsWith('new file mode') ||
+          line.startsWith('deleted file mode')) {
         currentFile.add(line);
       }
       // Hunk header (@@)
@@ -461,7 +461,9 @@ class GitUtils {
       }
       // Hunk content lines
       else if (currentHunk != null &&
-               (line.startsWith(' ') || line.startsWith('+') || line.startsWith('-'))) {
+          (line.startsWith(' ') ||
+              line.startsWith('+') ||
+              line.startsWith('-'))) {
         currentHunk.lines.add(line);
       }
       // Handle empty lines or other content
@@ -484,7 +486,8 @@ class GitUtils {
   static Future<void> stageHunk(DiffHunk hunk, {String? folderPath}) async {
     // Create a patch file from the hunk
     final patchContent = (hunk.header + hunk.lines).join('\n');
-    final patchFile = File('${Directory.systemTemp.path}/gitwhisper_hunk.patch');
+    final patchFile =
+        File('${Directory.systemTemp.path}/gitwhisper_hunk.patch');
 
     try {
       await patchFile.writeAsString(patchContent);
@@ -524,7 +527,7 @@ class GitUtils {
 class DiffHunk {
   final String fileName;
   final List<String> header; // File info + hunk header
-  final List<String> lines;  // The actual diff lines
+  final List<String> lines; // The actual diff lines
 
   DiffHunk({
     required this.fileName,

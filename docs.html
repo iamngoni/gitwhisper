@@ -1811,6 +1811,41 @@ gw set-defaults --allow-emojis</code></pre>
                                 </div>
                             </div>
 
+                            <!-- Max Diff Size -->
+                            <div class="step-card">
+                                <h3 class="text-xl font-semibold mb-4">
+                                    Max Diff Size
+                                </h3>
+                                <p class="text-gray-600 mb-4">
+                                    Configure the maximum diff size (in
+                                    characters) before GitWhisper prompts you
+                                    for interactive staging. Default is 50,000
+                                    characters:
+                                </p>
+                                <div class="code-block">
+                                    <button
+                                        class="copy-btn"
+                                        data-copy="gw set-defaults --max-diff-size 100000"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <pre
+                                        class="font-mono text-white"
+                                    ><code># Set max diff size to 100,000 characters
+gw set-defaults --max-diff-size 100000
+
+# Set a lower threshold for more focused commits
+gw set-defaults --max-diff-size 30000</code></pre>
+                                </div>
+                                <div class="alert alert-info mt-4">
+                                    <strong>Tip:</strong> When a diff exceeds
+                                    this limit, GitWhisper will offer
+                                    interactive staging to help you create more
+                                    focused commits with better AI-generated
+                                    messages.
+                                </div>
+                            </div>
+
                             <!-- Always Stage -->
                             <div class="step-card">
                                 <h3 class="text-xl font-semibold mb-4">

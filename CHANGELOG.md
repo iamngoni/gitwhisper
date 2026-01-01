@@ -1,5 +1,7 @@
 ## 0.1.13
-- **New command** - `gw show-config` can show you the whole config file formatted in a nice way without having to remember where the file is stored
+- **Configurable max diff size** - New `--max-diff-size` option in `set-defaults` to customize the threshold (in characters) before prompting for interactive staging (default: 50,000)
+- **New command** - `gw show-config` displays your full configuration file in a formatted view
+- **Improved large diff handling** - Large diffs now trigger an interactive prompt with options to use focused staging, commit everything, or cancel
 
 ## 0.1.12
 - **Free Model (No API Key Required!)** - New `free` model option powered by LLM7.io. Use GitWhisper without any API key setup: `gw commit --model free`

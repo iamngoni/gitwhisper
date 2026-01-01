@@ -376,7 +376,8 @@ class CommitCommand extends Command<int> {
       }
 
       // Check if diff is too large and suggest interactive staging
-      if (GitUtils.isDiffTooLarge(diff)) {
+      if (GitUtils.isDiffTooLarge(diff,
+          maxSize: configManager.getMaxDiffSize())) {
         _logger.warn(
             '\n⚠️  Large diff detected (${GitUtils.estimateDiffSize(diff)} characters)\n');
 
@@ -796,7 +797,7 @@ class CommitCommand extends Command<int> {
     // Show overview of changes
     await _showChangesOverview();
     _logger.info(''); // Add spacing
-    
+
     var commitCount = 0;
 
     while (true) {
@@ -980,18 +981,18 @@ class CommitCommand extends Command<int> {
       }
 
       final changedFiles = result.stdout.toString().trim().split('\n');
-      
+
       // Let user select files to stage
       final selectedFiles = _logger.chooseAny(
         'Select files to stage',
         choices: changedFiles,
       );
-      
+
       if (selectedFiles.isEmpty) {
         _logger.info('No files selected for staging.');
         return false;
       }
-      
+
       // Stage selected files
       for (final file in selectedFiles) {
         final stageResult = await Process.run('git', ['add', file]);
@@ -1001,7 +1002,7 @@ class CommitCommand extends Command<int> {
           _logger.success('Staged $file');
         }
       }
-      
+
       // Generate commit message for staged files
       await _generateAndCommitStaged(
         generator,
@@ -1010,9 +1011,8 @@ class CommitCommand extends Command<int> {
         withEmoji,
         noConfirm,
       );
-      
+
       return true;
-      
     } catch (e) {
       _logger.err('Error staging specific files: $e');
       return false;
@@ -1030,26 +1030,26 @@ class CommitCommand extends Command<int> {
     try {
       _logger.info('Running git add -p (interactive staging)...');
       _logger.info('💡 Use: y=yes, n=no, s=split, q=quit, ?=help\n');
-      
+
       final result = await Process.start(
         'git',
         ['add', '-p'],
         mode: ProcessStartMode.inheritStdio,
       );
       final exitCode = await result.exitCode;
-      
+
       if (exitCode != 0) {
         _logger.info('Interactive staging cancelled.');
         return false;
       }
-      
+
       // Check if anything was staged
       final hasStaged = await GitUtils.hasStagedChanges();
       if (!hasStaged) {
         _logger.info('No changes staged.');
         return false;
       }
-      
+
       // Generate commit message for staged changes
       await _generateAndCommitStaged(
         generator,
@@ -1058,9 +1058,8 @@ class CommitCommand extends Command<int> {
         withEmoji,
         noConfirm,
       );
-      
+
       return true;
-      
     } catch (e) {
       _logger.err('Error during interactive staging: $e');
       return false;

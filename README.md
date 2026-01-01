@@ -162,6 +162,9 @@ gw set-defaults --model claude
 gitwhisper set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 gw set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 
+# Set max diff size (characters) before prompting for interactive staging
+gw set-defaults --max-diff-size 100000
+
 # Show current defaults
 gitwhisper show-defaults
 gw show-defaults
@@ -377,6 +380,7 @@ api_keys:
   openai: "your-openai-key"
   # ...
 whisper_language: english
+max_diff_size: 50000  # Max diff size before prompting for interactive staging
 ```
 
 ## Requirements
