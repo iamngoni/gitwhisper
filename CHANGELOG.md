@@ -1,3 +1,7 @@
+## 0.1.14
+- Automatically detects files >10MB before committing to prevent accidentally adding large files to git history.
+- When diff exceeds max size, automatically processes file-by-file without prompting (revert previously added behaviour)
+
 ## 0.1.13
 - **Configurable max diff size** - New `--max-diff-size` option in `set-defaults` to customize the threshold (in characters) before prompting for interactive staging (default: 50,000)
 - **New command** - `gw show-config` displays your full configuration file in a formatted view
