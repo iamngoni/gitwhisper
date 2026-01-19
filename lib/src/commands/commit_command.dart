@@ -12,6 +12,7 @@ import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as path;
 
+import '../commit_utils.dart';
 import '../config_manager.dart';
 import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
@@ -375,39 +376,39 @@ class CommitCommand extends Command<int> {
         return ExitCode.usage.code;
       }
 
-      // Check if diff is too large and suggest interactive staging
-      if (GitUtils.isDiffTooLarge(diff,
-          maxSize: configManager.getMaxDiffSize())) {
-        _logger.warn(
-            '\n⚠️  Large diff detected (${GitUtils.estimateDiffSize(diff)} characters)\n');
+      // Check for large files before proceeding
+      final largeFileResult = await _checkForLargeFiles(configManager);
+      if (largeFileResult != null) {
+        return largeFileResult;
+      }
 
-        final choice = _logger.chooseOne(
-          '💡 Large diffs can result in poor commit message quality',
-          choices: [
-            'Use interactive staging for focused commits',
-            'Commit all changes together anyway',
-            'Cancel',
-          ],
+      // Re-get diff in case files were unstaged
+      final updatedDiff = await GitUtils.getStagedDiff();
+      if (updatedDiff.isEmpty) {
+        _logger.err('No changes detected in staged files.');
+        return ExitCode.usage.code;
+      }
+
+      // Check if diff is too large - auto process file-by-file
+      if (GitUtils.isDiffTooLarge(updatedDiff,
+          maxSize: configManager.getMaxDiffSize())) {
+        _logger.info(
+          '\nDiff exceeds max size (${GitUtils.estimateDiffSize(updatedDiff)} chars), '
+          'processing file-by-file...\n',
         );
 
-        switch (choice) {
-          case 'Use interactive staging for focused commits':
-            return _handleInteractiveStaging(
-              generator,
-              language,
-              prefix,
-              withEmoji,
-              autoPush,
-              tag,
-              !confirm,
-            );
-          case 'Commit all changes together anyway':
-            // Continue with normal flow
-            break;
-          case 'Cancel':
-            _logger.info('Commit cancelled.');
-            return ExitCode.success.code;
-        }
+        return _processFileByFileSummaries(
+          diff: updatedDiff,
+          generator: generator,
+          language: language,
+          prefix: prefix,
+          withEmoji: withEmoji,
+          autoPush: autoPush,
+          tag: tag,
+          confirm: confirm,
+          modelName: modelName,
+          modelVariant: modelVariant,
+        );
       }
 
       try {
@@ -417,7 +418,7 @@ class CommitCommand extends Command<int> {
 
         // Generate commit message with AI
         String commitMessage = await generator.generateCommitMessage(
-          diff,
+          updatedDiff,
           language,
           prefix: prefix,
           withEmoji: withEmoji,
@@ -439,7 +440,7 @@ class CommitCommand extends Command<int> {
           final finalMessage = await _handleCommitConfirmation(
             commitMessage: commitMessage,
             generator: generator,
-            diff: diff,
+            diff: updatedDiff,
             language: language,
             prefix: prefix,
             modelName: modelName,
@@ -508,10 +509,30 @@ class CommitCommand extends Command<int> {
 
       for (final f in foldersWithStagedChanges) {
         final folderName = path.basename(f);
-        final diff = await GitUtils.getStagedDiff(folderPath: f);
+        var diff = await GitUtils.getStagedDiff(folderPath: f);
         if (diff.isEmpty) {
           _logger.warn(
             '[$folderName] No changes detected in staged files, skipping.',
+          );
+          continue;
+        }
+
+        // Check for large files in this repo
+        final largeFileResult = await _checkForLargeFiles(
+          configManager,
+          folderPath: f,
+        );
+        if (largeFileResult != null) {
+          // User cancelled for this repo, but continue with others
+          failedRepos.add(folderName);
+          continue;
+        }
+
+        // Re-get diff in case files were unstaged
+        diff = await GitUtils.getStagedDiff(folderPath: f);
+        if (diff.isEmpty) {
+          _logger.warn(
+            '[$folderName] No staged changes remaining after handling large files, skipping.',
           );
           continue;
         }
@@ -961,6 +982,194 @@ class CommitCommand extends Command<int> {
       }
     } catch (e) {
       _logger.err('Failed to get changes overview: $e');
+    }
+  }
+
+  /// Checks for large files in staged changes and handles user prompts
+  /// Returns an exit code if commit should be cancelled, null to continue
+  Future<int?> _checkForLargeFiles(
+    ConfigManager configManager, {
+    String? folderPath,
+  }) async {
+    final maxFileSize = configManager.getMaxFileSize();
+    final largeFiles = await GitUtils.getLargeFiles(
+      maxFileSize,
+      folderPath: folderPath,
+    );
+
+    if (largeFiles.isEmpty) return null; // Continue normally
+
+    for (final (filePath, sizeBytes) in largeFiles) {
+      final sizeInMB = (sizeBytes / 1024 / 1024).toStringAsFixed(1);
+      final isInRemote = await GitUtils.isFileInRemoteHistory(
+        filePath,
+        folderPath: folderPath,
+      );
+
+      if (isInRemote) {
+        // Just warn, file already exists in history
+        _logger.warn(
+          '⚠️  Large file: $filePath ($sizeInMB MB) - already in git history',
+        );
+      } else {
+        // Block and ask
+        _logger.warn('\n⚠️  Large file detected: $filePath ($sizeInMB MB)');
+        final choice = _logger.chooseOne(
+          'This file has never been pushed to remote. What would you like to do?',
+          choices: [
+            'Proceed anyway',
+            'Add to .gitignore and unstage',
+            'Cancel commit',
+          ],
+        );
+
+        switch (choice) {
+          case 'Add to .gitignore and unstage':
+            await GitUtils.addToGitignore(filePath, folderPath: folderPath);
+            await GitUtils.unstageFile(filePath, folderPath: folderPath);
+            _logger.success('Added $filePath to .gitignore and unstaged it');
+            break;
+          case 'Cancel commit':
+            _logger.info('Commit cancelled.');
+            return ExitCode.success.code;
+          // 'Proceed anyway' continues
+        }
+      }
+    }
+
+    // Check if we still have staged changes after potentially unstaging files
+    final hasStaged = await GitUtils.hasStagedChanges(folderPath: folderPath);
+    if (!hasStaged) {
+      _logger.info('No staged changes remaining after handling large files.');
+      return ExitCode.success.code;
+    }
+
+    return null; // Continue with commit
+  }
+
+  /// Processes large diffs by generating summaries for each file
+  /// and then combining them into a final commit message
+  Future<int> _processFileByFileSummaries({
+    required String diff,
+    required CommitGenerator generator,
+    required Language language,
+    String? prefix,
+    required bool withEmoji,
+    required bool autoPush,
+    String? tag,
+    required bool confirm,
+    required String modelName,
+    required String modelVariant,
+  }) async {
+    final hunks = GitUtils.splitDiffIntoHunks(diff);
+    final fileGroups = GitUtils.groupHunksByFile(hunks);
+    final fileSummaries = <String, String>{};
+
+    var index = 0;
+    final total = fileGroups.length;
+
+    for (final entry in fileGroups.entries) {
+      index++;
+      final fileName = entry.key;
+      final fileHunks = entry.value;
+
+      _logger.info('Processing $fileName ($index/$total)...');
+
+      final fileDiff = GitUtils.reconstructFileDiff(fileHunks);
+      final summaryPrompt = getFileSummaryPrompt(fileName, fileDiff, language);
+
+      try {
+        // Use generator to get summary
+        final summary = await generator.generateCommitMessage(
+          summaryPrompt,
+          language,
+          prefix: null,
+          withEmoji: false,
+        );
+
+        fileSummaries[fileName] = summary.trim();
+      } catch (e) {
+        _logger.warn('Failed to summarize $fileName: $e');
+        // Use a simple fallback summary
+        final addedLines =
+            fileHunks.expand((h) => h.lines).where((l) => l.startsWith('+')).length;
+        final removedLines =
+            fileHunks.expand((h) => h.lines).where((l) => l.startsWith('-')).length;
+        fileSummaries[fileName] = 'Modified ($addedLines added, $removedLines removed)';
+      }
+    }
+
+    _logger.info('\nGenerating commit message from summaries...');
+
+    // Generate final commit message from summaries
+    final finalPrompt = getCommitFromSummariesPrompt(
+      fileSummaries,
+      language,
+      prefix: prefix,
+      withEmoji: withEmoji,
+    );
+
+    try {
+      String commitMessage = await generator.generateCommitMessage(
+        finalPrompt,
+        language,
+        prefix: prefix,
+        withEmoji: withEmoji,
+      );
+
+      commitMessage = GitUtils.stripMarkdownCodeBlocks(commitMessage);
+
+      if (commitMessage.trim().isEmpty) {
+        _logger.err('Error: Generated commit message is empty!');
+        return ExitCode.software.code;
+      }
+
+      // Handle confirmation workflow if enabled
+      final configManager = ConfigManager();
+      await configManager.load();
+
+      if (confirm) {
+        final finalMessage = await _handleCommitConfirmation(
+          commitMessage: commitMessage,
+          generator: generator,
+          diff: diff,
+          language: language,
+          prefix: prefix,
+          modelName: modelName,
+          modelVariant: modelVariant,
+          ollamaBaseUrl: null,
+          configManager: configManager,
+          withEmoji: withEmoji,
+        );
+
+        if (finalMessage == null) {
+          return ExitCode.usage.code;
+        }
+
+        commitMessage = finalMessage;
+      } else {
+        // Show message without confirmation
+        _logger
+          ..info('\n---------------------------------\n')
+          ..info(commitMessage)
+          ..info('\n---------------------------------\n');
+      }
+
+      try {
+        await GitUtils.runGitCommit(
+          message: commitMessage,
+          autoPush: autoPush,
+          tag: tag,
+        );
+      } catch (e) {
+        _logger.err('Error setting commit message: $e');
+        return ExitCode.software.code;
+      }
+
+      return ExitCode.success.code;
+    } catch (e) {
+      _logger.err('Failed to generate commit message: $e');
+      return ExitCode.software.code;
     }
   }
 

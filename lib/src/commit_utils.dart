@@ -288,3 +288,67 @@ Response should be only markdown formatted response.
 
   return prompt;
 }
+
+/// Generates a prompt to summarize changes in a single file.
+///
+/// Used when processing large diffs file-by-file to generate summaries
+/// that can be combined for a final commit message.
+String getFileSummaryPrompt(String fileName, String diff, Language language) {
+  final languageInstruction = language != Language.english
+      ? ' in ${language.name}'
+      : '';
+
+  return '''
+Summarize the changes in this file in 1-2 sentences$languageInstruction. Be specific about what was changed.
+
+File: $fileName
+
+Diff:
+$diff
+
+Respond with ONLY the summary, no additional text or formatting.
+''';
+}
+
+/// Generates a prompt to create a commit message from file summaries.
+///
+/// Used after generating per-file summaries to create the final commit message.
+String getCommitFromSummariesPrompt(
+  Map<String, String> fileSummaries,
+  Language language, {
+  String? prefix,
+  bool withEmoji = true,
+}) {
+  final summariesText = fileSummaries.entries
+      .map((e) => '- ${e.key}: ${e.value}')
+      .join('\n');
+
+  final hasPrefix = prefix != null && prefix.isNotEmpty;
+  final prefixNote = hasPrefix
+      ? '\nPrefix each commit message with: "$prefix ->"'
+      : '';
+
+  final emojiNote = withEmoji
+      ? '\nInclude appropriate emoji after the commit type (e.g., feat: ✨).'
+      : '\nDo NOT include emojis.';
+
+  final languageInstruction = language != Language.english
+      ? '\nWrite the description in ${language.name}. Keep commit types in English.'
+      : '';
+
+  return '''
+Generate a conventional commit message based on these file change summaries:
+
+$summariesText
+$prefixNote$emojiNote$languageInstruction
+
+Rules:
+- Use imperative mood ("Add", "Fix", not "Added", "Fixed")
+- Keep description concise (under 50 characters if possible)
+- Use valid commit types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert
+- If changes are related, combine into one commit message
+- If changes are unrelated, generate separate commit messages
+
+Respond with ONLY the commit message(s), no additional text.
+''';
+}

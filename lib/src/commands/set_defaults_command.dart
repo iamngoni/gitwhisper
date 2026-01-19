@@ -76,6 +76,12 @@ class SetDefaultsCommand extends Command<int> {
         help: 'Maximum diff size (in characters) before prompting for '
             'interactive staging (default: 50000)',
         valueHelp: '50000',
+      )
+      ..addOption(
+        'max-file-size',
+        help: 'Maximum file size (in MB) before warning about large files '
+            '(default: 10)',
+        valueHelp: '10',
       );
   }
 
@@ -238,6 +244,21 @@ class SetDefaultsCommand extends Command<int> {
       configManager.setMaxDiffSize(maxDiffSize);
       await configManager.save();
       _logger.success('Max diff size set to $maxDiffSize characters.');
+    }
+
+    // Handle max file size setting
+    final maxFileSizeStr = argResults?['max-file-size'] as String?;
+    if (maxFileSizeStr != null) {
+      final maxFileSizeMB = int.tryParse(maxFileSizeStr);
+      if (maxFileSizeMB == null || maxFileSizeMB <= 0) {
+        _logger.err(
+            'Invalid max-file-size value. Must be a positive integer (MB).');
+        return ExitCode.usage.code;
+      }
+      // Convert MB to bytes
+      configManager.setMaxFileSize(maxFileSizeMB * 1024 * 1024);
+      await configManager.save();
+      _logger.success('Max file size set to $maxFileSizeMB MB.');
     }
 
     if (modelVariant == null &&

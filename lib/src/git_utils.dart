@@ -521,6 +521,125 @@ class GitUtils {
       throw Exception('Failed to unstage changes: ${result.stderr}');
     }
   }
+
+  /// Returns staged files that exceed the size threshold
+  /// Returns a list of tuples (filePath, sizeInBytes)
+  static Future<List<(String, int)>> getLargeFiles(
+    int thresholdBytes, {
+    String? folderPath,
+  }) async {
+    // Get list of staged files
+    final result = await Process.run(
+      'git',
+      ['diff', '--cached', '--name-only'],
+      workingDirectory: folderPath,
+    );
+
+    if (result.exitCode != 0) {
+      return [];
+    }
+
+    final files = (result.stdout as String)
+        .trim()
+        .split('\n')
+        .where((f) => f.isNotEmpty)
+        .toList();
+
+    final largeFiles = <(String, int)>[];
+    final workDir = folderPath ?? Directory.current.path;
+
+    for (final filePath in files) {
+      final fullPath = path.join(workDir, filePath);
+      final file = File(fullPath);
+
+      if (await file.exists()) {
+        final stat = await file.stat();
+        if (stat.size > thresholdBytes) {
+          largeFiles.add((filePath, stat.size));
+        }
+      }
+    }
+
+    return largeFiles;
+  }
+
+  /// Checks if a file exists in the remote repository history
+  /// Returns true if the file has been pushed before
+  static Future<bool> isFileInRemoteHistory(
+    String filePath, {
+    String? folderPath,
+  }) async {
+    // Check if file exists in any remote tracking branch
+    final result = await Process.run(
+      'git',
+      ['log', '--oneline', '--remotes', '--', filePath],
+      workingDirectory: folderPath,
+    );
+
+    if (result.exitCode != 0) {
+      return false;
+    }
+
+    // If there are any commits with this file in remote history, it exists
+    return (result.stdout as String).trim().isNotEmpty;
+  }
+
+  /// Appends a path to .gitignore
+  static Future<void> addToGitignore(
+    String filePath, {
+    String? folderPath,
+  }) async {
+    final workDir = folderPath ?? Directory.current.path;
+    final gitignorePath = path.join(workDir, '.gitignore');
+    final gitignoreFile = File(gitignorePath);
+
+    String content = '';
+    if (await gitignoreFile.exists()) {
+      content = await gitignoreFile.readAsString();
+    }
+
+    // Check if already in gitignore
+    final lines = content.split('\n');
+    if (lines.contains(filePath)) {
+      return; // Already present
+    }
+
+    // Append to gitignore
+    final newContent = content.isEmpty
+        ? filePath
+        : content.endsWith('\n')
+            ? '$content$filePath\n'
+            : '$content\n$filePath\n';
+
+    await gitignoreFile.writeAsString(newContent);
+  }
+
+  /// Unstages a specific file
+  static Future<void> unstageFile(String filePath, {String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['reset', 'HEAD', filePath],
+      workingDirectory: folderPath,
+    );
+
+    if (result.exitCode != 0) {
+      throw Exception('Failed to unstage file: ${result.stderr}');
+    }
+  }
+
+  /// Groups hunks by their file name
+  static Map<String, List<DiffHunk>> groupHunksByFile(List<DiffHunk> hunks) {
+    final grouped = <String, List<DiffHunk>>{};
+    for (final hunk in hunks) {
+      grouped.putIfAbsent(hunk.fileName, () => []).add(hunk);
+    }
+    return grouped;
+  }
+
+  /// Reconstructs the diff content for a group of hunks from the same file
+  static String reconstructFileDiff(List<DiffHunk> hunks) {
+    return hunks.map((h) => [...h.header, ...h.lines].join('\n')).join('\n\n');
+  }
 }
 
 /// Represents a single hunk in a git diff
