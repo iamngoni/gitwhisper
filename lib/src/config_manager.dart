@@ -177,6 +177,16 @@ class ConfigManager {
     return _config['max_diff_size'] as int? ?? 50000;
   }
 
+  /// Set max file size for large file warning (in bytes)
+  void setMaxFileSize(int bytes) {
+    _config['max_file_size'] = bytes;
+  }
+
+  /// Get max file size for large file warning (default: 10MB = 10485760 bytes)
+  int getMaxFileSize() {
+    return _config['max_file_size'] as int? ?? 10485760;
+  }
+
   /// Check if user has accepted the free model disclaimer
   bool hasAcceptedFreeDisclaimer() {
     return _config['free_disclaimer_accepted'] as bool? ?? false;
