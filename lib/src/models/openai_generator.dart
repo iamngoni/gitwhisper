@@ -53,7 +53,7 @@ class OpenAIGenerator extends CommitGenerator {
           'messages': [
             {'role': 'user', 'content': prompt},
           ],
-          'max_tokens': maxTokens,
+          'max_completion_tokens': maxTokens,
         },
       );
 
@@ -91,7 +91,7 @@ class OpenAIGenerator extends CommitGenerator {
           'messages': [
             {'role': 'user', 'content': prompt},
           ],
-          'max_tokens': maxAnalysisTokens,
+          'max_completion_tokens': maxAnalysisTokens,
         },
       );
 
