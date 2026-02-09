@@ -40,7 +40,7 @@ class GithubGenerator extends CommitGenerator {
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://models.inference.ai.azure.com/chat/completions',
+        'https://models.github.ai/inference/chat/completions',
         options: Options(
           headers: {
             'Content-Type': 'application/json',

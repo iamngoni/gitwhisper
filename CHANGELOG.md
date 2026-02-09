@@ -1,3 +1,6 @@
+## 0.1.15
+- switched openai models to make use of `max_completion_tokens` instead of the deprecated `max_tokens` param
+
 ## 0.1.14
 - Automatically detects files >10MB before committing to prevent accidentally adding large files to git history.
 - When diff exceeds max size, automatically processes file-by-file without prompting (revert previously added behaviour)
