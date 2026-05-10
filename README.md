@@ -89,6 +89,8 @@ Or download the executable binary that will work on your operating system direct
 - 🌍 Multi-language support for commit messages and analysis
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
+    - Claude Code CLI
+    - Codex CLI
     - OpenAI (GPT)
     - Gemini (Google)
     - Grok (xAI)
@@ -129,6 +131,10 @@ gw commit -t v1.0.0 -a
 # Use free model (no API key required!)
 gitwhisper commit --model free
 gw commit -m free
+
+# Use local CLI providers (no GitWhisper API key required)
+gitwhisper commit --model codex
+gitwhisper commit --model claude-code
 
 # Analyze your changes (staged/unstaged) with AI
 gitwhisper analyze
@@ -240,6 +246,11 @@ You can provide API keys in several ways:
     - `LLAMA_API_KEY` (for Llama)
 3. **Saved configuration**: Use the `save-key` command to store your API key permanently
 
+Local CLI providers do not need GitWhisper API keys:
+
+- `codex` uses your installed Codex CLI. Sign in with Codex first, then run `gitwhisper commit --model codex`.
+- `claude-code` uses your installed Claude Code CLI. Sign in with Claude Code first, then run `gitwhisper commit --model claude-code`.
+
 ## Model Variants
 
 GitWhisper supports a comprehensive range of model variants:
@@ -263,6 +274,10 @@ GitWhisper supports a comprehensive range of model variants:
 - `claude-3-5-sonnet-20240620`
 - `claude-3-5-sonnet-20241022`
 - `claude-3-7-sonnet-20250219`
+
+### Local CLI Providers
+- `codex` uses the installed Codex CLI default model. Pass `--model-variant` to forward a model to `codex --model`.
+- `claude-code` uses the installed Claude Code CLI default model. Pass `--model-variant` to forward a model to `claude --model`.
 
 ### Gemini (Google)
 - `gemini-2.5-pro-preview-05-06` (advanced reasoning, 1M token context)

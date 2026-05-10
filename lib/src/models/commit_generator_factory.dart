@@ -6,7 +6,9 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import 'claude_code_generator.dart';
 import 'claude_generator.dart';
+import 'codex_cli_generator.dart';
 import 'commit_generator.dart';
 import 'deepseek_generator.dart';
 import 'free_generator.dart';
@@ -28,6 +30,12 @@ class CommitGeneratorFactory {
     return switch (model.toLowerCase()) {
       'claude' => ClaudeGenerator(
           apiKey,
+          variant: variant,
+        ),
+      'claude-code' => ClaudeCodeGenerator(
+          variant: variant,
+        ),
+      'codex' => CodexCliGenerator(
           variant: variant,
         ),
       'openai' => OpenAIGenerator(

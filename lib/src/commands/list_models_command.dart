@@ -27,6 +27,12 @@ class ListModelsCommand extends Command<int> {
     _logger
       ..info('Available models:')
       ..info('  - claude (Anthropic Claude)')
+      ..info(
+        '  - claude-code (Claude Code CLI - No GitWhisper API key required)',
+      )
+      ..info(
+        '  - codex (Codex CLI - No GitWhisper API key required)',
+      )
       ..info('  - openai (OpenAI GPT models)')
       ..info('  - gemini (Google Gemini)')
       ..info('  - grok (xAI Grok)')

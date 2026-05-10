@@ -14,6 +14,16 @@ class ModelVariants {
   /// Default Claude model variant
   static const String claudeDefault = 'claude-sonnet-4-5-20250929';
 
+  /// Default Claude Code CLI model variant.
+  ///
+  /// Empty means the installed CLI should use its configured default.
+  static const String claudeCodeDefault = '';
+
+  /// Default Codex CLI model variant.
+  ///
+  /// Empty means the installed CLI should use its configured default.
+  static const String codexDefault = '';
+
   /// Default Gemini model variant
   static const String geminiDefault = 'gemini-2.0-flash';
 
@@ -37,6 +47,8 @@ class ModelVariants {
     return switch (model.toLowerCase()) {
       'openai' => openaiDefault,
       'claude' => claudeDefault,
+      'claude-code' => claudeCodeDefault,
+      'codex' => codexDefault,
       'gemini' => geminiDefault,
       'grok' => grokDefault,
       'llama' => llamaDefault,

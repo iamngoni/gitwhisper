@@ -1,3 +1,6 @@
+## 0.1.16
+- Added local CLI providers for Codex (`--model codex`) and Claude Code (`--model claude-code`), using the user's installed and authenticated CLIs instead of GitWhisper API keys.
+
 ## 0.1.15
 - switched openai models to make use of `max_completion_tokens` instead of the deprecated `max_tokens` param
 

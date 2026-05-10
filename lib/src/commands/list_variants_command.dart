@@ -19,6 +19,8 @@ class ListVariantsCommand extends Command<int> {
       help: 'Model to list variants for',
       allowed: [
         'claude',
+        'claude-code',
+        'codex',
         'openai',
         'gemini',
         'grok',
@@ -86,6 +88,16 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - claude-3-opus-20240307');
         _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
+      case 'claude-code':
+        _logger.info('  Uses your installed Claude Code default model.');
+        _logger.info(
+          '  Pass --model-variant to forward a model to claude --model.',
+        );
+      case 'codex':
+        _logger.info('  Uses your installed Codex default model.');
+        _logger.info(
+          '  Pass --model-variant to forward a model to codex --model.',
+        );
       case 'gemini':
         _logger.info('  - gemini-2.0-flash (default)');
         _logger.info('  - gemini-2.5-pro (advanced reasoning with thinking)');
@@ -161,6 +173,10 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('openai');
     _logger.info('');
     _listVariantsForModel('claude');
+    _logger.info('');
+    _listVariantsForModel('claude-code');
+    _logger.info('');
+    _listVariantsForModel('codex');
     _logger.info('');
     _listVariantsForModel('gemini');
     _logger.info('');

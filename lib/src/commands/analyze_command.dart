@@ -28,6 +28,8 @@ class AnalyzeCommand extends Command<int> {
         help: 'AI model to use',
         allowed: [
           'claude',
+          'claude-code',
+          'codex',
           'openai',
           'gemini',
           'grok',
@@ -39,6 +41,8 @@ class AnalyzeCommand extends Command<int> {
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
+          'claude-code': 'Claude Code CLI',
+          'codex': 'Codex CLI',
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
@@ -125,6 +129,8 @@ class AnalyzeCommand extends Command<int> {
           'Select the AI model for analysis:',
           choices: [
             'claude',
+            'claude-code',
+            'codex',
             'openai',
             'gemini',
             'grok',
@@ -140,21 +146,23 @@ class AnalyzeCommand extends Command<int> {
     }
 
     // Get API key (from args, config, or environment)
+    final selectedModelName = modelName!;
     var apiKey = argResults?['key'] as String?;
-    apiKey ??=
-        configManager.getApiKey(modelName!) ?? _getEnvironmentApiKey(modelName);
+    apiKey ??= configManager.getApiKey(selectedModelName) ??
+        _getEnvironmentApiKey(selectedModelName);
 
     if ((apiKey == null || apiKey.isEmpty) &&
-        modelName != 'ollama' &&
-        modelName != 'free') {
+        _requiresApiKey(selectedModelName)) {
       _logger.err(
-        'No API key provided for $modelName. Please provide an API key using --key or save one using "gw save-key".',
+        'No API key provided for $selectedModelName. Please provide an API key '
+        'using --key or save one using "gw save-key".',
       );
       return ExitCode.usage.code;
     }
 
     // Show disclaimer for free model on first use
-    if (modelName == 'free' && !configManager.hasAcceptedFreeDisclaimer()) {
+    if (selectedModelName == 'free' &&
+        !configManager.hasAcceptedFreeDisclaimer()) {
       _logger
         ..info('')
         ..info(
@@ -212,7 +220,7 @@ class AnalyzeCommand extends Command<int> {
 
     // Create the appropriate AI generator based on model name
     final generator = CommitGeneratorFactory.create(
-      modelName!,
+      selectedModelName,
       apiKey,
       variant: modelVariant,
     );
@@ -361,6 +369,13 @@ class AnalyzeCommand extends Command<int> {
       'llama' => Platform.environment['LLAMA_API_KEY'],
       'deepseek' => Platform.environment['DEEPSEEK_API_KEY'],
       _ => null,
+    };
+  }
+
+  bool _requiresApiKey(String modelName) {
+    return switch (modelName.toLowerCase()) {
+      'ollama' || 'free' || 'codex' || 'claude-code' => false,
+      _ => true,
     };
   }
 }

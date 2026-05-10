@@ -19,9 +19,11 @@ class SetDefaultsCommand extends Command<int> {
       ..addOption(
         'model',
         abbr: 'm',
-        help: 'AI model to save the key for',
+        help: 'AI model to set as the default',
         allowed: [
           'claude',
+          'claude-code',
+          'codex',
           'openai',
           'gemini',
           'grok',
@@ -33,6 +35,8 @@ class SetDefaultsCommand extends Command<int> {
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
+          'claude-code': 'Claude Code CLI',
+          'codex': 'Codex CLI',
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
@@ -101,6 +105,8 @@ class SetDefaultsCommand extends Command<int> {
       'Select the AI model to set as default:',
       choices: [
         'claude',
+        'claude-code',
+        'codex',
         'openai',
         'gemini',
         'grok',
@@ -205,7 +211,7 @@ class SetDefaultsCommand extends Command<int> {
       await configManager.save();
       _logger.success(
           'Commit confirmation disabled. All commits will be automatic.');
-    } else if (modelName != null && !confirmCommits && !noConfirmCommits) {
+    } else if (!confirmCommits && !noConfirmCommits) {
       // Ask about commit confirmation if setting up for first time
       final bool shouldConfirm = _logger.confirm(
         'Do you want to confirm commit messages before they are applied? (Recommended for new users)',

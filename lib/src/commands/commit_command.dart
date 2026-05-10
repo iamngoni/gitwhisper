@@ -31,6 +31,8 @@ class CommitCommand extends Command<int> {
         help: 'AI model to use',
         allowed: [
           'claude',
+          'claude-code',
+          'codex',
           'openai',
           'gemini',
           'grok',
@@ -42,6 +44,8 @@ class CommitCommand extends Command<int> {
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
+          'claude-code': 'Claude Code CLI',
+          'codex': 'Codex CLI',
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
@@ -253,9 +257,7 @@ class CommitCommand extends Command<int> {
     apiKey ??=
         configManager.getApiKey(modelName) ?? _getEnvironmentApiKey(modelName);
 
-    if ((apiKey == null || apiKey.isEmpty) &&
-        modelName != 'ollama' &&
-        modelName != 'free') {
+    if ((apiKey == null || apiKey.isEmpty) && _requiresApiKey(modelName)) {
       _logger.err(
         'No API key provided for $modelName. Please provide an API key using --key.',
       );
@@ -647,6 +649,13 @@ class CommitCommand extends Command<int> {
     };
   }
 
+  bool _requiresApiKey(String modelName) {
+    return switch (modelName.toLowerCase()) {
+      'ollama' || 'free' || 'codex' || 'claude-code' => false,
+      _ => true,
+    };
+  }
+
   /// Handles the confirmation workflow for commit messages
   /// Returns the final commit message to use, or null if user cancelled
   Future<String?> _handleCommitConfirmation({
@@ -721,6 +730,8 @@ class CommitCommand extends Command<int> {
                 'Select a different model:',
                 choices: [
                   'claude',
+                  'claude-code',
+                  'codex',
                   'openai',
                   'gemini',
                   'grok',
@@ -737,7 +748,7 @@ class CommitCommand extends Command<int> {
                   _getEnvironmentApiKey(newModelName);
 
               if ((newApiKey == null || newApiKey.isEmpty) &&
-                  newModelName != 'ollama') {
+                  _requiresApiKey(newModelName)) {
                 _logger.err(
                   'No API key found for $newModelName. Please save one using "gw save-key".',
                 );
@@ -1091,11 +1102,16 @@ class CommitCommand extends Command<int> {
       } catch (e) {
         _logger.warn('Failed to summarize $fileName: $e');
         // Use a simple fallback summary
-        final addedLines =
-            fileHunks.expand((h) => h.lines).where((l) => l.startsWith('+')).length;
-        final removedLines =
-            fileHunks.expand((h) => h.lines).where((l) => l.startsWith('-')).length;
-        fileSummaries[fileName] = 'Modified ($addedLines added, $removedLines removed)';
+        final addedLines = fileHunks
+            .expand((h) => h.lines)
+            .where((l) => l.startsWith('+'))
+            .length;
+        final removedLines = fileHunks
+            .expand((h) => h.lines)
+            .where((l) => l.startsWith('-'))
+            .length;
+        fileSummaries[fileName] =
+            'Modified ($addedLines added, $removedLines removed)';
       }
     }
 

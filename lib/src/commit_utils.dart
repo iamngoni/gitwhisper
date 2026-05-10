@@ -289,6 +289,61 @@ Response should be only markdown formatted response.
   return prompt;
 }
 
+String getAgentCommitPrompt(
+  Language language, {
+  String? prefix,
+  bool withEmoji = true,
+}) {
+  final hasPrefix = prefix != null && prefix.isNotEmpty;
+  final prefixNote = hasPrefix
+      ? '''
+TICKET PREFIX REQUIREMENT:
+Every commit message must start with "$prefix ->" before the commit type.
+'''
+      : '';
+
+  final emojiFormat = withEmoji
+      ? '<type>: <emoji> <description[, additional brief context]>'
+      : '<type>: <description[, additional brief context]>';
+  final emojiRule = withEmoji
+      ? 'Include the matching approved emoji after the commit type.'
+      : 'Do not include emojis.';
+  final languageInstruction = language != Language.english
+      ? '''
+Generate the commit message description in ${language.name}. Keep the commit type in English.
+'''
+      : '';
+
+  return '''
+You are an assistant that generates commit messages.
+
+You are running in GitWhisper agent mode. Inspect the repository by using the provided read-only tools. Do not assume you already have the full diff.
+
+Scope:
+- Inspect staged changes only.
+- Start with list_staged_files and get_diff_stat.
+- Use get_file_diff for the staged files needed to understand the change.
+- Use get_file_content only when the diff alone is not enough context.
+- Do not request or describe unstaged changes.
+- Do not modify files, stage files, unstage files, commit, tag, or push.
+
+Based on the staged changes, generate valid, concise, conventional commit messages.
+Each message must follow this strict format:
+$emojiFormat
+
+Rules:
+- Use imperative mood ("Add", "Fix", not "Added", "Fixed").
+- Capitalize the first word of the description.
+- Keep descriptions concise, preferably under 50 characters.
+- Use only valid commit types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert.
+- Only generate multiple commit messages if changes are truly unrelated.
+- $emojiRule
+$languageInstruction
+$prefixNote
+Output only the final commit message or messages. Do not include summaries, explanations, markdown fences, or extra text.
+''';
+}
+
 /// Generates a prompt to summarize changes in a single file.
 ///
 /// Used when processing large diffs file-by-file to generate summaries
