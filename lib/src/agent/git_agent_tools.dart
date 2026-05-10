@@ -3,14 +3,18 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../constants.dart';
+
 class GitAgentTools {
   const GitAgentTools({
     this.folderPath,
     this.maxOutputCharacters = 30000,
+    this.onToolUse,
   });
 
   final String? folderPath;
   final int maxOutputCharacters;
+  final void Function(String message)? onToolUse;
 
   static List<Map<String, dynamic>> get openAiToolDefinitions => [
         _openAiTool(
@@ -79,6 +83,8 @@ class GitAgentTools {
       ];
 
   Future<String> execute(String name, Map<String, dynamic> input) async {
+    _logToolUse(name, input);
+
     return switch (name) {
       'list_staged_files' => _listStagedFiles(),
       'get_diff_stat' => _getDiffStat(),
@@ -86,6 +92,21 @@ class GitAgentTools {
       'get_file_content' => _getFileContent(input),
       _ => throw ArgumentError.value(name, 'name', 'Unsupported agent tool'),
     };
+  }
+
+  void _logToolUse(String name, Map<String, dynamic> input) {
+    final pathValue = input['path'];
+    final toolLabel = pathValue is String && pathValue.trim().isNotEmpty
+        ? '$name($pathValue)'
+        : name;
+    final message = 'Agent tool: $toolLabel';
+
+    final log = onToolUse;
+    if (log != null) {
+      log(message);
+    } else {
+      $logger.info(message);
+    }
   }
 
   Future<String> _listStagedFiles() async {

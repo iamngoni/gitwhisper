@@ -29,7 +29,7 @@ class ErrorHandler {
   }
 
   /// Handle general exceptions
-  static void handleGeneralError(Exception error, {String? context}) {
+  static void handleGeneralError(Object error, {String? context}) {
     $logger.err('General Error: $error');
 
     // Display user-friendly error message

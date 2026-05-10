@@ -519,7 +519,7 @@ class CommitCommand extends Command<int> {
         return ExitCode.software.code;
       } catch (e) {
         ErrorHandler.handleGeneralError(
-          e as Exception,
+          e,
           context: 'generating commit message',
         );
         return ExitCode.software.code;

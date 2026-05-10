@@ -7,7 +7,7 @@ class AgentCommitRequest {
     required this.language,
     this.prefix,
     this.withEmoji = true,
-    this.maxToolCalls = 8,
+    this.maxToolCalls = 32,
   });
 
   final GitAgentTools tools;

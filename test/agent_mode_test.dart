@@ -6,6 +6,7 @@ import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
 import 'package:gitwhisper/src/agent/git_agent_tools.dart';
 import 'package:gitwhisper/src/commands/commit_command.dart';
 import 'package:gitwhisper/src/constants.dart';
+import 'package:gitwhisper/src/exceptions/error_handler.dart';
 import 'package:gitwhisper/src/models/claude_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:gitwhisper/src/models/openai_generator.dart';
@@ -24,13 +25,34 @@ void main() {
       expect(results['agent'], isTrue);
       expect(results['auto-push'], isTrue);
     });
+
+    test('general error handler accepts non-Exception failures', () {
+      const void Function(Object, {String? context}) handler =
+          ErrorHandler.handleGeneralError;
+
+      expect(handler, isNotNull);
+    });
+
+    test('agent requests allow enough tool calls for larger staged changes',
+        () {
+      expect(
+        const AgentCommitRequest(
+          tools: GitAgentTools(),
+          language: Language.english,
+        ).maxToolCalls,
+        32,
+      );
+    });
   });
 
   group('GitAgentTools', () {
     test('exposes staged files and staged file diffs', () async {
       final repo = await _createRepoWithStagedFile();
       addTearDown(() => repo.delete(recursive: true));
-      final tools = GitAgentTools(folderPath: repo.path);
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
 
       final filesJson = await tools.execute('list_staged_files', {});
       final filesPayload = jsonDecode(filesJson) as Map<String, dynamic>;
@@ -47,10 +69,37 @@ void main() {
       expect(diff, contains('+final value = 1;'));
     });
 
+    test('logs agent tool usage with requested file paths', () async {
+      final repo = await _createRepoWithStagedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final logMessages = <String>[];
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: logMessages.add,
+      );
+
+      await tools.execute('list_staged_files', {});
+      await tools.execute(
+        'get_file_diff',
+        <String, dynamic>{'path': 'lib/a.dart'},
+      );
+
+      expect(
+        logMessages,
+        <String>[
+          'Agent tool: list_staged_files',
+          'Agent tool: get_file_diff(lib/a.dart)',
+        ],
+      );
+    });
+
     test('rejects paths outside staged changes', () async {
       final repo = await _createRepoWithStagedFile();
       addTearDown(() => repo.delete(recursive: true));
-      final tools = GitAgentTools(folderPath: repo.path);
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
 
       await expectLater(
         tools.execute(
@@ -116,7 +165,10 @@ void main() {
 
       final message = await generator.generateAgentCommitMessage(
         AgentCommitRequest(
-          tools: GitAgentTools(folderPath: repo.path),
+          tools: GitAgentTools(
+            folderPath: repo.path,
+            onToolUse: (_) {},
+          ),
           language: Language.english,
         ),
       );
@@ -166,7 +218,10 @@ void main() {
 
       final message = await generator.generateAgentCommitMessage(
         AgentCommitRequest(
-          tools: GitAgentTools(folderPath: repo.path),
+          tools: GitAgentTools(
+            folderPath: repo.path,
+            onToolUse: (_) {},
+          ),
           language: Language.english,
         ),
       );

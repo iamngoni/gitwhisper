@@ -277,7 +277,7 @@ class AnalyzeCommand extends Command<int> {
         return ExitCode.software.code;
       } catch (e) {
         ErrorHandler.handleGeneralError(
-          e as Exception,
+          e,
           context: 'analyzing changes',
         );
         return ExitCode.software.code;
