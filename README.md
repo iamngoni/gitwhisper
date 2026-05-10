@@ -112,6 +112,10 @@ gw # even shorter command - also runs 'gitwhisper commit' by default
 gitwhisper commit --model openai --model-variant gpt-4o
 gw commit --model openai --model-variant gpt-4o
 
+# Use agent mode for staged changes (OpenAI and Claude only)
+gitwhisper commit --model openai --agent
+gitwhisper commit --model claude --agent
+
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
 gw commit --prefix "JIRA-123"
@@ -250,6 +254,13 @@ Local CLI providers do not need GitWhisper API keys:
 
 - `codex` uses your installed Codex CLI. Sign in with Codex first, then run `gitwhisper commit --model codex`.
 - `claude-code` uses your installed Claude Code CLI. Sign in with Claude Code first, then run `gitwhisper commit --model claude-code`.
+
+Agent mode is available for `openai` and `claude` only:
+
+- `gw commit --agent --model openai`
+- `gw commit --agent --model claude`
+
+In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, and file content. The full diff is not sent in one prompt.
 
 ## Model Variants
 

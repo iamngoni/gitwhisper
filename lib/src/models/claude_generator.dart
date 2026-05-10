@@ -144,6 +144,8 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
             'max_tokens': 1000,
             'messages': messages,
             'tools': GitAgentTools.claudeToolDefinitions,
+            if (messages.length == 1)
+              'tool_choice': <String, dynamic>{'type': 'any'},
           },
         );
 
@@ -248,7 +250,7 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
         'tool_use_id': id,
         'content': output,
       };
-    } catch (error) {
+    } on Object catch (error) {
       return <String, dynamic>{
         'type': 'tool_result',
         'tool_use_id': id,

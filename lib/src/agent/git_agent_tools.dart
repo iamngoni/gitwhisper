@@ -39,7 +39,8 @@ class GitAgentTools {
           name: 'get_file_content',
           description: 'Return the current working-tree content for one '
               'staged file path when extra context is needed. The path must '
-              'come from list_staged_files. Deleted files may not have content.',
+              'come from list_staged_files. Deleted files may not have '
+              'content.',
           parameters: _pathParameters(),
         ),
       ];
@@ -71,7 +72,8 @@ class GitAgentTools {
           name: 'get_file_content',
           description: 'Return the current working-tree content for one '
               'staged file path when extra context is needed. The path must '
-              'come from list_staged_files. Deleted files may not have content.',
+              'come from list_staged_files. Deleted files may not have '
+              'content.',
           inputSchema: _pathParameters(),
         ),
       ];
@@ -125,12 +127,15 @@ class GitAgentTools {
     final output = await _runGit(
       <String>['diff', '--cached', '--', stagedPath],
     );
-    return output.trim().isEmpty ? 'No staged diff for $stagedPath.' : _truncate(output);
+    return output.trim().isEmpty
+        ? 'No staged diff for $stagedPath.'
+        : _truncate(output);
   }
 
   Future<String> _getFileContent(Map<String, dynamic> input) async {
     final stagedPath = await _validateStagedPath(input);
-    final root = path.normalize(path.absolute(folderPath ?? Directory.current.path));
+    final root =
+        path.normalize(path.absolute(folderPath ?? Directory.current.path));
     final fullPath = path.normalize(
       path.joinAll(<String>[root, ...stagedPath.split('/')]),
     );
@@ -140,7 +145,7 @@ class GitAgentTools {
     }
 
     final file = File(fullPath);
-    if (!await file.exists()) {
+    if (!file.existsSync()) {
       return 'File $stagedPath does not exist in the working tree.';
     }
 
@@ -154,7 +159,11 @@ class GitAgentTools {
   Future<String> _validateStagedPath(Map<String, dynamic> input) async {
     final rawPath = input['path'];
     if (rawPath is! String || rawPath.trim().isEmpty) {
-      throw ArgumentError.value(rawPath, 'path', 'A staged file path is required');
+      throw ArgumentError.value(
+        rawPath,
+        'path',
+        'A staged file path is required',
+      );
     }
 
     final normalized = _normalizeGitPath(rawPath);

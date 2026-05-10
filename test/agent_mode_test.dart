@@ -124,7 +124,10 @@ void main() {
       expect(message, 'feat: add agent mode');
       expect(capturedRequests, hasLength(2));
       expect(capturedRequests.first.uri.toString(), contains('openai.com'));
-      expect(capturedRequests.first.data.toString(), contains('tools'));
+      final firstRequestData =
+          capturedRequests.first.data as Map<String, dynamic>;
+      expect(firstRequestData['tools'], isA<List<dynamic>>());
+      expect(firstRequestData['tool_choice'], 'required');
       expect(capturedRequests.last.data.toString(), contains('lib/a.dart'));
     });
 
@@ -171,7 +174,13 @@ void main() {
       expect(message, 'feat: add agent mode');
       expect(capturedRequests, hasLength(2));
       expect(capturedRequests.first.uri.toString(), contains('anthropic.com'));
-      expect(capturedRequests.first.data.toString(), contains('tools'));
+      final firstRequestData =
+          capturedRequests.first.data as Map<String, dynamic>;
+      expect(firstRequestData['tools'], isA<List<dynamic>>());
+      expect(
+        firstRequestData['tool_choice'],
+        <String, dynamic>{'type': 'any'},
+      );
       expect(capturedRequests.last.data.toString(), contains('tool_result'));
       expect(capturedRequests.last.data.toString(), contains('diff --git'));
     });

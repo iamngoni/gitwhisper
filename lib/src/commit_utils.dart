@@ -349,9 +349,8 @@ Output only the final commit message or messages. Do not include summaries, expl
 /// Used when processing large diffs file-by-file to generate summaries
 /// that can be combined for a final commit message.
 String getFileSummaryPrompt(String fileName, String diff, Language language) {
-  final languageInstruction = language != Language.english
-      ? ' in ${language.name}'
-      : '';
+  final languageInstruction =
+      language != Language.english ? ' in ${language.name}' : '';
 
   return '''
 Summarize the changes in this file in 1-2 sentences$languageInstruction. Be specific about what was changed.
@@ -374,21 +373,20 @@ String getCommitFromSummariesPrompt(
   String? prefix,
   bool withEmoji = true,
 }) {
-  final summariesText = fileSummaries.entries
-      .map((e) => '- ${e.key}: ${e.value}')
-      .join('\n');
+  final summariesText =
+      fileSummaries.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
 
   final hasPrefix = prefix != null && prefix.isNotEmpty;
-  final prefixNote = hasPrefix
-      ? '\nPrefix each commit message with: "$prefix ->"'
-      : '';
+  final prefixNote =
+      hasPrefix ? '\nPrefix each commit message with: "$prefix ->"' : '';
 
   final emojiNote = withEmoji
       ? '\nInclude appropriate emoji after the commit type (e.g., feat: ✨).'
       : '\nDo NOT include emojis.';
 
   final languageInstruction = language != Language.english
-      ? '\nWrite the description in ${language.name}. Keep commit types in English.'
+      ? '\nWrite the description in ${language.name}. '
+          'Keep commit types in English.'
       : '';
 
   return '''

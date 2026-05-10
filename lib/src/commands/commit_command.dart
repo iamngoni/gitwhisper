@@ -12,6 +12,8 @@ import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as path;
 
+import '../agent/agent_commit_generator.dart';
+import '../agent/git_agent_tools.dart';
 import '../commit_utils.dart';
 import '../config_manager.dart';
 import '../exceptions/exceptions.dart';
@@ -79,6 +81,13 @@ class CommitCommand extends Command<int> {
         help: 'Automatically push the commit to the remote repository',
       )
       ..addFlag(
+        'agent',
+        help: 'Use agent mode for OpenAI or Claude. The model inspects '
+            'staged changes with read-only tools instead of receiving the '
+            'full diff in one prompt.',
+        negatable: false,
+      )
+      ..addFlag(
         'confirm',
         abbr: 'c',
         help: 'Confirm commit message before applying',
@@ -106,6 +115,7 @@ class CommitCommand extends Command<int> {
     // Initialize config manager
     final configManager = ConfigManager();
     await configManager.load();
+    final agentMode = (argResults?['agent'] as bool?) ?? false;
 
     List<String>? subGitRepos;
 
@@ -252,6 +262,14 @@ class CommitCommand extends Command<int> {
       }
     }
 
+    if (agentMode && !_supportsAgentMode(modelName)) {
+      _logger.err(
+        'Agent mode currently supports only openai and claude. '
+        'Run without --agent to use $modelName.',
+      );
+      return ExitCode.usage.code;
+    }
+
     // Get API key (from args, config, or environment)
     var apiKey = argResults?['key'] as String?;
     apiKey ??=
@@ -392,8 +410,11 @@ class CommitCommand extends Command<int> {
       }
 
       // Check if diff is too large - auto process file-by-file
-      if (GitUtils.isDiffTooLarge(updatedDiff,
-          maxSize: configManager.getMaxDiffSize())) {
+      if (!agentMode &&
+          GitUtils.isDiffTooLarge(
+            updatedDiff,
+            maxSize: configManager.getMaxDiffSize(),
+          )) {
         _logger.info(
           '\nDiff exceeds max size (${GitUtils.estimateDiffSize(updatedDiff)} chars), '
           'processing file-by-file...\n',
@@ -419,11 +440,13 @@ class CommitCommand extends Command<int> {
             '${prefix != null ? ' for ticket $prefix' : ''}...');
 
         // Generate commit message with AI
-        String commitMessage = await generator.generateCommitMessage(
-          updatedDiff,
-          language,
+        String commitMessage = await _generateCommitMessage(
+          generator: generator,
+          diff: updatedDiff,
+          language: language,
           prefix: prefix,
           withEmoji: withEmoji,
+          agentMode: agentMode,
         );
 
         try {
@@ -450,6 +473,7 @@ class CommitCommand extends Command<int> {
             ollamaBaseUrl: ollamaBaseUrl,
             configManager: configManager,
             withEmoji: withEmoji,
+            agentMode: agentMode,
           );
 
           if (finalMessage == null) {
@@ -545,11 +569,14 @@ class CommitCommand extends Command<int> {
               '${prefix != null ? ' for ticket $prefix' : ''}...');
 
           // Generate commit message with AI
-          String commitMessage = await generator.generateCommitMessage(
-            diff,
-            language,
+          String commitMessage = await _generateCommitMessage(
+            generator: generator,
+            diff: diff,
+            language: language,
             prefix: prefix,
             withEmoji: withEmoji,
+            agentMode: agentMode,
+            folderPath: f,
           );
 
           try {
@@ -579,6 +606,8 @@ class CommitCommand extends Command<int> {
               ollamaBaseUrl: ollamaBaseUrl,
               configManager: configManager,
               withEmoji: withEmoji,
+              agentMode: agentMode,
+              folderPath: f,
             );
 
             if (finalMessage == null) {
@@ -656,6 +685,48 @@ class CommitCommand extends Command<int> {
     };
   }
 
+  bool _supportsAgentMode(String modelName) {
+    return switch (modelName.toLowerCase()) {
+      'openai' || 'claude' => true,
+      _ => false,
+    };
+  }
+
+  Future<String> _generateCommitMessage({
+    required CommitGenerator generator,
+    required String diff,
+    required Language language,
+    required bool withEmoji,
+    required bool agentMode,
+    String? prefix,
+    String? folderPath,
+  }) {
+    if (!agentMode) {
+      return generator.generateCommitMessage(
+        diff,
+        language,
+        prefix: prefix,
+        withEmoji: withEmoji,
+      );
+    }
+
+    if (generator is! AgentCommitGenerator) {
+      throw UnsupportedError(
+        'Agent mode currently supports only openai and claude.',
+      );
+    }
+
+    final agentGenerator = generator as AgentCommitGenerator;
+    return agentGenerator.generateAgentCommitMessage(
+      AgentCommitRequest(
+        tools: GitAgentTools(folderPath: folderPath),
+        language: language,
+        prefix: prefix,
+        withEmoji: withEmoji,
+      ),
+    );
+  }
+
   /// Handles the confirmation workflow for commit messages
   /// Returns the final commit message to use, or null if user cancelled
   Future<String?> _handleCommitConfirmation({
@@ -669,6 +740,8 @@ class CommitCommand extends Command<int> {
     required String? ollamaBaseUrl,
     required ConfigManager configManager,
     required bool withEmoji,
+    bool agentMode = false,
+    String? folderPath,
   }) async {
     String currentMessage = commitMessage;
 
@@ -712,11 +785,14 @@ class CommitCommand extends Command<int> {
             case 'same model':
               _logger.info('Regenerating with $modelName...');
               try {
-                currentMessage = await generator.generateCommitMessage(
-                  diff,
-                  language,
+                currentMessage = await _generateCommitMessage(
+                  generator: generator,
+                  diff: diff,
+                  language: language,
                   prefix: prefix,
                   withEmoji: withEmoji,
+                  agentMode: agentMode,
+                  folderPath: folderPath,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);
@@ -728,18 +804,23 @@ class CommitCommand extends Command<int> {
             case 'different model':
               final newModelName = _logger.chooseOne(
                 'Select a different model:',
-                choices: [
-                  'claude',
-                  'claude-code',
-                  'codex',
-                  'openai',
-                  'gemini',
-                  'grok',
-                  'llama',
-                  'deepseek',
-                  'github',
-                  'ollama',
-                ],
+                choices: agentMode
+                    ? [
+                        'claude',
+                        'openai',
+                      ]
+                    : [
+                        'claude',
+                        'claude-code',
+                        'codex',
+                        'openai',
+                        'gemini',
+                        'grok',
+                        'llama',
+                        'deepseek',
+                        'github',
+                        'ollama',
+                      ],
                 defaultValue: modelName == 'openai' ? 'claude' : 'openai',
               );
 
@@ -764,11 +845,14 @@ class CommitCommand extends Command<int> {
 
               _logger.info('Regenerating with $newModelName...');
               try {
-                currentMessage = await newGenerator.generateCommitMessage(
-                  diff,
-                  language,
+                currentMessage = await _generateCommitMessage(
+                  generator: newGenerator,
+                  diff: diff,
+                  language: language,
                   prefix: prefix,
                   withEmoji: withEmoji,
+                  agentMode: agentMode,
+                  folderPath: folderPath,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);
@@ -791,11 +875,14 @@ class CommitCommand extends Command<int> {
               _logger.info('Regenerating with additional context...');
               try {
                 // For now, we'll just regenerate - in the future, we could modify the prompt
-                currentMessage = await generator.generateCommitMessage(
-                  diff,
-                  language,
+                currentMessage = await _generateCommitMessage(
+                  generator: generator,
+                  diff: diff,
+                  language: language,
                   prefix: prefix,
                   withEmoji: withEmoji,
+                  agentMode: agentMode,
+                  folderPath: folderPath,
                 );
                 currentMessage =
                     GitUtils.stripMarkdownCodeBlocks(currentMessage);

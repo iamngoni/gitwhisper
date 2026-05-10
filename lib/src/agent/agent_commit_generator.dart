@@ -17,6 +17,8 @@ class AgentCommitRequest {
   final int maxToolCalls;
 }
 
+// This marker keeps provider capability checks explicit at the command layer.
+// ignore: one_member_abstracts
 abstract interface class AgentCommitGenerator {
   Future<String> generateAgentCommitMessage(AgentCommitRequest request);
 }

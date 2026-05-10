@@ -1,5 +1,6 @@
 ## 0.1.16
 - Added local CLI providers for Codex (`--model codex`) and Claude Code (`--model claude-code`), using the user's installed and authenticated CLIs instead of GitWhisper API keys.
+- Added `gw commit --agent` for OpenAI and Claude, letting models inspect staged changes through read-only GitWhisper tools instead of receiving the whole diff at once.
 
 ## 0.1.15
 - switched openai models to make use of `max_completion_tokens` instead of the deprecated `max_tokens` param

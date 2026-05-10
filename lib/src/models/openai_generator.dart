@@ -146,7 +146,7 @@ class OpenAIGenerator extends CommitGenerator implements AgentCommitGenerator {
             'store': true,
             'messages': messages,
             'tools': GitAgentTools.openAiToolDefinitions,
-            'tool_choice': 'auto',
+            'tool_choice': messages.length == 1 ? 'required' : 'auto',
             'max_completion_tokens': 1000,
           },
         );
@@ -242,7 +242,7 @@ class OpenAIGenerator extends CommitGenerator implements AgentCommitGenerator {
         name,
         _decodeToolArguments(function['arguments']),
       );
-    } catch (error) {
+    } on Object catch (error) {
       return 'ERROR: $error';
     }
   }
