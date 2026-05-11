@@ -14,7 +14,7 @@ class GitAgentTools {
 
   final String? folderPath;
   final int maxOutputCharacters;
-  final void Function(String message)? onToolUse;
+  final void Function(AgentToolUse toolUse)? onToolUse;
 
   static List<Map<String, dynamic>> get openAiToolDefinitions => [
         _openAiTool(
@@ -190,17 +190,13 @@ class GitAgentTools {
   }
 
   void _logToolUse(String name, Map<String, dynamic> input) {
-    final pathValue = input['path'];
-    final toolLabel = pathValue is String && pathValue.trim().isNotEmpty
-        ? '$name($pathValue)'
-        : name;
-    final message = 'Agent tool: $toolLabel';
+    final toolUse = AgentToolUse.fromInput(name, input);
 
     final log = onToolUse;
     if (log != null) {
-      log(message);
+      log(toolUse);
     } else {
-      $logger.info(message);
+      $logger.info(toolUse.message);
     }
   }
 
@@ -760,4 +756,35 @@ class GitAgentTools {
     parameters['required'] = <String>['path', 'query'];
     return parameters;
   }
+}
+
+class AgentToolUse {
+  const AgentToolUse({
+    required this.name,
+    this.path,
+    this.hunkIndex,
+  });
+
+  factory AgentToolUse.fromInput(String name, Map<String, dynamic> input) {
+    final pathValue = input['path'];
+    final hunkValue = input['hunkIndex'];
+    return AgentToolUse(
+      name: name,
+      path: pathValue is String && pathValue.trim().isNotEmpty
+          ? pathValue.trim()
+          : null,
+      hunkIndex: hunkValue is int ? hunkValue : int.tryParse('$hunkValue'),
+    );
+  }
+
+  final String name;
+  final String? path;
+  final int? hunkIndex;
+
+  String get label {
+    final pathValue = path;
+    return pathValue == null ? name : '$name($pathValue)';
+  }
+
+  String get message => 'Agent tool: $label';
 }

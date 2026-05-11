@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
+import 'package:gitwhisper/src/agent/agent_tool_activity_formatter.dart';
 import 'package:gitwhisper/src/agent/git_agent_tools.dart';
 import 'package:gitwhisper/src/commands/commit_command.dart';
 import 'package:gitwhisper/src/constants.dart';
@@ -24,6 +25,22 @@ void main() {
 
       expect(results['agent'], isTrue);
       expect(results['auto-push'], isTrue);
+    });
+
+    test('formats polished agent tool activity rows', () {
+      const formatter = AgentToolActivityFormatter();
+
+      final row = formatter.format(
+        const AgentToolUse(
+          name: 'get_file_diff_hunk',
+          path: 'lib/src/agent/git_agent_tools.dart',
+          hunkIndex: 2,
+        ),
+      );
+
+      expect(row, contains('🧩 Inspecting hunk'));
+      expect(row, contains('lib/src/agent/git_agent_tools.dart'));
+      expect(row, contains('#2'));
     });
 
     test('general error handler accepts non-Exception failures', () {
@@ -98,10 +115,10 @@ void main() {
     test('logs agent tool usage with requested file paths', () async {
       final repo = await _createRepoWithStagedFile();
       addTearDown(() => repo.delete(recursive: true));
-      final logMessages = <String>[];
+      final toolUses = <AgentToolUse>[];
       final tools = GitAgentTools(
         folderPath: repo.path,
-        onToolUse: logMessages.add,
+        onToolUse: toolUses.add,
       );
 
       await tools.execute('list_staged_files', {});
@@ -111,7 +128,7 @@ void main() {
       );
 
       expect(
-        logMessages,
+        toolUses.map((toolUse) => toolUse.message),
         <String>[
           'Agent tool: list_staged_files',
           'Agent tool: get_file_diff(lib/a.dart)',

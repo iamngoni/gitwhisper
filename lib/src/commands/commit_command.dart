@@ -13,6 +13,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as path;
 
 import '../agent/agent_commit_generator.dart';
+import '../agent/agent_tool_activity_formatter.dart';
 import '../agent/git_agent_tools.dart';
 import '../commit_utils.dart';
 import '../config_manager.dart';
@@ -107,6 +108,8 @@ class CommitCommand extends Command<int> {
   String get name => 'commit';
 
   final Logger _logger;
+  final AgentToolActivityFormatter _agentToolFormatter =
+      const AgentToolActivityFormatter();
 
   /// Runs the commit process, handling both single and multi-repo scenarios.
   /// Returns an appropriate exit code.
@@ -435,9 +438,14 @@ class CommitCommand extends Command<int> {
       }
 
       try {
-        _logger.info('Analyzing staged changes using $modelName'
-            '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}'
-            '${prefix != null ? ' for ticket $prefix' : ''}...');
+        _logger.info(
+          _analysisMessage(
+            modelName: modelName,
+            modelVariant: modelVariant,
+            prefix: prefix,
+            agentMode: agentMode,
+          ),
+        );
 
         // Generate commit message with AI
         String commitMessage = await _generateCommitMessage(
@@ -564,9 +572,12 @@ class CommitCommand extends Command<int> {
         }
 
         try {
-          _logger.info('[$folderName] Analyzing staged changes using $modelName'
-              '${modelVariant.isNotEmpty ? ' ($modelVariant)' : ''}'
-              '${prefix != null ? ' for ticket $prefix' : ''}...');
+          _logger.info('[$folderName] ${_analysisMessage(
+            modelName: modelName,
+            modelVariant: modelVariant,
+            prefix: prefix,
+            agentMode: agentMode,
+          )}');
 
           // Generate commit message with AI
           String commitMessage = await _generateCommitMessage(
@@ -692,6 +703,37 @@ class CommitCommand extends Command<int> {
     };
   }
 
+  String _analysisMessage({
+    required String modelName,
+    required String modelVariant,
+    required bool agentMode,
+    String? prefix,
+  }) {
+    final displayName = _modelDisplayName(modelName);
+    final variantText = modelVariant.isNotEmpty ? ' ($modelVariant)' : '';
+    final agentText = agentMode ? ' (Agent Mode)' : '';
+    final prefixText = prefix != null ? ' for ticket $prefix' : '';
+    return 'Analyzing staged changes with $displayName$variantText'
+        '$agentText$prefixText...';
+  }
+
+  String _modelDisplayName(String modelName) {
+    return switch (modelName.toLowerCase()) {
+      'claude' => 'Claude',
+      'openai' => 'OpenAI',
+      'claude-code' => 'Claude Code',
+      'codex' => 'Codex',
+      'gemini' => 'Gemini',
+      'grok' => 'Grok',
+      'llama' => 'Llama',
+      'deepseek' => 'DeepSeek',
+      'github' => 'GitHub Models',
+      'ollama' => 'Ollama',
+      'free' => 'Free Model',
+      _ => modelName,
+    };
+  }
+
   Future<String> _generateCommitMessage({
     required CommitGenerator generator,
     required String diff,
@@ -719,12 +761,19 @@ class CommitCommand extends Command<int> {
     final agentGenerator = generator as AgentCommitGenerator;
     return agentGenerator.generateAgentCommitMessage(
       AgentCommitRequest(
-        tools: GitAgentTools(folderPath: folderPath),
+        tools: GitAgentTools(
+          folderPath: folderPath,
+          onToolUse: _logAgentToolUse,
+        ),
         language: language,
         prefix: prefix,
         withEmoji: withEmoji,
       ),
     );
+  }
+
+  void _logAgentToolUse(AgentToolUse toolUse) {
+    _logger.info(_agentToolFormatter.format(toolUse));
   }
 
   /// Handles the confirmation workflow for commit messages

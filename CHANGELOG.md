@@ -1,3 +1,6 @@
+## 0.1.18
+- Formatted tool use events
+
 ## 0.1.17
 - Expanded agent mode with richer read-only tools for large staged changes, including diff hunks, content chunks, search, deterministic file summaries, related files, and blame.
 
