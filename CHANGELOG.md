@@ -1,3 +1,7 @@
+## 0.1.19
+- Made `gw update` detect Dart pub, Homebrew, APT, and manual installs, with `gw update --check` to preview the update path.
+- Sanitized noisy agent responses so only valid conventional commit lines are used as commit messages.
+
 ## 0.1.18
 - Formatted tool use events
 

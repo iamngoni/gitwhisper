@@ -458,7 +458,8 @@ class CommitCommand extends Command<int> {
         );
 
         try {
-          commitMessage = GitUtils.stripMarkdownCodeBlocks(commitMessage);
+          commitMessage =
+              GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
         } catch (_) {
           // Silent prayer that it works
         }
@@ -591,7 +592,8 @@ class CommitCommand extends Command<int> {
           );
 
           try {
-            commitMessage = GitUtils.stripMarkdownCodeBlocks(commitMessage);
+            commitMessage =
+                GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
           } catch (_) {
             // Silent prayer that it works
           }
@@ -844,7 +846,7 @@ class CommitCommand extends Command<int> {
                   folderPath: folderPath,
                 );
                 currentMessage =
-                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
@@ -904,7 +906,7 @@ class CommitCommand extends Command<int> {
                   folderPath: folderPath,
                 );
                 currentMessage =
-                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
               } catch (e) {
                 _logger.err(
                   'Failed to generate commit message with $newModelName: $e',
@@ -934,7 +936,7 @@ class CommitCommand extends Command<int> {
                   folderPath: folderPath,
                 );
                 currentMessage =
-                    GitUtils.stripMarkdownCodeBlocks(currentMessage);
+                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
@@ -1269,7 +1271,7 @@ class CommitCommand extends Command<int> {
         withEmoji: withEmoji,
       );
 
-      commitMessage = GitUtils.stripMarkdownCodeBlocks(commitMessage);
+      commitMessage = GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty!');

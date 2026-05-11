@@ -399,6 +399,23 @@ class GitUtils {
     return input.replaceAll(codeBlockPattern, '').trim();
   }
 
+  /// Removes Markdown fences and extracts valid commit lines from noisy output.
+  static String sanitizeGeneratedCommitMessage(String input) {
+    final cleaned = stripMarkdownCodeBlocks(input);
+    final commitLinePattern = RegExp(
+      r'^(?:[A-Z][A-Z0-9]+-\d+\s*->\s*)?'
+      '(?:feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'
+      r'(?:\([^)]+\))?!?:\s+\S.*$',
+    );
+    final commitLines = cleaned
+        .split('\n')
+        .map((line) => line.trim())
+        .where(commitLinePattern.hasMatch)
+        .toList();
+
+    return commitLines.isEmpty ? cleaned.trim() : commitLines.join('\n').trim();
+  }
+
   /// Estimates the size of a diff in characters for API limitations
   static int estimateDiffSize(String diff) {
     return diff.length;
