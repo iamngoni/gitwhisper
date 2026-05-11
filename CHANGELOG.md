@@ -1,3 +1,6 @@
+## 0.1.17
+- Expanded agent mode with richer read-only tools for large staged changes, including diff hunks, content chunks, search, deterministic file summaries, related files, and blame.
+
 ## 0.1.16
 - Added local CLI providers for Codex (`--model codex`) and Claude Code (`--model claude-code`), using the user's installed and authenticated CLIs instead of GitWhisper API keys.
 - Added `gw commit --agent` for OpenAI and Claude, letting models inspect staged changes through read-only GitWhisper tools instead of receiving the whole diff at once.

@@ -323,7 +323,16 @@ Scope:
 - Inspect staged changes only.
 - Start with list_staged_files and get_diff_stat.
 - Use get_file_diff for the staged files needed to understand the change.
+- If get_file_diff reports truncated output, use get_file_diff_hunks and
+  get_file_diff_hunk to inspect the relevant hunks.
 - Use get_file_content only when the diff alone is not enough context.
+- If get_file_content reports truncated output, use get_file_content_chunk or
+  search_file_content to inspect only the needed lines.
+- Use get_staged_file_summary for large files before reading individual hunks.
+- Use get_related_files only when a staged file references nearby tests,
+  generated files, or similarly named files that clarify intent.
+- Use get_blame only when ownership/history materially helps explain the
+  change; do not use it by default.
 - Do not request or describe unstaged changes.
 - Do not modify files, stage files, unstage files, commit, tag, or push.
 

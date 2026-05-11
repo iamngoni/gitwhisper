@@ -43,6 +43,32 @@ void main() {
         32,
       );
     });
+
+    test('provider tool schemas expose extended read-only tools', () {
+      final openAiNames = GitAgentTools.openAiToolDefinitions
+          .map((tool) => tool['function'] as Map<String, dynamic>)
+          .map((function) => function['name'])
+          .toSet();
+      final claudeNames = GitAgentTools.claudeToolDefinitions
+          .map((tool) => tool['name'])
+          .toSet();
+      const expectedTools = <String>{
+        'list_staged_files',
+        'get_diff_stat',
+        'get_file_diff',
+        'get_file_content',
+        'get_file_diff_hunks',
+        'get_file_diff_hunk',
+        'get_file_content_chunk',
+        'search_file_content',
+        'get_staged_file_summary',
+        'get_related_files',
+        'get_blame',
+      };
+
+      expect(openAiNames, containsAll(expectedTools));
+      expect(claudeNames, containsAll(expectedTools));
+    });
   });
 
   group('GitAgentTools', () {
@@ -116,6 +142,182 @@ void main() {
         ),
         throwsArgumentError,
       );
+    });
+
+    test('lists staged files with size and change metadata', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final filesJson = await tools.execute('list_staged_files', {});
+      final payload = jsonDecode(filesJson) as Map<String, dynamic>;
+      final file =
+          (payload['files'] as List<dynamic>).single as Map<String, dynamic>;
+
+      expect(file['path'], 'lib/a.dart');
+      expect(file['additions'], greaterThan(0));
+      expect(file['deletions'], greaterThan(0));
+      expect(file['diffSize'], greaterThan(0));
+      expect(file['isBinary'], isFalse);
+      expect(file['isLikelyGenerated'], isFalse);
+      expect(file['isLockfile'], isFalse);
+    });
+
+    test('returns structured metadata when a file diff is too large', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        maxOutputCharacters: 80,
+        onToolUse: (_) {},
+      );
+
+      final diffJson = await tools.execute(
+        'get_file_diff',
+        <String, dynamic>{'path': 'lib/a.dart'},
+      );
+      final payload = jsonDecode(diffJson) as Map<String, dynamic>;
+
+      expect(payload['path'], 'lib/a.dart');
+      expect(payload['truncated'], isTrue);
+      expect(payload['originalCharacters'], greaterThan(80));
+      expect(payload['nextTools'], contains('get_file_diff_hunks'));
+    });
+
+    test('exposes staged file diff hunks and individual hunk lookup', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final hunksJson = await tools.execute(
+        'get_file_diff_hunks',
+        <String, dynamic>{'path': 'lib/a.dart'},
+      );
+      final hunksPayload = jsonDecode(hunksJson) as Map<String, dynamic>;
+      final hunks = hunksPayload['hunks'] as List<dynamic>;
+      expect(hunks, isNotEmpty);
+      expect(hunks.first, containsPair('index', 0));
+
+      final hunkJson = await tools.execute(
+        'get_file_diff_hunk',
+        <String, dynamic>{'path': 'lib/a.dart', 'hunkIndex': 0},
+      );
+      final hunkPayload = jsonDecode(hunkJson) as Map<String, dynamic>;
+      expect(hunkPayload['path'], 'lib/a.dart');
+      expect(hunkPayload['hunkIndex'], 0);
+      expect(hunkPayload['diff'], contains('@@'));
+    });
+
+    test('reads bounded file content chunks by line', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final chunkJson = await tools.execute(
+        'get_file_content_chunk',
+        <String, dynamic>{
+          'path': 'lib/a.dart',
+          'startLine': 2,
+          'maxLines': 2,
+        },
+      );
+      final payload = jsonDecode(chunkJson) as Map<String, dynamic>;
+
+      expect(payload['startLine'], 2);
+      expect(payload['endLine'], 3);
+      expect(payload['content'], contains('updated line 2'));
+      expect(payload['hasMore'], isTrue);
+    });
+
+    test('searches staged file content', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final searchJson = await tools.execute(
+        'search_file_content',
+        <String, dynamic>{'path': 'lib/a.dart', 'query': 'updated'},
+      );
+      final payload = jsonDecode(searchJson) as Map<String, dynamic>;
+      final matches = payload['matches'] as List<dynamic>;
+
+      expect(matches, isNotEmpty);
+      expect(matches.first, containsPair('line', 2));
+      expect(matches.first.toString(), contains('updated line 2'));
+    });
+
+    test('summarizes staged file changes deterministically', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final summaryJson = await tools.execute(
+        'get_staged_file_summary',
+        <String, dynamic>{'path': 'lib/a.dart'},
+      );
+      final payload = jsonDecode(summaryJson) as Map<String, dynamic>;
+
+      expect(payload['path'], 'lib/a.dart');
+      expect(payload['additions'], greaterThan(0));
+      expect(payload['deletions'], greaterThan(0));
+      expect(payload['hunkCount'], greaterThan(0));
+      expect(payload['previews'].toString(), contains('updated line 2'));
+    });
+
+    test('finds related repository files for a staged file', () async {
+      final repo = await _createRepoWithRelatedFiles();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final relatedJson = await tools.execute(
+        'get_related_files',
+        <String, dynamic>{'path': 'lib/a.dart'},
+      );
+      final payload = jsonDecode(relatedJson) as Map<String, dynamic>;
+      final related = payload['relatedFiles'] as List<dynamic>;
+
+      expect(related, contains('test/a_test.dart'));
+    });
+
+    test('returns git blame for a staged file line range', () async {
+      final repo = await _createRepoWithModifiedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final tools = GitAgentTools(
+        folderPath: repo.path,
+        onToolUse: (_) {},
+      );
+
+      final blameJson = await tools.execute(
+        'get_blame',
+        <String, dynamic>{
+          'path': 'lib/a.dart',
+          'startLine': 1,
+          'maxLines': 2,
+        },
+      );
+      final payload = jsonDecode(blameJson) as Map<String, dynamic>;
+      final lines = payload['lines'] as List<dynamic>;
+
+      expect(lines, isNotEmpty);
+      expect(lines.first.toString(), contains('Test User'));
     });
   });
 
@@ -249,6 +451,56 @@ Future<Directory> _createRepoWithStagedFile() async {
   await file.writeAsString('final value = 1;\n');
   await _runGit(repo, <String>['init']);
   await _runGit(repo, <String>['add', 'lib/a.dart']);
+  return repo;
+}
+
+Future<Directory> _createRepoWithModifiedFile() async {
+  final repo = await Directory.systemTemp.createTemp('gitwhisper_agent_test_');
+  final libDir = await Directory(p.join(repo.path, 'lib')).create();
+  final file = File(p.join(libDir.path, 'a.dart'));
+  await file.writeAsString(
+    [
+      'original line 1',
+      'original line 2',
+      'original line 3',
+      'original line 4',
+      'original line 5',
+      '',
+    ].join('\n'),
+  );
+  await _runGit(repo, <String>['init']);
+  await _runGit(repo, <String>['add', 'lib/a.dart']);
+  await _runGit(repo, <String>[
+    '-c',
+    'user.name=Test User',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '-m',
+    'initial commit',
+  ]);
+  await file.writeAsString(
+    [
+      'original line 1',
+      'updated line 2',
+      'original line 3',
+      'updated line 4',
+      'original line 5',
+      'new line 6',
+      '',
+    ].join('\n'),
+  );
+  await _runGit(repo, <String>['add', 'lib/a.dart']);
+  return repo;
+}
+
+Future<Directory> _createRepoWithRelatedFiles() async {
+  final repo = await _createRepoWithModifiedFile();
+  final testDir = await Directory(p.join(repo.path, 'test')).create();
+  await File(p.join(testDir.path, 'a_test.dart')).writeAsString(
+    'void main() {}\n',
+  );
+  await _runGit(repo, <String>['add', 'test/a_test.dart']);
   return repo;
 }
 
