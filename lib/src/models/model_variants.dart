@@ -14,14 +14,14 @@ class ModelVariants {
   /// Default Claude model variant
   static const String claudeDefault = 'claude-sonnet-4-5-20250929';
 
-  /// Default Claude Code CLI model variant.
+  /// Default Claude Code ACP agent model variant.
   ///
-  /// Empty means the installed CLI should use its configured default.
+  /// Empty means the local ACP agent should use its configured default.
   static const String claudeCodeDefault = '';
 
-  /// Default Codex CLI model variant.
+  /// Default Codex ACP agent model variant.
   ///
-  /// Empty means the installed CLI should use its configured default.
+  /// Empty means the local ACP agent should use its configured default.
   static const String codexDefault = '';
 
   /// Default Gemini model variant

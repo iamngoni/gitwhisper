@@ -11,7 +11,6 @@ import 'claude_generator.dart';
 import 'codex_cli_generator.dart';
 import 'commit_generator.dart';
 import 'deepseek_generator.dart';
-import 'free_generator.dart';
 import 'gemini_generator.dart';
 import 'github_generator.dart';
 import 'grok_generator.dart';
@@ -27,51 +26,61 @@ class CommitGeneratorFactory {
     String? variant,
     String? baseUrl,
   }) {
-    return switch (model.toLowerCase()) {
-      'claude' => ClaudeGenerator(
+    switch (model.toLowerCase()) {
+      case 'claude':
+        return ClaudeGenerator(
           apiKey,
           variant: variant,
-        ),
-      'claude-code' => ClaudeCodeGenerator(
+        );
+      case 'claude-code':
+        return ClaudeCodeGenerator(
           variant: variant,
-        ),
-      'codex' => CodexCliGenerator(
+        );
+      case 'codex':
+        return CodexCliGenerator(
           variant: variant,
-        ),
-      'openai' => OpenAIGenerator(
+        );
+      case 'openai':
+        return OpenAIGenerator(
           apiKey,
           variant: variant,
-        ),
-      'gemini' => GeminiGenerator(
+        );
+      case 'gemini':
+        return GeminiGenerator(
           apiKey,
           variant: variant,
-        ),
-      'grok' => GrokGenerator(
+        );
+      case 'grok':
+        return GrokGenerator(
           apiKey,
           variant: variant,
-        ),
-      'llama' => LlamaGenerator(
+        );
+      case 'llama':
+        return LlamaGenerator(
           apiKey,
           variant: variant,
-        ),
-      'deepseek' => DeepseekGenerator(
+        );
+      case 'deepseek':
+        return DeepseekGenerator(
           apiKey,
           variant: variant,
-        ),
-      'github' => GithubGenerator(
+        );
+      case 'github':
+        return GithubGenerator(
           apiKey,
           variant: variant,
-        ),
-      'ollama' => switch (baseUrl) {
-          null => throw ArgumentError('Missing baseUrl for Ollama'),
-          _ => OllamaGenerator(
-              baseUrl,
-              apiKey,
-              variant: variant,
-            ),
-        },
-      'free' => FreeGenerator(),
-      _ => throw ArgumentError('Unsupported model: $model'),
-    };
+        );
+      case 'ollama':
+        if (baseUrl == null) {
+          throw ArgumentError('Missing baseUrl for Ollama');
+        }
+        return OllamaGenerator(
+          baseUrl,
+          apiKey,
+          variant: variant,
+        );
+      default:
+        throw ArgumentError('Unsupported model: $model');
+    }
   }
 }

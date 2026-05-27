@@ -8,6 +8,8 @@
 
 import 'package:dio/dio.dart';
 
+import '../agent/agent_commit_generator.dart';
+import '../agent/openai_compatible_agent_runner.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
@@ -15,7 +17,7 @@ import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
 
-class LlamaGenerator extends CommitGenerator {
+class LlamaGenerator extends CommitGenerator implements AgentCommitGenerator {
   LlamaGenerator(super.apiKey, {super.variant});
 
   @override
@@ -40,7 +42,7 @@ class LlamaGenerator extends CommitGenerator {
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.llama.api/v1/completions',
+        'https://api.llama.api/v1/chat/completions',
         options: Options(
           headers: {
             'Content-Type': 'application/json',
@@ -49,14 +51,17 @@ class LlamaGenerator extends CommitGenerator {
         ),
         data: {
           'model': actualVariant,
-          'prompt': prompt,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
           'max_tokens': maxTokens,
         },
       );
 
       if (response.statusCode == 200) {
-        // Adjust the parsing logic based on actual Llama API response structure
-        return response.data!['choices'][0]['text'].toString().trim();
+        return response.data!['choices'][0]['message']['content']
+            .toString()
+            .trim();
       } else {
         throw ServerException(
           message: 'Unexpected response from Llama API',
@@ -74,7 +79,7 @@ class LlamaGenerator extends CommitGenerator {
 
     try {
       final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.llama.api/v1/completions',
+        'https://api.llama.api/v1/chat/completions',
         options: Options(
           headers: {
             'Content-Type': 'application/json',
@@ -83,14 +88,17 @@ class LlamaGenerator extends CommitGenerator {
         ),
         data: {
           'model': actualVariant,
-          'prompt': prompt,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
           'max_tokens': maxAnalysisTokens,
         },
       );
 
       if (response.statusCode == 200) {
-        // Adjust the parsing logic based on actual Llama API response structure
-        return response.data!['choices'][0]['text'].toString().trim();
+        return response.data!['choices'][0]['message']['content']
+            .toString()
+            .trim();
       } else {
         throw ServerException(
           message: 'Unexpected response from Llama API',
@@ -100,5 +108,17 @@ class LlamaGenerator extends CommitGenerator {
     } on DioException catch (e) {
       throw ErrorParser.parseProviderError('llama', e);
     }
+  }
+
+  @override
+  Future<String> generateAgentCommitMessage(
+    AgentCommitRequest request,
+  ) {
+    return OpenAiCompatibleAgentRunner(
+      providerName: 'llama',
+      endpoint: 'https://api.llama.api/v1/chat/completions',
+      model: actualVariant,
+      apiKey: apiKey,
+    ).generate(request);
   }
 }

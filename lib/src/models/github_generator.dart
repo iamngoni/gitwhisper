@@ -8,6 +8,8 @@
 
 import 'package:dio/dio.dart';
 
+import '../agent/agent_commit_generator.dart';
+import '../agent/openai_compatible_agent_runner.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
@@ -15,7 +17,7 @@ import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
 
-class GithubGenerator extends CommitGenerator {
+class GithubGenerator extends CommitGenerator implements AgentCommitGenerator {
   GithubGenerator(super.apiKey, {super.variant});
 
   @override
@@ -108,5 +110,19 @@ class GithubGenerator extends CommitGenerator {
     } on DioException catch (e) {
       throw ErrorParser.parseProviderError('github', e);
     }
+  }
+
+  @override
+  Future<String> generateAgentCommitMessage(
+    AgentCommitRequest request,
+  ) {
+    return OpenAiCompatibleAgentRunner(
+      providerName: 'github',
+      endpoint: 'https://models.github.ai/inference/chat/completions',
+      model: actualVariant,
+      apiKey: apiKey,
+      maxTokensKey: 'max_completion_tokens',
+      includeStore: true,
+    ).generate(request);
   }
 }

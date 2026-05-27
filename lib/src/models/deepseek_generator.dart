@@ -8,6 +8,8 @@
 
 import 'package:dio/dio.dart';
 
+import '../agent/agent_commit_generator.dart';
+import '../agent/openai_compatible_agent_runner.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
@@ -15,7 +17,8 @@ import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
 
-class DeepseekGenerator extends CommitGenerator {
+class DeepseekGenerator extends CommitGenerator
+    implements AgentCommitGenerator {
   DeepseekGenerator(super.apiKey, {super.variant});
 
   @override
@@ -108,5 +111,18 @@ class DeepseekGenerator extends CommitGenerator {
     } on DioException catch (e) {
       throw ErrorParser.parseProviderError('deepseek', e);
     }
+  }
+
+  @override
+  Future<String> generateAgentCommitMessage(
+    AgentCommitRequest request,
+  ) {
+    return OpenAiCompatibleAgentRunner(
+      providerName: 'deepseek',
+      endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      model: actualVariant,
+      apiKey: apiKey,
+      includeStore: true,
+    ).generate(request);
   }
 }

@@ -9,7 +9,13 @@ import 'package:gitwhisper/src/commands/commit_command.dart';
 import 'package:gitwhisper/src/constants.dart';
 import 'package:gitwhisper/src/exceptions/error_handler.dart';
 import 'package:gitwhisper/src/models/claude_generator.dart';
+import 'package:gitwhisper/src/models/deepseek_generator.dart';
+import 'package:gitwhisper/src/models/gemini_generator.dart';
+import 'package:gitwhisper/src/models/github_generator.dart';
+import 'package:gitwhisper/src/models/grok_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
+import 'package:gitwhisper/src/models/llama_generator.dart';
+import 'package:gitwhisper/src/models/ollama_generator.dart';
 import 'package:gitwhisper/src/models/openai_generator.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
@@ -458,7 +464,227 @@ void main() {
       expect(capturedRequests.last.data.toString(), contains('tool_result'));
       expect(capturedRequests.last.data.toString(), contains('diff --git'));
     });
+
+    test('OpenAI-compatible providers use tool calls', () async {
+      for (final scenario in <({
+        String label,
+        AgentCommitGenerator generator,
+        String endpointFragment,
+      })>[
+        (
+          label: 'Grok',
+          generator: GrokGenerator('test-key', variant: 'grok-test'),
+          endpointFragment: 'api.x.ai',
+        ),
+        (
+          label: 'DeepSeek',
+          generator: DeepseekGenerator('test-key', variant: 'deepseek-test'),
+          endpointFragment: 'api.deepseek.com',
+        ),
+        (
+          label: 'GitHub',
+          generator: GithubGenerator('test-key', variant: 'github-test'),
+          endpointFragment: 'models.github.ai',
+        ),
+        (
+          label: 'Llama',
+          generator: LlamaGenerator('test-key', variant: 'llama-test'),
+          endpointFragment: 'api.llama.api',
+        ),
+      ]) {
+        final repo = await _createRepoWithStagedFile();
+        addTearDown(() => repo.delete(recursive: true));
+        final capturedRequests = <RequestOptions>[];
+        final interceptor = _addQueuedDioResponses(
+          capturedRequests,
+          _openAiCompatibleToolResponses(),
+        );
+
+        try {
+          final message = await scenario.generator.generateAgentCommitMessage(
+            AgentCommitRequest(
+              tools: GitAgentTools(
+                folderPath: repo.path,
+                onToolUse: (_) {},
+              ),
+              language: Language.english,
+            ),
+          );
+
+          expect(message, 'feat: add agent mode', reason: scenario.label);
+          expect(capturedRequests, hasLength(2), reason: scenario.label);
+          expect(
+            capturedRequests.first.uri.toString(),
+            contains(scenario.endpointFragment),
+            reason: scenario.label,
+          );
+          final firstRequestData =
+              capturedRequests.first.data as Map<String, dynamic>;
+          expect(firstRequestData['tools'], isA<List<dynamic>>());
+          expect(capturedRequests.last.data.toString(), contains('lib/a.dart'));
+        } finally {
+          $dio.interceptors.remove(interceptor);
+        }
+      }
+    });
+
+    test('Gemini uses function calls to inspect staged changes', () async {
+      final repo = await _createRepoWithStagedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final capturedRequests = <RequestOptions>[];
+      _addQueuedDioResponses(
+        capturedRequests,
+        <Map<String, dynamic>>[
+          <String, dynamic>{
+            'candidates': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'content': <String, dynamic>{
+                  'parts': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'functionCall': <String, dynamic>{
+                        'name': 'list_staged_files',
+                        'args': <String, dynamic>{},
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          <String, dynamic>{
+            'candidates': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'content': <String, dynamic>{
+                  'parts': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'text': 'feat: add agent mode',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      );
+
+      final generator = GeminiGenerator('test-key', variant: 'gemini-test');
+      expect(generator, isA<AgentCommitGenerator>());
+
+      final message = await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(
+            folderPath: repo.path,
+            onToolUse: (_) {},
+          ),
+          language: Language.english,
+        ),
+      );
+
+      expect(message, 'feat: add agent mode');
+      expect(capturedRequests, hasLength(2));
+      expect(
+        capturedRequests.first.uri.toString(),
+        contains('googleapis.com'),
+      );
+      expect(
+        capturedRequests.first.data.toString(),
+        contains('functionDeclarations'),
+      );
+      expect(
+        capturedRequests.last.data.toString(),
+        contains('functionResponse'),
+      );
+    });
+
+    test('Ollama uses chat tool calls to inspect staged changes', () async {
+      final repo = await _createRepoWithStagedFile();
+      addTearDown(() => repo.delete(recursive: true));
+      final capturedRequests = <RequestOptions>[];
+      _addQueuedDioResponses(
+        capturedRequests,
+        <Map<String, dynamic>>[
+          <String, dynamic>{
+            'message': <String, dynamic>{
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function': <String, dynamic>{
+                    'name': 'list_staged_files',
+                    'arguments': <String, dynamic>{},
+                  },
+                },
+              ],
+            },
+          },
+          <String, dynamic>{
+            'message': <String, dynamic>{
+              'role': 'assistant',
+              'content': 'feat: add agent mode',
+            },
+          },
+        ],
+      );
+
+      final generator = OllamaGenerator(
+        'http://localhost:11434',
+        null,
+        variant: 'llama3.1',
+      );
+      expect(generator, isA<AgentCommitGenerator>());
+
+      final message = await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(
+            folderPath: repo.path,
+            onToolUse: (_) {},
+          ),
+          language: Language.english,
+        ),
+      );
+
+      expect(message, 'feat: add agent mode');
+      expect(capturedRequests, hasLength(2));
+      expect(capturedRequests.first.uri.toString(), contains('/api/chat'));
+      expect(capturedRequests.first.data.toString(), contains('tools'));
+      expect(capturedRequests.last.data.toString(), contains('lib/a.dart'));
+    });
   });
+}
+
+List<Map<String, dynamic>> _openAiCompatibleToolResponses() {
+  return <Map<String, dynamic>>[
+    <String, dynamic>{
+      'choices': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'message': <String, dynamic>{
+            'role': 'assistant',
+            'content': null,
+            'tool_calls': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'call_1',
+                'type': 'function',
+                'function': <String, dynamic>{
+                  'name': 'list_staged_files',
+                  'arguments': '{}',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    <String, dynamic>{
+      'choices': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'message': <String, dynamic>{
+            'role': 'assistant',
+            'content': 'feat: add agent mode',
+          },
+        },
+      ],
+    },
+  ];
 }
 
 Future<Directory> _createRepoWithStagedFile() async {
@@ -532,7 +758,7 @@ Future<void> _runGit(Directory repo, List<String> args) async {
   }
 }
 
-void _addQueuedDioResponses(
+Interceptor _addQueuedDioResponses(
   List<RequestOptions> capturedRequests,
   List<Map<String, dynamic>> responses,
 ) {
@@ -550,4 +776,5 @@ void _addQueuedDioResponses(
   );
   $dio.interceptors.add(interceptor);
   addTearDown(() => $dio.interceptors.remove(interceptor));
+  return interceptor;
 }

@@ -28,7 +28,6 @@ class ListVariantsCommand extends Command<int> {
         'deepseek',
         'github',
         'ollama',
-        'free',
       ],
     );
   }
@@ -89,14 +88,14 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
       case 'claude-code':
-        _logger.info('  Uses your installed Claude Code default model.');
+        _logger.info('  Uses the Claude ACP agent default model.');
         _logger.info(
-          '  Pass --model-variant to forward a model to claude --model.',
+          '  Configure model selection in the local ACP agent.',
         );
       case 'codex':
-        _logger.info('  Uses your installed Codex default model.');
+        _logger.info('  Uses the Codex ACP agent default model.');
         _logger.info(
-          '  Pass --model-variant to forward a model to codex --model.',
+          '  Configure model selection in the local ACP agent.',
         );
       case 'gemini':
         _logger.info('  - gemini-2.0-flash (default)');
@@ -154,18 +153,6 @@ class ListVariantsCommand extends Command<int> {
           uri: Uri.parse('https://ollama.com/search'),
         );
         _logger.info('Check Ollama models $url');
-      case 'free':
-        _logger.info('  No variant selection - uses LLM7.io default model');
-        _logger.info('');
-        _logger.info('  Anonymous tier limits:');
-        _logger.info('  • 8k chars per request');
-        _logger.info('  • 60 requests/hour, 10 requests/min, 1 request/sec');
-        _logger.info('');
-        final freeUrl = link(
-          message: 'LLM7.io',
-          uri: Uri.parse('https://llm7.io'),
-        );
-        _logger.info('  Powered by $freeUrl - No API key required!');
     }
   }
 
@@ -189,7 +176,5 @@ class ListVariantsCommand extends Command<int> {
     _listVariantsForModel('github');
     _logger.info('');
     _listVariantsForModel('ollama');
-    _logger.info('');
-    _listVariantsForModel('free');
   }
 }

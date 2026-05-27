@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('CommitGeneratorFactory', () {
-    test('creates local CLI providers without API keys', () {
+    test('creates local ACP providers without API keys', () {
       expect(
         CommitGeneratorFactory.create('codex', null),
         isA<CodexCliGenerator>(),
@@ -13,6 +13,13 @@ void main() {
       expect(
         CommitGeneratorFactory.create('claude-code', null),
         isA<ClaudeCodeGenerator>(),
+      );
+    });
+
+    test('does not create removed free provider', () {
+      expect(
+        () => CommitGeneratorFactory.create('free', null),
+        throwsArgumentError,
       );
     });
   });

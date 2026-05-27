@@ -89,8 +89,8 @@ Or download the executable binary that will work on your operating system direct
 - 🌍 Multi-language support for commit messages and analysis
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
-    - Claude Code CLI
-    - Codex CLI
+    - Claude Code ACP agent
+    - Codex ACP agent
     - OpenAI (GPT)
     - Gemini (Google)
     - Grok (xAI)
@@ -98,7 +98,6 @@ Or download the executable binary that will work on your operating system direct
     - Deepseek (DeepSeek, Inc.)
     - GitHub Models (Free, rate-limited)
     - All Ollama models
-    - Free (LLM7.io) - No API key required!
 
 ## Usage
 
@@ -112,9 +111,15 @@ gw # even shorter command - also runs 'gitwhisper commit' by default
 gitwhisper commit --model openai --model-variant gpt-4o
 gw commit --model openai --model-variant gpt-4o
 
-# Use agent mode for staged changes (OpenAI and Claude only)
-gitwhisper commit --model openai --agent
-gitwhisper commit --model claude --agent
+# Tool-capable models use agent mode by default
+gitwhisper commit --model openai
+gitwhisper commit --model claude
+gitwhisper commit --model gemini
+gitwhisper commit --model grok
+gitwhisper commit --model llama
+gitwhisper commit --model deepseek
+gitwhisper commit --model github
+gitwhisper commit --model ollama
 
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
@@ -132,11 +137,7 @@ gw commit -t v1.0.0
 # Combine tag with auto-push to push both commit and tag
 gw commit -t v1.0.0 -a
 
-# Use free model (no API key required!)
-gitwhisper commit --model free
-gw commit -m free
-
-# Use local CLI providers (no GitWhisper API key required)
+# Use local ACP agent providers (no GitWhisper API key required)
 gitwhisper commit --model codex
 gitwhisper commit --model claude-code
 
@@ -250,17 +251,31 @@ You can provide API keys in several ways:
     - `LLAMA_API_KEY` (for Llama)
 3. **Saved configuration**: Use the `save-key` command to store your API key permanently
 
-Local CLI providers do not need GitWhisper API keys:
+Local ACP agent providers do not need GitWhisper API keys:
 
-- `codex` uses your installed Codex CLI. Sign in with Codex first, then run `gitwhisper commit --model codex`.
-- `claude-code` uses your installed Claude Code CLI. Sign in with Claude Code first, then run `gitwhisper commit --model claude-code`.
+- `codex` resolves `codex-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
+- `claude-code` resolves `claude-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
 
-Agent mode is available for `openai` and `claude` only:
+GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
+If the registry cannot be fetched, GitWhisper uses the cached copy. If there is
+no cache yet, it prints a clear registry/cache error with a link to file a
+support issue.
 
-- `gw commit --agent --model openai`
-- `gw commit --agent --model claude`
+Agent mode is enabled by default for tool-capable providers:
+
+- `gw commit --model openai`
+- `gw commit --model claude`
+- `gw commit --model gemini`
+- `gw commit --model grok`
+- `gw commit --model llama`
+- `gw commit --model deepseek`
+- `gw commit --model github`
+- `gw commit --model ollama`
+- `gw commit --model codex`
+- `gw commit --model claude-code`
 
 In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, and file content. The full diff is not sent in one prompt.
+Models without tool support automatically use the regular direct-diff mode.
 
 ## Model Variants
 
@@ -286,9 +301,9 @@ GitWhisper supports a comprehensive range of model variants:
 - `claude-3-5-sonnet-20241022`
 - `claude-3-7-sonnet-20250219`
 
-### Local CLI Providers
-- `codex` uses the installed Codex CLI default model. Pass `--model-variant` to forward a model to `codex --model`.
-- `claude-code` uses the installed Claude Code CLI default model. Pass `--model-variant` to forward a model to `claude --model`.
+### Local ACP Agent Providers
+- `codex` uses the Codex ACP agent default model. Configure model selection in the local ACP agent.
+- `claude-code` uses the Claude ACP agent default model. Configure model selection in the local ACP agent.
 
 ### Gemini (Google)
 - `gemini-2.5-pro-preview-05-06` (advanced reasoning, 1M token context)
@@ -330,17 +345,6 @@ To run GitHub models you may need the following:
 
 ### Ollama (self-hosted)
 - Check Ollama models here: [https://ollama.com/search](https://ollama.com/search)
-
-### Free (LLM7.io) - No API Key Required!
-A completely free option powered by [LLM7.io](https://llm7.io). No signup, no API key needed - just use it!
-
-**Anonymous tier limits:**
-- 8k chars per request
-- 60 requests per hour
-- 10 requests per minute
-- 1 request per second
-
-> **Note:** The free model is powered by a third-party service. Your code diffs will be sent to LLM7.io servers. Service availability is not guaranteed. For production use, consider a paid API provider.
 
 ## How It Works
 

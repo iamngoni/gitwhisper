@@ -8,6 +8,8 @@
 
 import 'package:dio/dio.dart';
 
+import '../agent/agent_commit_generator.dart';
+import '../agent/openai_compatible_agent_runner.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
@@ -15,7 +17,7 @@ import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
 
-class GrokGenerator extends CommitGenerator {
+class GrokGenerator extends CommitGenerator implements AgentCommitGenerator {
   GrokGenerator(super.apiKey, {super.variant});
 
   @override
@@ -108,5 +110,17 @@ class GrokGenerator extends CommitGenerator {
     } on DioException catch (e) {
       throw ErrorParser.parseProviderError('grok', e);
     }
+  }
+
+  @override
+  Future<String> generateAgentCommitMessage(
+    AgentCommitRequest request,
+  ) {
+    return OpenAiCompatibleAgentRunner(
+      providerName: 'grok',
+      endpoint: 'https://api.x.ai/v1/chat/completions',
+      model: actualVariant,
+      apiKey: apiKey,
+    ).generate(request);
   }
 }

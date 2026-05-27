@@ -187,16 +187,6 @@ class ConfigManager {
     return _config['max_file_size'] as int? ?? 10485760;
   }
 
-  /// Check if user has accepted the free model disclaimer
-  bool hasAcceptedFreeDisclaimer() {
-    return _config['free_disclaimer_accepted'] as bool? ?? false;
-  }
-
-  /// Set that user has accepted the free model disclaimer
-  void setFreeDisclaimerAccepted() {
-    _config['free_disclaimer_accepted'] = true;
-  }
-
   /// Clears the default model and default variant
   void clearDefaults() {
     if (_config['defaults'] != null) {

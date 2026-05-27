@@ -31,12 +31,11 @@ class SetDefaultsCommand extends Command<int> {
           'deepseek',
           'github',
           'ollama',
-          'free',
         ],
         allowedHelp: {
           'claude': 'Anthropic Claude',
-          'claude-code': 'Claude Code CLI',
-          'codex': 'Codex CLI',
+          'claude-code': 'Claude Code ACP agent',
+          'codex': 'Codex ACP agent',
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
@@ -44,7 +43,6 @@ class SetDefaultsCommand extends Command<int> {
           'deepseek': 'DeepSeek, Inc.',
           'github': 'Github',
           'ollama': 'Ollama',
-          'free': 'Free (LLM7.io) - No API key required',
         },
       )
       ..addOption(

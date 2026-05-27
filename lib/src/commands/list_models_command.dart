@@ -28,10 +28,10 @@ class ListModelsCommand extends Command<int> {
       ..info('Available models:')
       ..info('  - claude (Anthropic Claude)')
       ..info(
-        '  - claude-code (Claude Code CLI - No GitWhisper API key required)',
+        '  - claude-code (Claude Code ACP agent - no GitWhisper API key)',
       )
       ..info(
-        '  - codex (Codex CLI - No GitWhisper API key required)',
+        '  - codex (Codex ACP agent - no GitWhisper API key)',
       )
       ..info('  - openai (OpenAI GPT models)')
       ..info('  - gemini (Google Gemini)')
@@ -39,8 +39,7 @@ class ListModelsCommand extends Command<int> {
       ..info('  - llama (Meta Llama)')
       ..info('  - deepseek (DeepSeek, Inc.)')
       ..info('  - github (GitHub)')
-      ..info('  - ollama (Ollama)')
-      ..info('  - free (LLM7.io - No API key required)');
+      ..info('  - ollama (Ollama)');
     return ExitCode.success.code;
   }
 }
