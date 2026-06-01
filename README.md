@@ -153,6 +153,15 @@ gw list-models
 gitwhisper list-variants --model claude
 gw list-variants --model claude
 
+# Work with ACP agents from the registry
+gitwhisper acp list
+gw acp list
+gw acp info vtcode
+gw acp resolve codex
+gw acp install vtcode
+gw acp cache path
+gw acp cache refresh
+
 # Change the language for commit messages and analysis
 gitwhisper change-language
 gw change-language
@@ -231,6 +240,7 @@ GitWhisper uses a command-based structure:
 - `analyze`: Examine changes (staged/unstaged) and provide detailed code analysis with suggestions for improvements
 - `list-models`: Show all supported AI models
 - `list-variants`: Show available variants for each AI model
+- `acp`: Inspect, resolve, install, and cache ACP registry agents
 - `change-language`: Set the language for AI-generated commit messages and analysis
 - `save-key`: Store an API key for future use
 - `update`: Update GitWhisper to the latest version
@@ -260,6 +270,8 @@ GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
 If the registry cannot be fetched, GitWhisper uses the cached copy. If there is
 no cache yet, it prints a clear registry/cache error with a link to file a
 support issue.
+Binary-only ACP agents are installed under `~/.gitwhisper/acp/agents/` when you
+run `gw acp install <agent>` or when GitWhisper needs to launch them.
 
 Agent mode is enabled by default for tool-capable providers:
 

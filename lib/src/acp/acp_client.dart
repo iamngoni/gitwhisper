@@ -10,12 +10,185 @@ typedef AcpProcessStarter = Future<Process> Function(
 });
 
 class AcpException implements Exception {
-  const AcpException(this.message);
+  const AcpException(this.message, {this.details});
+
+  factory AcpException.fromJsonRpcError(Object? error) {
+    final rawMessage = error.toString();
+    if (error is Map<String, dynamic>) {
+      final authMethods = _authMethodsFromError(error);
+      if (authMethods.isNotEmpty) {
+        return AcpAuthenticationRequiredException(
+          authMethods,
+          details: jsonEncode(error),
+        );
+      }
+
+      final fallbackAuthMethods = _fallbackAuthMethodsFromError(error);
+      if (fallbackAuthMethods.isNotEmpty) {
+        return AcpAuthenticationRequiredException(
+          fallbackAuthMethods,
+          details: jsonEncode(error),
+        );
+      }
+    }
+
+    final normalized = rawMessage.toLowerCase();
+
+    if (normalized.contains('401 unauthorized') ||
+        normalized.contains('api key') ||
+        normalized.contains('authorization header')) {
+      return AcpException(
+        'The ACP agent started, but its model provider is not authenticated.\n'
+        'Configure that agent/provider and retry. For VTCode, run '
+        '`vtcode auth` or set the provider API key it is configured to use '
+        '(its default is OPENAI_API_KEY unless you change provider/config).',
+        details: rawMessage,
+      );
+    }
+
+    return AcpException(rawMessage);
+  }
 
   final String message;
+  final String? details;
 
   @override
   String toString() => message;
+
+  static List<AcpAuthMethod> _authMethodsFromError(Map<String, dynamic> error) {
+    final data = error['data'];
+    final rawAuthMethods = data is Map<String, dynamic>
+        ? data['authMethods']
+        : error['authMethods'];
+    if (rawAuthMethods is! List) return const <AcpAuthMethod>[];
+
+    return rawAuthMethods
+        .whereType<Map<String, dynamic>>()
+        .map(AcpAuthMethod.fromJson)
+        .where((method) => method.id.isNotEmpty)
+        .toList();
+  }
+
+  static List<AcpAuthMethod> _fallbackAuthMethodsFromError(
+    Map<String, dynamic> error,
+  ) {
+    final errorMessage = error['message']?.toString() ?? '';
+    final data = error['data'];
+    final dataMessage = data is Map<String, dynamic>
+        ? data['message']?.toString() ?? ''
+        : data?.toString() ?? '';
+    final combined = '$errorMessage\n$dataMessage';
+
+    if (!combined.toLowerCase().contains('auth')) {
+      return const <AcpAuthMethod>[];
+    }
+
+    final command = _extractBacktickCommand(dataMessage) ??
+        _extractBacktickCommand(errorMessage);
+    if (command == null || command.isEmpty) {
+      return const <AcpAuthMethod>[];
+    }
+
+    return <AcpAuthMethod>[
+      AcpAuthMethod(
+        id: 'terminal-auth',
+        name: 'Terminal authentication',
+        description: dataMessage.isNotEmpty ? dataMessage : errorMessage,
+        type: 'terminal',
+        command: command,
+      ),
+    ];
+  }
+
+  static List<String>? _extractBacktickCommand(String value) {
+    final match = RegExp('`([^`]+)`').firstMatch(value);
+    final command = match?.group(1)?.trim();
+    if (command == null || command.isEmpty) return null;
+    return command.split(RegExp(r'\s+'));
+  }
+}
+
+class AcpAuthenticationRequiredException extends AcpException {
+  AcpAuthenticationRequiredException(
+    this.authMethods, {
+    String? details,
+  }) : super(_formatAuthMessage(authMethods), details: details);
+
+  final List<AcpAuthMethod> authMethods;
+
+  static String _formatAuthMessage(List<AcpAuthMethod> authMethods) {
+    final buffer = StringBuffer()
+      ..writeln('Authentication required for this ACP agent.')
+      ..writeln('Authenticate the agent, then run GitWhisper again.')
+      ..writeln()
+      ..writeln('Available auth methods:');
+
+    for (final method in authMethods) {
+      final label = method.name.isNotEmpty ? method.name : method.id;
+
+      buffer.write('- $label');
+      if (method.type.isNotEmpty) buffer.write(' (${method.type})');
+      if (method.description.isNotEmpty) {
+        buffer.write(': ${method.description}');
+      } else if (method.args.isNotEmpty) {
+        buffer.write(
+          ': run the agent auth command with `${method.args.join(' ')}`',
+        );
+      }
+      buffer.writeln();
+
+      if (method.environment.isNotEmpty) {
+        buffer.writeln(
+          '  Required environment: ${method.environment.keys.join(', ')}',
+        );
+      }
+    }
+
+    return buffer.toString().trimRight();
+  }
+}
+
+class AcpAuthMethod {
+  const AcpAuthMethod({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.type,
+    this.args = const <String>[],
+    this.command = const <String>[],
+    this.environment = const <String, String>{},
+  });
+
+  factory AcpAuthMethod.fromJson(Map<String, dynamic> json) {
+    final args = json['args'];
+    final env = json['env'];
+    return AcpAuthMethod(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      type: json['type']?.toString() ?? 'agent',
+      args: args is List<dynamic>
+          ? args.map((arg) => arg.toString()).toList()
+          : const <String>[],
+      environment: env is Map<dynamic, dynamic>
+          ? env.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            )
+          : const <String, String>{},
+    );
+  }
+
+  final String id;
+  final String name;
+  final String description;
+  final String type;
+  final List<String> args;
+  final List<String> command;
+  final Map<String, String> environment;
+
+  bool get isTerminal => type == 'terminal';
+
+  bool get isAgent => type == 'agent' || type.isEmpty;
 }
 
 class AcpClient {
@@ -49,18 +222,7 @@ class AcpClient {
     await _start();
 
     try {
-      await _request(
-        'initialize',
-        <String, dynamic>{
-          'protocolVersion': 1,
-          'clientCapabilities': <String, dynamic>{},
-          'clientInfo': <String, dynamic>{
-            'name': 'gitwhisper',
-            'title': 'GitWhisper',
-            'version': '1.0.0',
-          },
-        },
-      );
+      await _initialize();
 
       final session = await _request(
         'session/new',
@@ -89,6 +251,20 @@ class AcpClient {
       );
 
       return _agentText.toString().trim();
+    } finally {
+      await close();
+    }
+  }
+
+  Future<void> authenticate({required String methodId}) async {
+    await _start();
+
+    try {
+      await _initialize();
+      await _request(
+        'authenticate',
+        <String, dynamic>{'methodId': methodId},
+      );
     } finally {
       await close();
     }
@@ -170,6 +346,23 @@ class AcpClient {
     );
   }
 
+  Future<void> _initialize() {
+    return _request(
+      'initialize',
+      <String, dynamic>{
+        'protocolVersion': 1,
+        'clientCapabilities': <String, dynamic>{
+          'auth': <String, dynamic>{'terminal': true},
+        },
+        'clientInfo': <String, dynamic>{
+          'name': 'gitwhisper',
+          'title': 'GitWhisper',
+          'version': '1.0.0',
+        },
+      },
+    );
+  }
+
   void _send(Map<String, dynamic> message) {
     final process = _process;
     if (process == null) {
@@ -190,7 +383,9 @@ class AcpClient {
         final completer = _pending.remove(id);
         if (completer != null && !completer.isCompleted) {
           if (decoded['error'] != null) {
-            completer.completeError(AcpException(decoded['error'].toString()));
+            completer.completeError(
+              AcpException.fromJsonRpcError(decoded['error']),
+            );
           } else {
             completer.complete(decoded);
           }

@@ -6,6 +6,7 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import '../acp/acp_client.dart';
 import '../constants.dart';
 import 'api_exception.dart';
 import 'api_exceptions.dart';
@@ -30,6 +31,14 @@ class ErrorHandler {
 
   /// Handle general exceptions
   static void handleGeneralError(Object error, {String? context}) {
+    if (error is AcpException) {
+      final contextMsg = context != null ? ' while $context' : '';
+      $logger
+        ..err('ACP agent error$contextMsg:')
+        ..err(error.message);
+      return;
+    }
+
     $logger.err('General Error: $error');
 
     // Display user-friendly error message

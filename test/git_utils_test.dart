@@ -45,5 +45,15 @@ fix: Add German date formatting for payment emails
         'PAY-123 -> fix: Add payment date formatting',
       );
     });
+
+    test('strict mode rejects planning text without commit lines', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          "I'll inspect the staged changes to generate the commit message.",
+          requireConventionalCommit: true,
+        ),
+        isEmpty,
+      );
+    });
   });
 }

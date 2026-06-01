@@ -31,31 +31,7 @@ class CommitCommand extends Command<int> {
       ..addOption(
         'model',
         abbr: 'm',
-        help: 'AI model to use',
-        allowed: [
-          'claude',
-          'claude-code',
-          'codex',
-          'openai',
-          'gemini',
-          'grok',
-          'llama',
-          'deepseek',
-          'github',
-          'ollama',
-        ],
-        allowedHelp: {
-          'claude': 'Anthropic Claude',
-          'claude-code': 'Claude Code ACP agent',
-          'codex': 'Codex ACP agent',
-          'openai': 'OpenAI GPT models',
-          'gemini': 'Google Gemini',
-          'grok': 'xAI Grok',
-          'llama': 'Meta Llama',
-          'deepseek': 'DeepSeek, Inc.',
-          'github': 'Github',
-          'ollama': 'Ollama',
-        },
+        help: 'AI model or ACP agent id to use',
       )
       ..addOption(
         'key',
@@ -373,8 +349,10 @@ class CommitCommand extends Command<int> {
         );
 
         try {
-          commitMessage =
-              GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
+          commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
+            commitMessage,
+            requireConventionalCommit: agentMode,
+          );
         } catch (_) {
           // Silent prayer that it works
         }
@@ -507,8 +485,10 @@ class CommitCommand extends Command<int> {
           );
 
           try {
-            commitMessage =
-                GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
+            commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
+              commitMessage,
+              requireConventionalCommit: agentMode,
+            );
           } catch (_) {
             // Silent prayer that it works
           }
@@ -608,8 +588,15 @@ class CommitCommand extends Command<int> {
 
   bool _requiresApiKey(String modelName) {
     return switch (modelName.toLowerCase()) {
-      'ollama' || 'codex' || 'claude-code' => false,
-      _ => true,
+      'claude' ||
+      'openai' ||
+      'gemini' ||
+      'grok' ||
+      'llama' ||
+      'deepseek' ||
+      'github' =>
+        true,
+      _ => false,
     };
   }
 
@@ -626,7 +613,7 @@ class CommitCommand extends Command<int> {
       'github' ||
       'ollama' =>
         true,
-      _ => false,
+      _ => true,
     };
   }
 
@@ -769,8 +756,10 @@ class CommitCommand extends Command<int> {
                   agentMode: agentMode,
                   folderPath: folderPath,
                 );
-                currentMessage =
-                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
+                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
+                  currentMessage,
+                  requireConventionalCommit: agentMode,
+                );
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
@@ -829,8 +818,10 @@ class CommitCommand extends Command<int> {
                   agentMode: agentMode,
                   folderPath: folderPath,
                 );
-                currentMessage =
-                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
+                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
+                  currentMessage,
+                  requireConventionalCommit: agentMode,
+                );
               } catch (e) {
                 _logger.err(
                   'Failed to generate commit message with $newModelName: $e',
@@ -859,8 +850,10 @@ class CommitCommand extends Command<int> {
                   agentMode: agentMode,
                   folderPath: folderPath,
                 );
-                currentMessage =
-                    GitUtils.sanitizeGeneratedCommitMessage(currentMessage);
+                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
+                  currentMessage,
+                  requireConventionalCommit: agentMode,
+                );
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;

@@ -25,6 +25,7 @@ class AcpAgentDefinition {
     this.npxPackage,
     this.npxArgs = const <String>[],
     this.npxEnv = const <String, String>{},
+    this.binaryDistributions = const <String, AcpBinaryDistribution>{},
   });
 
   factory AcpAgentDefinition.fromJson(Map<String, dynamic> json) {
@@ -32,6 +33,9 @@ class AcpAgentDefinition {
     final npx =
         distribution is Map<String, dynamic> ? distribution['npx'] : null;
     final npxMap = npx is Map<String, dynamic> ? npx : null;
+    final binary =
+        distribution is Map<String, dynamic> ? distribution['binary'] : null;
+    final binaryMap = binary is Map<String, dynamic> ? binary : null;
     final rawArgs = npxMap?['args'];
     final rawEnv = npxMap?['env'];
 
@@ -48,6 +52,16 @@ class AcpAgentDefinition {
               (key, value) => MapEntry(key.toString(), value.toString()),
             )
           : const <String, String>{},
+      binaryDistributions: binaryMap == null
+          ? const <String, AcpBinaryDistribution>{}
+          : binaryMap.map(
+              (platform, value) => MapEntry(
+                platform,
+                AcpBinaryDistribution.fromJson(
+                  value as Map<String, dynamic>,
+                ),
+              ),
+            ),
     );
   }
   final String id;
@@ -56,6 +70,7 @@ class AcpAgentDefinition {
   final String? npxPackage;
   final List<String> npxArgs;
   final Map<String, String> npxEnv;
+  final Map<String, AcpBinaryDistribution> binaryDistributions;
 
   AcpLaunchCommand toLaunchCommand() {
     final package = npxPackage;
@@ -75,16 +90,50 @@ class AcpAgentDefinition {
   }
 }
 
+class AcpBinaryDistribution {
+  const AcpBinaryDistribution({
+    required this.archive,
+    required this.command,
+    this.arguments = const <String>[],
+    this.environment = const <String, String>{},
+  });
+
+  factory AcpBinaryDistribution.fromJson(Map<String, dynamic> json) {
+    final rawArgs = json['args'];
+    final rawEnv = json['env'];
+
+    return AcpBinaryDistribution(
+      archive: json['archive'].toString(),
+      command: json['cmd'].toString(),
+      arguments: rawArgs is List<dynamic>
+          ? rawArgs.map((arg) => arg.toString()).toList()
+          : const <String>[],
+      environment: rawEnv is Map<dynamic, dynamic>
+          ? rawEnv.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            )
+          : const <String, String>{},
+    );
+  }
+
+  final String archive;
+  final String command;
+  final List<String> arguments;
+  final Map<String, String> environment;
+}
+
 class AcpLaunchCommand {
   const AcpLaunchCommand({
     required this.executable,
     required this.arguments,
     this.environment = const <String, String>{},
+    this.workingDirectory,
   });
 
   final String executable;
   final List<String> arguments;
   final Map<String, String> environment;
+  final String? workingDirectory;
 }
 
 class AcpRegistry {
@@ -176,6 +225,8 @@ class AcpRegistryLoader {
   final Dio _dio;
   final File _cacheFile;
   final String registryUrl;
+
+  File get cacheFile => _cacheFile;
 
   Future<AcpRegistry> load() async {
     try {

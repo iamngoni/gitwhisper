@@ -19,31 +19,7 @@ class SetDefaultsCommand extends Command<int> {
       ..addOption(
         'model',
         abbr: 'm',
-        help: 'AI model to set as the default',
-        allowed: [
-          'claude',
-          'claude-code',
-          'codex',
-          'openai',
-          'gemini',
-          'grok',
-          'llama',
-          'deepseek',
-          'github',
-          'ollama',
-        ],
-        allowedHelp: {
-          'claude': 'Anthropic Claude',
-          'claude-code': 'Claude Code ACP agent',
-          'codex': 'Codex ACP agent',
-          'openai': 'OpenAI GPT models',
-          'gemini': 'Google Gemini',
-          'grok': 'xAI Grok',
-          'llama': 'Meta Llama',
-          'deepseek': 'DeepSeek, Inc.',
-          'github': 'Github',
-          'ollama': 'Ollama',
-        },
+        help: 'AI model or ACP agent id to set as the default',
       )
       ..addOption(
         'model-variant',

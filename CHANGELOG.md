@@ -1,6 +1,9 @@
 ## 1.0.0
 - Enabled agent mode by default for tool-capable providers: OpenAI, Claude, Gemini, Grok, Llama, DeepSeek, GitHub Models, Ollama, Codex, and Claude Code. Models without tool support automatically use direct-diff mode.
 - Switched local Codex and Claude Code providers to ACP registry-backed local agents instead of direct CLI prompt execution.
+- Added ACP registry commands: `gw acp list`, `info`, `resolve`, `install`, `cache path`, and `cache refresh`.
+- Added binary ACP distribution support for agents that do not publish an npx package.
+- Added ACP authentication retry support so local agents can launch terminal or agent auth flows and continue the original request.
 - Removed the LLM7.io `free` provider from the CLI.
 - Made `gw update` detect Dart pub, Homebrew, APT, and manual installs, with `gw update --check` to preview the update path.
 - Sanitized noisy agent responses so only valid conventional commit lines are used as commit messages.

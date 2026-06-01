@@ -400,7 +400,10 @@ class GitUtils {
   }
 
   /// Removes Markdown fences and extracts valid commit lines from noisy output.
-  static String sanitizeGeneratedCommitMessage(String input) {
+  static String sanitizeGeneratedCommitMessage(
+    String input, {
+    bool requireConventionalCommit = false,
+  }) {
     final cleaned = stripMarkdownCodeBlocks(input);
     final commitLinePattern = RegExp(
       r'^(?:[A-Z][A-Z0-9]+-\d+\s*->\s*)?'
@@ -413,7 +416,8 @@ class GitUtils {
         .where(commitLinePattern.hasMatch)
         .toList();
 
-    return commitLines.isEmpty ? cleaned.trim() : commitLines.join('\n').trim();
+    if (commitLines.isNotEmpty) return commitLines.join('\n').trim();
+    return requireConventionalCommit ? '' : cleaned.trim();
   }
 
   /// Estimates the size of a diff in characters for API limitations

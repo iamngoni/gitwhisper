@@ -1,25 +1,24 @@
-import 'package:gitwhisper/src/models/claude_code_generator.dart';
-import 'package:gitwhisper/src/models/codex_cli_generator.dart';
+import 'package:gitwhisper/src/models/acp_local_agent_generator.dart';
 import 'package:gitwhisper/src/models/commit_generator_factory.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('CommitGeneratorFactory', () {
-    test('creates local ACP providers without API keys', () {
+    test('creates compatibility aliases as generic ACP providers', () {
       expect(
         CommitGeneratorFactory.create('codex', null),
-        isA<CodexCliGenerator>(),
+        isA<AcpLocalAgentGenerator>(),
       );
       expect(
         CommitGeneratorFactory.create('claude-code', null),
-        isA<ClaudeCodeGenerator>(),
+        isA<AcpLocalAgentGenerator>(),
       );
     });
 
-    test('does not create removed free provider', () {
+    test('creates arbitrary ACP providers by model id', () {
       expect(
-        () => CommitGeneratorFactory.create('free', null),
-        throwsArgumentError,
+        CommitGeneratorFactory.create('vtcode', null),
+        isA<AcpLocalAgentGenerator>(),
       );
     });
   });
