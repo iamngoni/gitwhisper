@@ -92,6 +92,12 @@ void main() {
       expect(openAiNames, containsAll(expectedTools));
       expect(claudeNames, containsAll(expectedTools));
     });
+
+    test('MCP tool schemas avoid provider-specific strict schema fields', () {
+      final encoded = jsonEncode(GitAgentTools.mcpToolDefinitions);
+
+      expect(encoded, isNot(contains('additionalProperties')));
+    });
   });
 
   group('GitAgentTools', () {
@@ -589,6 +595,10 @@ void main() {
       expect(
         capturedRequests.first.data.toString(),
         contains('functionDeclarations'),
+      );
+      expect(
+        capturedRequests.first.data.toString(),
+        isNot(contains('additionalProperties')),
       );
       expect(
         capturedRequests.last.data.toString(),

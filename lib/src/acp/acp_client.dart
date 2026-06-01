@@ -9,6 +9,8 @@ typedef AcpProcessStarter = Future<Process> Function(
   Map<String, String>? environment,
 });
 
+typedef AcpRetryPredicate = bool Function(String text, int turn);
+
 class AcpException implements Exception {
   const AcpException(this.message, {this.details});
 
@@ -39,9 +41,8 @@ class AcpException implements Exception {
         normalized.contains('authorization header')) {
       return AcpException(
         'The ACP agent started, but its model provider is not authenticated.\n'
-        'Configure that agent/provider and retry. For VTCode, run '
-        '`vtcode auth` or set the provider API key it is configured to use '
-        '(its default is OPENAI_API_KEY unless you change provider/config).',
+        'Configure that agent/provider and retry. If the agent has a login '
+        'command, run it, or set the provider API key it is configured to use.',
         details: rawMessage,
       );
     }
@@ -84,18 +85,23 @@ class AcpException implements Exception {
     }
 
     final command = _extractBacktickCommand(dataMessage) ??
-        _extractBacktickCommand(errorMessage);
-    if (command == null || command.isEmpty) {
+        _extractBacktickCommand(errorMessage) ??
+        _extractQuotedCommand(dataMessage) ??
+        _extractQuotedCommand(errorMessage);
+    final methodId = _extractAuthenticateMethodId(dataMessage) ??
+        _extractAuthenticateMethodId(errorMessage);
+    if ((command == null || command.isEmpty) && methodId == null) {
       return const <AcpAuthMethod>[];
     }
 
     return <AcpAuthMethod>[
       AcpAuthMethod(
-        id: 'terminal-auth',
+        id: methodId ?? 'terminal-auth',
         name: 'Terminal authentication',
         description: dataMessage.isNotEmpty ? dataMessage : errorMessage,
         type: 'terminal',
-        command: command,
+        command: command ?? const <String>[],
+        authenticateMethodId: methodId,
       ),
     ];
   }
@@ -105,6 +111,18 @@ class AcpException implements Exception {
     final command = match?.group(1)?.trim();
     if (command == null || command.isEmpty) return null;
     return command.split(RegExp(r'\s+'));
+  }
+
+  static List<String>? _extractQuotedCommand(String value) {
+    final match = RegExp("'([^']+)'").firstMatch(value);
+    final command = match?.group(1)?.trim();
+    if (command == null || command.isEmpty) return null;
+    return command.split(RegExp(r'\s+'));
+  }
+
+  static String? _extractAuthenticateMethodId(String value) {
+    final match = RegExp(r"methodId\s+'([^']+)'").firstMatch(value);
+    return match?.group(1)?.trim();
   }
 }
 
@@ -156,25 +174,47 @@ class AcpAuthMethod {
     required this.type,
     this.args = const <String>[],
     this.command = const <String>[],
+    this.authenticateMethodId,
     this.environment = const <String, String>{},
   });
 
   factory AcpAuthMethod.fromJson(Map<String, dynamic> json) {
     final args = json['args'];
     final env = json['env'];
+    final meta = json['_meta'];
+    final terminalAuth =
+        meta is Map<String, dynamic> ? meta['terminal-auth'] : null;
+    final terminalAuthMap =
+        terminalAuth is Map<String, dynamic> ? terminalAuth : null;
+    final terminalCommand = terminalAuthMap?['command'];
+    final terminalArgs = terminalAuthMap?['args'];
+    final terminalEnv = terminalAuthMap?['env'];
     return AcpAuthMethod(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
-      type: json['type']?.toString() ?? 'agent',
+      type: terminalAuthMap?['type']?.toString() ??
+          json['type']?.toString() ??
+          'agent',
       args: args is List<dynamic>
           ? args.map((arg) => arg.toString()).toList()
           : const <String>[],
-      environment: env is Map<dynamic, dynamic>
-          ? env.map(
+      command: terminalCommand == null
+          ? const <String>[]
+          : <String>[
+              terminalCommand.toString(),
+              if (terminalArgs is List<dynamic>)
+                ...terminalArgs.map((arg) => arg.toString()),
+            ],
+      environment: terminalEnv is Map<dynamic, dynamic>
+          ? terminalEnv.map(
               (key, value) => MapEntry(key.toString(), value.toString()),
             )
-          : const <String, String>{},
+          : env is Map<dynamic, dynamic>
+              ? env.map(
+                  (key, value) => MapEntry(key.toString(), value.toString()),
+                )
+              : const <String, String>{},
     );
   }
 
@@ -184,6 +224,7 @@ class AcpAuthMethod {
   final String type;
   final List<String> args;
   final List<String> command;
+  final String? authenticateMethodId;
   final Map<String, String> environment;
 
   bool get isTerminal => type == 'terminal';
@@ -197,6 +238,8 @@ class AcpClient {
     required this.arguments,
     this.environment,
     this.workingDirectory,
+    this.mcpServers = const <Map<String, dynamic>>[],
+    this.logFile,
     this.timeout = const Duration(minutes: 5),
     AcpProcessStarter? startProcess,
   }) : _startProcess = startProcess ?? Process.start;
@@ -205,19 +248,25 @@ class AcpClient {
   final List<String> arguments;
   final Map<String, String>? environment;
   final String? workingDirectory;
+  final List<Map<String, dynamic>> mcpServers;
+  final File? logFile;
   final Duration timeout;
   final AcpProcessStarter _startProcess;
 
   Process? _process;
   StreamSubscription<String>? _stdoutSubscription;
   Future<String>? _stderrFuture;
+  IOSink? _logSink;
   final _pending = <int, Completer<Map<String, dynamic>>>{};
   final _agentText = StringBuffer();
+  List<AcpAuthMethod> _authMethods = const <AcpAuthMethod>[];
   var _nextId = 0;
 
   Future<String> prompt({
     required String cwd,
     required String text,
+    List<String> retryPrompts = const <String>[],
+    AcpRetryPredicate? shouldRetry,
   }) async {
     await _start();
 
@@ -228,7 +277,7 @@ class AcpClient {
         'session/new',
         <String, dynamic>{
           'cwd': cwd,
-          'mcpServers': <Map<String, dynamic>>[],
+          'mcpServers': mcpServers,
         },
       );
 
@@ -240,15 +289,26 @@ class AcpClient {
         throw const AcpException('ACP agent did not return a sessionId.');
       }
 
-      await _request(
-        'session/prompt',
-        <String, dynamic>{
-          'sessionId': sessionId,
-          'prompt': <Map<String, dynamic>>[
-            <String, dynamic>{'type': 'text', 'text': text},
-          ],
-        },
-      );
+      final prompts = <String>[text, ...retryPrompts];
+      for (var index = 0; index < prompts.length; index++) {
+        _agentText.clear();
+        await _request(
+          'session/prompt',
+          <String, dynamic>{
+            'sessionId': sessionId,
+            'prompt': <Map<String, dynamic>>[
+              <String, dynamic>{'type': 'text', 'text': prompts[index]},
+            ],
+          },
+        );
+
+        final agentText = _agentText.toString().trim();
+        _log('final_agent_text', agentText);
+        if (shouldRetry == null || !shouldRetry(agentText, index)) {
+          return agentText;
+        }
+        _log('retry_prompt', 'ACP agent response did not pass validation.');
+      }
 
       return _agentText.toString().trim();
     } finally {
@@ -289,9 +349,21 @@ class AcpClient {
 
     await _stdoutSubscription?.cancel();
     _stdoutSubscription = null;
+    await _logSink?.flush();
+    await _logSink?.close();
+    _logSink = null;
   }
 
   Future<void> _start() async {
+    await _openLog();
+    _log(
+      'start',
+      jsonEncode(<String, dynamic>{
+        'executable': executable,
+        'arguments': arguments,
+        'workingDirectory': workingDirectory,
+      }),
+    );
     try {
       final process = await _startProcess(
         executable,
@@ -300,7 +372,10 @@ class AcpClient {
         environment: environment,
       );
       _process = process;
-      _stderrFuture = utf8.decodeStream(process.stderr);
+      _stderrFuture = utf8.decodeStream(process.stderr).then((stderr) {
+        if (stderr.trim().isNotEmpty) _log('stderr', stderr);
+        return stderr;
+      });
       _stdoutSubscription = process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
@@ -368,11 +443,14 @@ class AcpClient {
     if (process == null) {
       throw const AcpException('ACP process is not running.');
     }
-    process.stdin.writeln(jsonEncode(message));
+    final encoded = jsonEncode(message);
+    _log('send', encoded);
+    process.stdin.writeln(encoded);
   }
 
   void _handleLine(String line) {
     if (line.trim().isEmpty) return;
+    _log('receive', line);
 
     final decoded = jsonDecode(line);
     if (decoded is! Map<String, dynamic>) return;
@@ -383,10 +461,20 @@ class AcpClient {
         final completer = _pending.remove(id);
         if (completer != null && !completer.isCompleted) {
           if (decoded['error'] != null) {
-            completer.completeError(
-              AcpException.fromJsonRpcError(decoded['error']),
-            );
+            final error = AcpException.fromJsonRpcError(decoded['error']);
+            if (error is! AcpAuthenticationRequiredException &&
+                _looksLikeAuthError(decoded['error']) &&
+                _authMethods.isNotEmpty) {
+              completer.completeError(
+                AcpAuthenticationRequiredException(_authMethods),
+              );
+            } else {
+              completer.completeError(error);
+            }
           } else {
+            if (_isInitializeResponse(id)) {
+              _authMethods = _authMethodsFromResponse(decoded);
+            }
             completer.complete(decoded);
           }
         }
@@ -400,7 +488,13 @@ class AcpClient {
       return;
     }
 
+    if (decoded.containsKey('id') && method == 'session/request_permission') {
+      _handlePermissionRequest(decoded['id'], decoded['params']);
+      return;
+    }
+
     if (decoded.containsKey('id') && method is String) {
+      _log('unsupported_method', method);
       _send(<String, dynamic>{
         'jsonrpc': '2.0',
         'id': decoded['id'],
@@ -410,6 +504,87 @@ class AcpClient {
         },
       });
     }
+  }
+
+  bool _isInitializeResponse(int id) => id == 0;
+
+  void _handlePermissionRequest(Object? id, Object? params) {
+    final paramsMap = params is Map<String, dynamic> ? params : null;
+    final toolCall = paramsMap?['toolCall'];
+    final toolCallMap = toolCall is Map<String, dynamic> ? toolCall : null;
+    final title = toolCallMap?['title']?.toString() ?? '';
+    final kind = toolCallMap?['kind']?.toString() ?? '';
+    final content = toolCallMap?['content']?.toString() ?? '';
+    final isGitWhisperTool = title.contains('gitwhisper') ||
+        kind.contains('gitwhisper') ||
+        content.contains('gitwhisper');
+    final options = paramsMap?['options'];
+    final optionMaps = options is List<dynamic>
+        ? options.whereType<Map<String, dynamic>>().toList()
+        : const <Map<String, dynamic>>[];
+
+    final selectedOption = isGitWhisperTool
+        ? _permissionOption(optionMaps, 'allow_once') ??
+            _permissionOptionById(optionMaps, 'allow-once') ??
+            _permissionOption(optionMaps, 'allow_always')
+        : _permissionOption(optionMaps, 'reject_once') ??
+            _permissionOptionById(optionMaps, 'reject-once');
+
+    final optionId = selectedOption?['optionId']?.toString();
+    final outcome = optionId == null || optionId.isEmpty
+        ? <String, dynamic>{'outcome': 'cancelled'}
+        : <String, dynamic>{'outcome': 'selected', 'optionId': optionId};
+
+    _log(
+      'permission_request',
+      jsonEncode(<String, dynamic>{
+        'title': title,
+        'kind': kind,
+        'isGitWhisperTool': isGitWhisperTool,
+        'outcome': outcome,
+      }),
+    );
+    _send(<String, dynamic>{
+      'jsonrpc': '2.0',
+      'id': id,
+      'result': <String, dynamic>{'outcome': outcome},
+    });
+  }
+
+  Map<String, dynamic>? _permissionOption(
+    List<Map<String, dynamic>> options,
+    String kind,
+  ) {
+    for (final option in options) {
+      if (option['kind']?.toString() == kind) return option;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _permissionOptionById(
+    List<Map<String, dynamic>> options,
+    String optionId,
+  ) {
+    for (final option in options) {
+      if (option['optionId']?.toString() == optionId) return option;
+    }
+    return null;
+  }
+
+  bool _looksLikeAuthError(Object? error) {
+    return error.toString().toLowerCase().contains('auth');
+  }
+
+  List<AcpAuthMethod> _authMethodsFromResponse(Map<String, dynamic> response) {
+    final result = response['result'];
+    if (result is! Map<String, dynamic>) return const <AcpAuthMethod>[];
+    final rawAuthMethods = result['authMethods'];
+    if (rawAuthMethods is! List) return const <AcpAuthMethod>[];
+    return rawAuthMethods
+        .whereType<Map<String, dynamic>>()
+        .map(AcpAuthMethod.fromJson)
+        .where((method) => method.id.isNotEmpty)
+        .toList();
   }
 
   void _handleSessionUpdate(Object? params) {
@@ -424,7 +599,10 @@ class AcpClient {
   void _appendText(Object? content) {
     if (content is Map<String, dynamic>) {
       final text = content['text'];
-      if (text is String) _agentText.write(text);
+      if (text is String) {
+        _log('agent_message_chunk', text);
+        _agentText.write(text);
+      }
       final nested = content['content'];
       if (nested != null) _appendText(nested);
     } else if (content is List<dynamic>) {
@@ -435,9 +613,29 @@ class AcpClient {
   }
 
   void _failPending(Object error) {
+    _log('pending_error', error.toString());
     for (final completer in _pending.values) {
       if (!completer.isCompleted) completer.completeError(error);
     }
     _pending.clear();
+  }
+
+  Future<void> _openLog() async {
+    final file = logFile;
+    if (file == null || _logSink != null) return;
+    await file.parent.create(recursive: true);
+    _logSink = file.openWrite(mode: FileMode.append);
+  }
+
+  void _log(String event, String message) {
+    final sink = _logSink;
+    if (sink == null) return;
+    sink.writeln(
+      jsonEncode(<String, dynamic>{
+        'time': DateTime.now().toIso8601String(),
+        'event': event,
+        'message': message,
+      }),
+    );
   }
 }

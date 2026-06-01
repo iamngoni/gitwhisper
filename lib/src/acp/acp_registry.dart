@@ -72,6 +72,10 @@ class AcpAgentDefinition {
   final Map<String, String> npxEnv;
   final Map<String, AcpBinaryDistribution> binaryDistributions;
 
+  bool get isSupportedCommitAgent {
+    return !AcpRegistry.unsupportedCommitAgentIds.contains(id);
+  }
+
   AcpLaunchCommand toLaunchCommand() {
     final package = npxPackage;
     if (package == null || package.isEmpty) {
@@ -155,21 +159,37 @@ class AcpRegistry {
 
   final List<AcpAgentDefinition> agents;
 
+  List<AcpAgentDefinition> get supportedCommitAgents {
+    return agents.where((agent) => agent.isSupportedCommitAgent).toList();
+  }
+
   AcpAgentDefinition resolve(String query) {
+    return _resolveFrom(query, agents, includeUnsupportedMessage: false);
+  }
+
+  AcpAgentDefinition resolveSupported(String query) {
+    return _resolveFrom(query, supportedCommitAgents);
+  }
+
+  AcpAgentDefinition _resolveFrom(
+    String query,
+    List<AcpAgentDefinition> candidates, {
+    bool includeUnsupportedMessage = true,
+  }) {
     final normalizedQuery = _normalize(query);
     final alias = _knownAliases[normalizedQuery];
     if (alias != null) {
-      return _findExact(alias) ??
+      return _findExact(alias, candidates) ??
           (throw AcpRegistryException(
             'ACP registry did not include "$alias" for "$query". File an '
             'issue if this agent should be supported: $acpSupportIssueUrl',
           ));
     }
 
-    final exact = _findExact(query);
+    final exact = _findExact(query, candidates);
     if (exact != null) return exact;
 
-    final matches = agents.where((agent) {
+    final matches = candidates.where((agent) {
       final id = _normalize(agent.id);
       final name = _normalize(agent.name);
       return id.contains(normalizedQuery) || name.contains(normalizedQuery);
@@ -186,15 +206,36 @@ class AcpRegistry {
       );
     }
 
+    if (includeUnsupportedMessage) {
+      final unsupportedMatches = agents.where((agent) {
+        if (agent.isSupportedCommitAgent) return false;
+        final id = _normalize(agent.id);
+        final name = _normalize(agent.name);
+        return id.contains(normalizedQuery) || name.contains(normalizedQuery);
+      }).toList();
+      if (unsupportedMatches.isNotEmpty) {
+        final choices = unsupportedMatches.map((agent) => agent.id).join(', ');
+        throw AcpRegistryException(
+          'Found "$query" in the ACP registry, but GitWhisper does not target '
+          'generic or unsupported ACP entries for commit generation: $choices. '
+          'Use a first-party/product-backed agent, or file an issue if this '
+          'agent should be supported: $acpSupportIssueUrl',
+        );
+      }
+    }
+
     throw AcpRegistryException(
       'Could not find an ACP agent matching "$query". File an issue if this '
       'agent should be supported: $acpSupportIssueUrl',
     );
   }
 
-  AcpAgentDefinition? _findExact(String query) {
+  AcpAgentDefinition? _findExact(
+    String query,
+    List<AcpAgentDefinition> candidates,
+  ) {
     final normalizedQuery = _normalize(query);
-    for (final agent in agents) {
+    for (final agent in candidates) {
       if (_normalize(agent.id) == normalizedQuery ||
           _normalize(agent.name) == normalizedQuery) {
         return agent;
@@ -211,6 +252,21 @@ class AcpRegistry {
     'codex': 'codex-acp',
     'claudecode': 'claude-acp',
     'claudeagent': 'claude-acp',
+  };
+
+  static const unsupportedCommitAgentIds = <String>{
+    'agoragentic-acp',
+    'corust-agent',
+    'crow-cli',
+    'deepagents',
+    'fast-agent',
+    'glm-acp-agent',
+    'goose',
+    'minion-code',
+    'opencode',
+    'pi-acp',
+    'sigit',
+    'vtcode',
   };
 }
 

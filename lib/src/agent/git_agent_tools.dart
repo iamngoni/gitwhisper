@@ -170,6 +170,17 @@ class GitAgentTools {
         ),
       ];
 
+  static List<Map<String, dynamic>> get mcpToolDefinitions {
+    return openAiToolDefinitions.map((tool) {
+      final function = tool['function'] as Map<String, dynamic>;
+      return <String, dynamic>{
+        'name': function['name'],
+        'description': function['description'],
+        'inputSchema': _mcpSchema(function['parameters']),
+      };
+    }).toList();
+  }
+
   Future<String> execute(String name, Map<String, dynamic> input) async {
     _logToolUse(name, input);
 
@@ -696,6 +707,23 @@ class GitAgentTools {
       'description': description,
       'input_schema': inputSchema,
     };
+  }
+
+  static Map<String, dynamic> _mcpSchema(Object? value) {
+    if (value is! Map) return <String, dynamic>{};
+    final schema = <String, dynamic>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString();
+      if (key == 'additionalProperties') continue;
+      final child = entry.value;
+      schema[key] = switch (child) {
+        Map() => _mcpSchema(child),
+        List() =>
+          child.map((item) => item is Map ? _mcpSchema(item) : item).toList(),
+        _ => child,
+      };
+    }
+    return schema;
   }
 
   static Map<String, dynamic> _emptyParameters() {

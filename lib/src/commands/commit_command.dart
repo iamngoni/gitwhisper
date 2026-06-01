@@ -19,6 +19,7 @@ import '../commit_utils.dart';
 import '../config_manager.dart';
 import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
+import '../models/acp_local_agent_generator.dart';
 import '../models/commit_generator.dart';
 import '../models/commit_generator_factory.dart';
 import '../models/language.dart';
@@ -358,7 +359,12 @@ class CommitCommand extends Command<int> {
         }
 
         if (commitMessage.trim().isEmpty) {
-          _logger.err('Error: Generated commit message is empty!');
+          _logger.err(
+            agentMode
+                ? 'Error: Agent did not return a valid commit message.'
+                : 'Error: Generated commit message is empty!',
+          );
+          _logAcpDebugPath();
           return ExitCode.software.code;
         }
 
@@ -494,8 +500,12 @@ class CommitCommand extends Command<int> {
           }
 
           if (commitMessage.trim().isEmpty) {
-            _logger
-                .err('[$folderName] Error: Generated commit message is empty');
+            _logger.err(
+              agentMode
+                  ? '[$folderName] Error: Agent did not return a valid commit message.'
+                  : '[$folderName] Error: Generated commit message is empty',
+            );
+            _logAcpDebugPath();
             failedRepos.add(folderName);
             continue;
           }
@@ -687,6 +697,12 @@ class CommitCommand extends Command<int> {
 
   void _logAgentToolUse(AgentToolUse toolUse) {
     _logger.info(_agentToolFormatter.format(toolUse));
+  }
+
+  void _logAcpDebugPath() {
+    final logPath = AcpDebugLog.lastLogPath;
+    if (logPath == null || logPath.isEmpty) return;
+    _logger.info('ACP debug log: $logPath');
   }
 
   /// Handles the confirmation workflow for commit messages
@@ -1192,6 +1208,7 @@ class CommitCommand extends Command<int> {
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty!');
+        _logAcpDebugPath();
         return ExitCode.software.code;
       }
 

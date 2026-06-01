@@ -8,7 +8,8 @@
 
 import 'models/language.dart';
 
-/// Generates a prompt for creating a git commit message based on staged changes.
+/// Generates a prompt for creating a git commit message based on staged
+/// changes.
 ///
 /// Takes the [diff] of staged changes and inserts it into a template prompt
 /// that instructs an AI assistant to generate a conventional commit message.
@@ -28,7 +29,8 @@ String getCommitPrompt(
 /// Generates a commit prompt that includes emoji formatting.
 ///
 /// Takes the [diff] of staged changes and [language] preference, and creates
-/// a prompt instructing an AI to generate conventional commit messages with emojis.
+/// a prompt instructing an AI to generate conventional commit messages with
+/// emojis.
 ///
 /// The optional [prefix] can be used to add a prefix to the commit messages.
 ///
@@ -117,7 +119,8 @@ $diff
 /// Generates a commit prompt without emoji formatting.
 ///
 /// Takes the [diff] of staged changes and [language] preference, and creates
-/// a prompt instructing an AI to generate conventional commit messages without emojis.
+/// a prompt instructing an AI to generate conventional commit messages without
+/// emojis.
 ///
 /// The optional [prefix] can be used to add a prefix to the commit messages.
 ///
@@ -298,7 +301,9 @@ String getAgentCommitPrompt(
   final prefixNote = hasPrefix
       ? '''
 TICKET PREFIX REQUIREMENT:
-Every commit message must start with "$prefix ->" before the commit type.
+You MUST include the ticket prefix "$prefix ->" at the start of EVERY commit message.
+
+The prefix "$prefix ->" must appear BEFORE the commit type on every line.
 '''
       : '';
 
@@ -306,13 +311,44 @@ Every commit message must start with "$prefix ->" before the commit type.
       ? '<type>: <emoji> <description[, additional brief context]>'
       : '<type>: <description[, additional brief context]>';
   final emojiRule = withEmoji
-      ? 'Include the matching approved emoji after the commit type.'
+      ? 'TYPES AND EMOJIS: Must use ONLY from the approved list below.'
       : 'Do not include emojis.';
   final languageInstruction = language != Language.english
       ? '''
-Generate the commit message description in ${language.name}. Keep the commit type in English.
+LANGUAGE REQUIREMENT:
+Generate the commit message description in ${language.name}.
+The commit type${withEmoji ? ' and emoji' : ''} must remain in English, but the description should be written in ${language.name}.
 '''
       : '';
+  final typeList = withEmoji
+      ? '''
+### Commit types and emojis:
+- feat: ✨ New feature
+- fix: 🐛 Bug fix
+- docs: 📚 Documentation
+- style: 💄 Code formatting only
+- refactor: ♻️ Code improvements
+- test: 🧪 Tests
+- chore: 🔧 Tooling/maintenance
+- perf: ⚡ Performance improvements
+- ci: 👷 CI/CD
+- build: 📦 Build system/dependencies
+- revert: ⏪ Reverting a commit
+'''
+      : '''
+### Commit types:
+- feat: New feature
+- fix: Bug fix
+- docs: Documentation
+- style: Code formatting only
+- refactor: Code improvements
+- test: Tests
+- chore: Tooling/maintenance
+- perf: Performance improvements
+- ci: CI/CD
+- build: Build system/dependencies
+- revert: Reverting a commit
+''';
 
   return '''
 You are an assistant that generates commit messages.
@@ -340,16 +376,28 @@ Based on the staged changes, generate valid, concise, conventional commit messag
 Each message must follow this strict format:
 $emojiFormat
 
-Rules:
-- Use imperative mood ("Add", "Fix", not "Added", "Fixed").
-- Capitalize the first word of the description.
-- Keep descriptions concise, preferably under 50 characters.
-- Use only valid commit types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert.
-- Only generate multiple commit messages if changes are truly unrelated.
-- $emojiRule
+Where:
+- <type> is a valid conventional type (always in English)
+${withEmoji ? '- <emoji> is the matching emoji' : ''}
+- <description> is in imperative mood ("Fix bug", not "Fixed bug")${language != Language.english ? ' and written in ${language.name}' : ''}
+- Optional context must be on the same line, comma-separated after the description
+
+Do NOT include:
+- Blank lines
+- Multiline messages
+- Commit bodies or footers below the header
+- Summaries, intros, or explanations
+
+MANDATORY FORMAT RULES:
+1. IMPERATIVE VERB: Always use "Add", "Fix", "Update", etc. (NOT "Added", "Fixed", "Updated")
+2. CAPITALIZE: First word must be capitalized
+3. CONCISE: Keep descriptions concise (preferably under 50 characters)
+4. $emojiRule
+5. Only generate multiple commit messages if changes are truly unrelated
 $languageInstruction
 $prefixNote
-Output only the final commit message or messages. Do not include summaries, explanations, markdown fences, or extra text.
+$typeList
+⚠️ Output must only be properly formatted commit message(s). Nothing else. Violation is not acceptable.
 ''';
 }
 

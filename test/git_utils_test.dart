@@ -46,6 +46,26 @@ fix: Add German date formatting for payment emails
       );
     });
 
+    test('extracts conventional commit from same-line agent preface', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          "I'll inspect the staged changes.docs: Add ACP smoke test note",
+          requireConventionalCommit: true,
+        ),
+        'docs: Add ACP smoke test note',
+      );
+    });
+
+    test('deduplicates repeated commit lines from agent output', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'feat: add ACP retry handling\nfeat: add ACP retry handling',
+          requireConventionalCommit: true,
+        ),
+        'feat: add ACP retry handling',
+      );
+    });
+
     test('strict mode rejects planning text without commit lines', () {
       expect(
         GitUtils.sanitizeGeneratedCommitMessage(

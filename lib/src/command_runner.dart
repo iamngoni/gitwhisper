@@ -20,18 +20,22 @@ import 'commands/clear_defaults_command.dart';
 import 'commands/commit_command.dart';
 import 'commands/list_models_command.dart';
 import 'commands/list_variants_command.dart';
+import 'commands/mcp_command.dart';
 import 'commands/save_key_command.dart';
 import 'commands/set_defaults_command.dart';
 import 'commands/show_config_command.dart';
 import 'commands/show_defaults_command.dart';
 import 'commands/update_command.dart';
 import 'constants.dart';
+import 'update/update_notifier.dart';
 import 'version.dart';
 
 class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   GitWhisperCommandRunner({
     PubUpdater? pubUpdater,
+    UpdateNotifier? updateNotifier,
   })  : _pubUpdater = pubUpdater ?? PubUpdater(),
+        _updateNotifier = updateNotifier,
         super('gitwhisper', 'AI-powered Git commit message generator') {
     argParser
       ..addFlag(
@@ -49,6 +53,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     // Add commands
     addCommand(CommitCommand(logger: $logger));
     addCommand(AcpCommand(logger: $logger));
+    addCommand(McpCommand());
     addCommand(AnalyzeCommand(logger: $logger));
     addCommand(ListModelsCommand(logger: $logger));
     addCommand(ListVariantsCommand(logger: $logger));
@@ -79,6 +84,7 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
   }
 
   final PubUpdater _pubUpdater;
+  final UpdateNotifier? _updateNotifier;
 
   @override
   Future<int> run(Iterable<String> args) async {
@@ -109,8 +115,25 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
       return ExitCode.success.code;
     }
 
+    if (_shouldCheckForUpdates(topLevelResults)) {
+      await (_updateNotifier ??
+              UpdateNotifier(
+                logger: $logger,
+                pubUpdater: _pubUpdater,
+              ))
+          .maybePrompt();
+    }
+
     // Handle no command
     final commandResult = await super.runCommand(topLevelResults);
     return commandResult;
+  }
+
+  bool _shouldCheckForUpdates(ArgResults topLevelResults) {
+    final commandName = topLevelResults.command?.name;
+    if (commandName == null) return false;
+    return commandName != 'update' &&
+        commandName != 'completion' &&
+        commandName != 'mcp';
   }
 }

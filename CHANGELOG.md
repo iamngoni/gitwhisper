@@ -4,6 +4,10 @@
 - Added ACP registry commands: `gw acp list`, `info`, `resolve`, `install`, `cache path`, and `cache refresh`.
 - Added binary ACP distribution support for agents that do not publish an npx package.
 - Added ACP authentication retry support so local agents can launch terminal or agent auth flows and continue the original request.
+- Added ACP debug logs under `~/.gitwhisper/acp/logs` for failed or empty agent responses.
+- Limited ACP commit targeting to supported first-party/product-backed agents; use `gw acp list --all` to inspect raw registry entries.
+- Exposed GitWhisper staged-change tools to ACP agents through a local stdio MCP server.
+- Added interactive startup update notices with an option to update immediately or stay on the current version for the session.
 - Removed the LLM7.io `free` provider from the CLI.
 - Made `gw update` detect Dart pub, Homebrew, APT, and manual installs, with `gw update --check` to preview the update path.
 - Sanitized noisy agent responses so only valid conventional commit lines are used as commit messages.

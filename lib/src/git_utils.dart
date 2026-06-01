@@ -410,11 +410,23 @@ class GitUtils {
       '(?:feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'
       r'(?:\([^)]+\))?!?:\s+\S.*$',
     );
+    final commitSubstringPattern = RegExp(
+      r'(?:[A-Z][A-Z0-9]+-\d+\s*->\s*)?'
+      r'(?:feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'
+      r'(?:\([^)]+\))?!?:\s+\S.*$',
+    );
     final commitLines = cleaned
         .split('\n')
         .map((line) => line.trim())
-        .where(commitLinePattern.hasMatch)
-        .toList();
+        .map((line) {
+          if (commitLinePattern.hasMatch(line)) return line;
+          return commitSubstringPattern.firstMatch(line)?.group(0)?.trim();
+        })
+        .whereType<String>()
+        .fold<List<String>>(<String>[], (lines, line) {
+          if (!lines.contains(line)) lines.add(line);
+          return lines;
+        });
 
     if (commitLines.isNotEmpty) return commitLines.join('\n').trim();
     return requireConventionalCommit ? '' : cleaned.trim();

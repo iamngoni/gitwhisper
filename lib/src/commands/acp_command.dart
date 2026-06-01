@@ -64,7 +64,14 @@ class AcpListCommand extends Command<int> {
     required AcpAgentLauncher agentLauncher,
   })  : _logger = logger,
         _registryLoader = registryLoader,
-        _agentLauncher = agentLauncher;
+        _agentLauncher = agentLauncher {
+    argParser.addFlag(
+      'all',
+      help: 'Show every registry entry, including agents GitWhisper does not '
+          'target for commit generation.',
+      negatable: false,
+    );
+  }
 
   final Logger _logger;
   final AcpRegistryLoader _registryLoader;
@@ -80,12 +87,19 @@ class AcpListCommand extends Command<int> {
   Future<int> run() async {
     try {
       final registry = await _registryLoader.load();
-      final agents = [...registry.agents]..sort((a, b) => a.id.compareTo(b.id));
+      final showAll = argResults?['all'] == true;
+      final agents = [
+        ...(showAll ? registry.agents : registry.supportedCommitAgents),
+      ]..sort((a, b) => a.id.compareTo(b.id));
 
-      _logger.info('ACP agents:');
+      _logger.info(showAll ? 'ACP agents:' : 'ACP commit agents:');
       for (final agent in agents) {
+        final supportNote =
+            agent.isSupportedCommitAgent ? '' : ' (not used for commits)';
         _logger
-          ..info('  - ${agent.id} (${agent.name}) v${agent.version}')
+          ..info(
+            '  - ${agent.id} (${agent.name}) v${agent.version}$supportNote',
+          )
           ..info(
             '    Launcher: ${_agentLauncher.describeLaunchSupport(agent)}',
           );
@@ -168,7 +182,7 @@ class AcpResolveCommand extends Command<int> {
     }
 
     try {
-      final agent = (await _registryLoader.load()).resolve(query);
+      final agent = (await _registryLoader.load()).resolveSupported(query);
       _logger
         ..info('$query -> ${agent.id}')
         ..info('Launcher: ${_agentLauncher.describeLaunchSupport(agent)}');

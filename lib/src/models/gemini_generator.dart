@@ -196,9 +196,27 @@ class GeminiGenerator extends CommitGenerator implements AgentCommitGenerator {
       return <String, dynamic>{
         'name': function['name'],
         'description': function['description'],
-        'parameters': function['parameters'],
+        'parameters': _geminiSchema(function['parameters']),
       };
     }).toList();
+  }
+
+  Map<String, dynamic> _geminiSchema(Object? value) {
+    if (value is! Map) return <String, dynamic>{};
+    final schema = <String, dynamic>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString();
+      if (key == 'additionalProperties') continue;
+      final child = entry.value;
+      schema[key] = switch (child) {
+        Map() => _geminiSchema(child),
+        List() => child
+            .map((item) => item is Map ? _geminiSchema(item) : item)
+            .toList(),
+        _ => child,
+      };
+    }
+    return schema;
   }
 
   List<Map<String, dynamic>> _extractGeminiParts(

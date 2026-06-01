@@ -77,16 +77,18 @@ Or download the executable binary that will work on your operating system direct
 ## Features
 
 - 🤖 Leverages various AI models to analyze your code changes and generate meaningful commit messages
-- 🔄 Follows conventional commit format with emojis: `<emoji> <type>: <description>`
+- 🔄 Follows conventional commit format: `<type>: <description>` or `<type>: <emoji> <description>` when emojis are enabled
 - ✨ **Interactive commit confirmation** - Review, edit, retry with different models, or discard generated messages
 - 📋 Pre-fills the Git commit editor for easy review and modification
 - 🚀️ Supports automatic pushing of commits to the remote repository
 - 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
 - 🏷️ Create git tags alongside commits with optional auto-push
-- 🧩 Choose specific model variants (gpt-4o, claude-3-opus, etc.)
+- 🧩 Choose specific model variants (gpt-4o, claude-sonnet-4, etc.)
 - 🔑 Securely saves API keys for future use
 - 🌍 Multi-language support for commit messages and analysis
+- 🧠 Agent mode is used by default for providers that support tools
+- 🛠️ Local ACP agents can inspect staged changes through GitWhisper's read-only MCP tools
 - 🔌 Supports multiple AI models:
     - Claude (Anthropic)
     - Claude Code ACP agent
@@ -96,7 +98,7 @@ Or download the executable binary that will work on your operating system direct
     - Grok (xAI)
     - Llama (Meta)
     - Deepseek (DeepSeek, Inc.)
-    - GitHub Models (Free, rate-limited)
+    - GitHub Models
     - All Ollama models
 
 ## Usage
@@ -140,6 +142,8 @@ gw commit -t v1.0.0 -a
 # Use local ACP agent providers (no GitWhisper API key required)
 gitwhisper commit --model codex
 gitwhisper commit --model claude-code
+gitwhisper commit --model qoder
+gitwhisper commit --model poolside
 
 # Analyze your changes (staged/unstaged) with AI
 gitwhisper analyze
@@ -220,7 +224,7 @@ GitWhisper now features an interactive commit confirmation workflow that gives y
 ```bash
 $ gitwhisper commit
 🔮 Analyzing your changes...
-✨ Generated commit message: feat: ✨ Add user authentication system
+✨ Generated commit message: feat: Add user authentication system
 
 Options:
 [A] Apply commit message
@@ -246,7 +250,9 @@ GitWhisper uses a command-based structure:
 - `update`: Update GitWhisper to the latest version
 - `set-defaults`: Set default model and variant for future use (supports --base-url for Ollama)
 - `show-defaults`: Display current default settings
+- `show-config`: Display the current config file path and contents
 - `clear-defaults`: Clear any set default preferences
+- `always-add`: Configure whether GitWhisper stages changes before committing
 
 ## API Keys
 
@@ -265,6 +271,7 @@ Local ACP agent providers do not need GitWhisper API keys:
 
 - `codex` resolves `codex-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
 - `claude-code` resolves `claude-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
+- Other supported ACP agent ids can be used directly, for example `qoder`, `poolside`, `cline`, or other agents shown by `gw acp list`.
 
 GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
 If the registry cannot be fetched, GitWhisper uses the cached copy. If there is
@@ -272,6 +279,9 @@ no cache yet, it prints a clear registry/cache error with a link to file a
 support issue.
 Binary-only ACP agents are installed under `~/.gitwhisper/acp/agents/` when you
 run `gw acp install <agent>` or when GitWhisper needs to launch them.
+Unsupported or generic registry entries are hidden from the default commit-agent
+list. Use `gw acp list --all` to see every registry entry, including agents that
+GitWhisper does not target for commit generation.
 
 Agent mode is enabled by default for tool-capable providers:
 
@@ -285,8 +295,9 @@ Agent mode is enabled by default for tool-capable providers:
 - `gw commit --model ollama`
 - `gw commit --model codex`
 - `gw commit --model claude-code`
+- `gw commit --model <supported-acp-agent-id>`
 
-In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, and file content. The full diff is not sent in one prompt.
+In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, diff hunks, file-content chunks, file search, related files, summaries, and blame. Local ACP agents receive these through GitWhisper's MCP server. The full diff is not sent in one prompt.
 Models without tool support automatically use the regular direct-diff mode.
 
 ## Model Variants
@@ -294,43 +305,60 @@ Models without tool support automatically use the regular direct-diff mode.
 GitWhisper supports a comprehensive range of model variants:
 
 ### OpenAI
-- `gpt-4` (default)
-- `gpt-4-turbo-2024-04-09`
-- `gpt-4o`
-- `gpt-4o-mini`
+- `gpt-4o` (default)
+- `gpt-5`
+- `gpt-5-mini`
+- `gpt-5-nano`
+- `gpt-5-pro`
+- `gpt-4.1`
+- `gpt-4.1-mini`
+- `gpt-4.1-nano`
 - `gpt-4.5-preview`
-- `gpt-3.5-turbo-0125`
-- `gpt-3.5-turbo-instruct`
+- `gpt-4o-mini`
+- `gpt-realtime`
+- `gpt-realtime-mini`
 - `o1-preview`
 - `o1-mini`
 - `o3-mini`
 
 ### Claude (Anthropic)
-- `claude-3-opus-20240307` (default)
+- `claude-sonnet-4-20250514` (default)
+- `claude-sonnet-4-5-20250929`
+- `claude-opus-4-1-20250805`
+- `claude-opus-4-20250514`
+- `claude-3-7-sonnet-20250219`
+- `claude-3-7-sonnet-latest`
+- `claude-3-5-sonnet-latest`
+- `claude-3-5-sonnet-20241022`
+- `claude-3-5-sonnet-20240620`
+- `claude-3-opus-20240307`
 - `claude-3-sonnet-20240307`
 - `claude-3-haiku-20240307`
-- `claude-3-5-sonnet-20240620`
-- `claude-3-5-sonnet-20241022`
-- `claude-3-7-sonnet-20250219`
 
 ### Local ACP Agent Providers
 - `codex` uses the Codex ACP agent default model. Configure model selection in the local ACP agent.
 - `claude-code` uses the Claude ACP agent default model. Configure model selection in the local ACP agent.
+- Supported ACP agent ids from `gw acp list` use that agent's own model/configuration.
 
 ### Gemini (Google)
-- `gemini-2.5-pro-preview-05-06` (advanced reasoning, 1M token context)
-- `gemini-2.5-flash-preview-04-17` (adaptive thinking, cost efficient)
 - `gemini-2.0-flash` (default, fast performance)
-- `gemini-2.0-flash-lite` (lowest latency)
-- `gemini-1.5-pro-002` (supports up to 2M tokens)
-- `gemini-1.5-flash-002` (supports up to 1M tokens)
-- `gemini-1.5-flash-8b` (most cost effective)
+- `gemini-2.5-pro` (advanced reasoning with thinking)
+- `gemini-2.5-flash` (updated Sep 2025)
+- `gemini-2.5-flash-lite` (most cost-efficient)
+- `gemini-2.5-flash-image` (image generation)
+- `gemini-2.5-computer-use` (agent interaction)
+- `gemini-1.5-pro-002` (2M tokens)
+- `gemini-1.5-flash-002` (1M tokens)
+- `gemini-1.5-flash-8b` (cost effective)
 
 ### Grok (xAI)
-- `grok-1` (default)
-- `grok-2`
-- `grok-3`
-- `grok-2-mini`
+- `grok-2-latest` (default)
+- `grok-4` (most intelligent)
+- `grok-4-heavy` (most powerful)
+- `grok-4-fast` (efficient reasoning)
+- `grok-code-fast-1` (agentic coding)
+- `grok-3` (reasoning capabilities)
+- `grok-3-mini` (faster responses)
 
 ### Llama (Meta)
 - `llama-3-70b-instruct` (default)
@@ -342,15 +370,24 @@ GitWhisper supports a comprehensive range of model variants:
 - `llama-3.2-3b-instruct`
 - `llama-3.3-70b-instruct`
 
-### Deekseek (DeepSeek, Inc.)
-- `deekseek-chat` (default)
+### Deepseek (DeepSeek, Inc.)
+- `deepseek-chat` (default)
+- `deepseek-v3.2-exp` (latest experimental)
+- `deepseek-v3.1` (hybrid reasoning)
+- `deepseek-v3.1-terminus`
+- `deepseek-r1-0528` (upgraded reasoning)
+- `deepseek-v3-0324` (improved post-training)
 - `deepseek-reasoner`
 
-### GitHub (Free to use models) - rate limited
+### GitHub Models
 - `gpt-4o` (default)
-- `Llama-3.3-70B-Instruct`
 - `DeepSeek-R1`
-- `etc - Check for more here` [https://github.com/marketplace?type=models](https://github.com/marketplace?type=models)
+- `Llama-3.3-70B-Instruct`
+- `Deepseek-V3`
+- `Phi-4-mini-instruct`
+- `Codestral 25.01`
+- `Mistral Large 24.11`
+- More models are available in the [GitHub Models marketplace](https://github.com/marketplace?type=models)
 
 To run GitHub models you may need the following:
 > To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
@@ -362,12 +399,13 @@ To run GitHub models you may need the following:
 
 Git Whisper:
 1. Checks if you have staged changes in your repository
-2. Retrieves the diff of your staged changes
-3. Sends the diff to the selected AI model
-4. Generates a commit message following the conventional commit format with emojis
-5. **Shows you an interactive confirmation** - review, edit, retry, or discard the message
-6. Applies any prefix/ticket number if specified
-7. Submits the commit with the confirmed message
+2. Chooses agent mode for tool-capable providers, or direct-diff mode for providers without tool support
+3. In agent mode, exposes read-only staged-change tools instead of sending the whole diff at once
+4. In direct-diff mode, retrieves the diff and sends it to the selected AI model
+5. Generates a commit message following the configured conventional commit format
+6. **Shows you an interactive confirmation** when confirmation is enabled - review, edit, retry, or discard the message
+7. Applies any prefix/ticket number if specified
+8. Submits the commit with the confirmed message
 
 ## Language Support
 
@@ -398,7 +436,7 @@ GitWhisper supports generating commit messages and analysis in multiple language
 ### Language Behavior
 
 When using non-English languages:
-- **Commit messages**: The commit type (e.g., `feat:`, `fix:`) and emoji remain in English for tool compatibility, while the description is generated in your selected language
+- **Commit messages**: The commit type (e.g., `feat:`, `fix:`) remains in English for tool compatibility. If emojis are enabled, the emoji also remains standard, while the description is generated in your selected language
 - **Analysis**: The entire analysis response is provided in your selected language
 
 Example commit message in Spanish:
@@ -431,16 +469,34 @@ max_diff_size: 50000  # Max diff size before prompting for interactive staging
 - Git installed and available in your PATH
 
 ## Conventional Commit Format
-Git Whisper generates commit messages following the **conventional commit format** with emojis: `fix: 🐛 Fix login validation`
+Git Whisper generates commit messages following the **conventional commit format**:
+
+```text
+fix: Fix login validation
+```
+
+When emojis are enabled, the emoji is placed after the type:
+
+```text
+fix: 🐛 Fix login validation
+```
 
 ### With Prefix
 If a prefix (e.g., a ticket number or task ID) is provided, Git Whisper intelligently formats it based on the number of commit messages:
 
-- For a **single commit message**, the prefix appears **after the emoji**:
+- For a **single commit message**, the prefix is added before the description:
 
-`fix: 🐛 PREFIX-123 -> Fix login validation`
+```text
+fix: PREFIX-123 -> Fix login validation
+```
 
-- For **multiple unrelated commit messages**, the prefix appears in **bold at the top**, and each message starts with an arrow after the emoji:
+With emojis enabled:
+
+```text
+fix: 🐛 PREFIX-123 -> Fix login validation
+```
+
+- For **multiple unrelated commit messages**, the prefix appears at the top, and each message remains a valid conventional commit:
 
 ```
 PREFIX-123

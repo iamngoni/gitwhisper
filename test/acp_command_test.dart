@@ -19,6 +19,19 @@ void main() {
     expect(exitCode, ExitCode.success.code);
   });
 
+  test('acp list --all includes unsupported registry entries', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'list',
+      '--all',
+    ]);
+
+    expect(exitCode, ExitCode.success.code);
+  });
+
   test('acp resolve resolves aliases', () async {
     final fixture = await AcpCommandFixture.create();
     addTearDown(fixture.dispose);
@@ -30,6 +43,19 @@ void main() {
     ]);
 
     expect(exitCode, ExitCode.success.code);
+  });
+
+  test('acp resolve rejects unsupported generic agents', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'resolve',
+      'vtcode',
+    ]);
+
+    expect(exitCode, ExitCode.software.code);
   });
 
   test('acp info shows binary-only agents', () async {

@@ -34,9 +34,15 @@ class AcpAgentLauncher {
 
   String get platformKey => _platformKey;
 
-  Future<AcpLaunchCommand> launchCommandFor(AcpAgentDefinition agent) async {
+  Future<AcpLaunchCommand> launchCommandFor(
+    AcpAgentDefinition agent, {
+    AcpInstallStatusCallback? onStatus,
+  }) async {
     final npxCommand = _npxLaunchCommand(agent);
-    if (npxCommand != null) return npxCommand;
+    if (npxCommand != null) {
+      onStatus?.call('Using npx package ${agent.npxPackage}');
+      return npxCommand;
+    }
 
     final binary = agent.binaryDistributions[_platformKey];
     if (binary == null) {
@@ -48,7 +54,11 @@ class AcpAgentLauncher {
     }
 
     final installDirectory = _installDirectoryFor(agent);
-    await _installBinaryIfNeeded(binary, installDirectory);
+    await _installBinaryIfNeeded(
+      binary,
+      installDirectory,
+      onStatus: onStatus,
+    );
 
     final executable = _resolveCommandPath(installDirectory, binary.command);
 
@@ -62,18 +72,38 @@ class AcpAgentLauncher {
 
   Future<AcpLaunchCommand> authLaunchCommandFor(
     AcpAgentDefinition agent,
-    AcpAuthMethod method,
-  ) async {
+    AcpAuthMethod method, {
+    AcpInstallStatusCallback? onStatus,
+  }) async {
     if (method.command.isNotEmpty) {
+      final package = agent.npxPackage;
+      if (package != null && package.isNotEmpty) {
+        return AcpLaunchCommand(
+          executable: 'npx',
+          arguments: <String>['-y', package, ...method.command.skip(1)],
+          environment: <String, String>{
+            ...agent.npxEnv,
+            ...method.environment,
+          },
+        );
+      }
+
       final binary = agent.binaryDistributions[_platformKey];
       if (binary != null) {
         final installDirectory = _installDirectoryFor(agent);
-        await _installBinaryIfNeeded(binary, installDirectory);
+        await _installBinaryIfNeeded(
+          binary,
+          installDirectory,
+          onStatus: onStatus,
+        );
         final executable =
             _resolveCommandPath(installDirectory, binary.command);
         final suggestedExecutable = method.command.first;
         final executableName = path.basename(executable).toLowerCase();
-        if (executableName.startsWith(suggestedExecutable.toLowerCase())) {
+        final normalizedSuggestion = suggestedExecutable.toLowerCase();
+        if (executableName == normalizedSuggestion ||
+            executableName.startsWith(normalizedSuggestion) ||
+            executableName.endsWith('-$normalizedSuggestion')) {
           return AcpLaunchCommand(
             executable: executable,
             arguments: method.command.skip(1).toList(),
@@ -104,7 +134,7 @@ class AcpAgentLauncher {
 
     final binary = agent.binaryDistributions[_platformKey];
     if (binary == null) {
-      await launchCommandFor(agent);
+      await launchCommandFor(agent, onStatus: onStatus);
       throw AcpRegistryException(
         'ACP agent "${agent.id}" cannot be launched for authentication on '
         '$_platformKey.',
@@ -112,7 +142,11 @@ class AcpAgentLauncher {
     }
 
     final installDirectory = _installDirectoryFor(agent);
-    await _installBinaryIfNeeded(binary, installDirectory);
+    await _installBinaryIfNeeded(
+      binary,
+      installDirectory,
+      onStatus: onStatus,
+    );
     return AcpLaunchCommand(
       executable: _resolveCommandPath(installDirectory, binary.command),
       arguments: method.args,
