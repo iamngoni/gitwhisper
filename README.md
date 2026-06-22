@@ -23,20 +23,24 @@ Git Whisper is an AI-powered Git commit message generator that whispers the perf
 GitWhisper is also available as plugins for popular editors:
 
 ### Visual Studio Code
+
 Install the GitWhisper extension directly from the marketplace:
+
 - **Extension**: [GitWhisper for VS Code](https://marketplace.visualstudio.com/items?itemName=gitwhisper.gitwhisper)
 - **Developer**: Panashe Mushinyi
 - **Features**: Generate commit messages directly within VS Code's Git interface
 
 ### JetBrains IDEs
+
 Available for all JetBrains IDEs (IntelliJ IDEA, WebStorm, PhpStorm, etc.):
-- **Plugin**: [GitWhisper for JetBrains](https://plugins.jetbrains.com/plugin/28057-gitwhisper)  
+
+- **Plugin**: [GitWhisper for JetBrains](https://plugins.jetbrains.com/plugin/28057-gitwhisper)
 - **Developer**: Panashe Mushinyi
 - **Features**: Seamless integration with JetBrains VCS tools
 
 ## Getting Started 🚀
 
-If you have `Dart` installed, activate globally via:
+If you have `Dart` installed, you can activate globally via:
 
 ```sh
 dart pub global activate gitwhisper
@@ -56,6 +60,7 @@ brew install gitwhisper
 ```
 
 Or on Debian/Ubuntu using APT (supports amd64 and arm64):
+
 ```bash
 echo "deb [trusted=yes] https://iamngoni.github.io/gitwhisper-apt stable main" | sudo tee /etc/apt/sources.list.d/gitwhisper.list
 sudo apt update
@@ -63,11 +68,13 @@ sudo apt install gitwhisper
 ```
 
 Or directly with curl:
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.sh | bash
 ```
 
 Or on the beloved Windows using Powershell (as Administrator):
+
 ```bash
 irm https://raw.githubusercontent.com/iamngoni/gitwhisper/master/install.ps1 | iex
 ```
@@ -90,16 +97,16 @@ Or download the executable binary that will work on your operating system direct
 - 🧠 Agent mode is used by default for providers that support tools
 - 🛠️ Local ACP agents can inspect staged changes through GitWhisper's read-only MCP tools
 - 🔌 Supports multiple AI models:
-    - Claude (Anthropic)
-    - Claude Code ACP agent
-    - Codex ACP agent
-    - OpenAI (GPT)
-    - Gemini (Google)
-    - Grok (xAI)
-    - Llama (Meta)
-    - Deepseek (DeepSeek, Inc.)
-    - GitHub Models
-    - All Ollama models
+  - Claude (Anthropic)
+  - Claude Code ACP agent
+  - Codex ACP agent
+  - OpenAI (GPT)
+  - Gemini (Google)
+  - Grok (xAI)
+  - Llama (Meta)
+  - Deepseek (DeepSeek, Inc.)
+  - GitHub Models
+  - All Ollama models
 
 ## Usage
 
@@ -207,6 +214,7 @@ gw --help
 ```
 
 ## Shorter Command
+
 Instead of using the full `gitwhisper` command you can also use the shortened one `gw`. Both `gitwhisper` and `gw` without any subcommands will automatically run the `commit` command by default.
 
 ## Interactive Commit Confirmation
@@ -214,13 +222,15 @@ Instead of using the full `gitwhisper` command you can also use the shortened on
 GitWhisper now features an interactive commit confirmation workflow that gives you full control over your commit messages:
 
 ### What You Can Do:
+
 - **Apply**: Use the generated commit message as-is
 - **Edit**: Modify the commit message before applying
-- **Retry**: Generate a new message with the same model  
+- **Retry**: Generate a new message with the same model
 - **Try Different Model**: Generate with a different AI model
 - **Discard**: Cancel and exit without committing
 
 ### Example Workflow:
+
 ```bash
 $ gitwhisper commit
 🔮 Analyzing your changes...
@@ -233,7 +243,7 @@ Options:
 [M] Try different model
 [D] Discard and exit
 
-What would you like to do? (A/e/r/m/d): 
+What would you like to do? (A/e/r/m/d):
 ```
 
 ## Command Structure
@@ -260,11 +270,11 @@ You can provide API keys in several ways:
 
 1. **Command line argument**: `--key "your-api-key"`
 2. **Environment variables**:
-    - `ANTHROPIC_API_KEY` (for Claude)
-    - `OPENAI_API_KEY` (for OpenAI)
-    - `GEMINI_API_KEY` (for Gemini)
-    - `GROK_API_KEY` (for Grok)
-    - `LLAMA_API_KEY` (for Llama)
+   - `ANTHROPIC_API_KEY` (for Claude)
+   - `OPENAI_API_KEY` (for OpenAI)
+   - `GEMINI_API_KEY` (for Gemini)
+   - `GROK_API_KEY` (for Grok)
+   - `LLAMA_API_KEY` (for Llama)
 3. **Saved configuration**: Use the `save-key` command to store your API key permanently
 
 Local ACP agent providers do not need GitWhisper API keys:
@@ -305,6 +315,7 @@ Models without tool support automatically use the regular direct-diff mode.
 GitWhisper supports a comprehensive range of model variants:
 
 ### OpenAI
+
 - `gpt-4o` (default)
 - `gpt-5`
 - `gpt-5-mini`
@@ -322,6 +333,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `o3-mini`
 
 ### Claude (Anthropic)
+
 - `claude-sonnet-4-20250514` (default)
 - `claude-sonnet-4-5-20250929`
 - `claude-opus-4-1-20250805`
@@ -336,11 +348,13 @@ GitWhisper supports a comprehensive range of model variants:
 - `claude-3-haiku-20240307`
 
 ### Local ACP Agent Providers
+
 - `codex` uses the Codex ACP agent default model. Configure model selection in the local ACP agent.
 - `claude-code` uses the Claude ACP agent default model. Configure model selection in the local ACP agent.
 - Supported ACP agent ids from `gw acp list` use that agent's own model/configuration.
 
 ### Gemini (Google)
+
 - `gemini-2.0-flash` (default, fast performance)
 - `gemini-2.5-pro` (advanced reasoning with thinking)
 - `gemini-2.5-flash` (updated Sep 2025)
@@ -352,6 +366,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `gemini-1.5-flash-8b` (cost effective)
 
 ### Grok (xAI)
+
 - `grok-2-latest` (default)
 - `grok-4` (most intelligent)
 - `grok-4-heavy` (most powerful)
@@ -361,6 +376,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `grok-3-mini` (faster responses)
 
 ### Llama (Meta)
+
 - `llama-3-70b-instruct` (default)
 - `llama-3-8b-instruct`
 - `llama-3.1-8b-instruct`
@@ -371,6 +387,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `llama-3.3-70b-instruct`
 
 ### Deepseek (DeepSeek, Inc.)
+
 - `deepseek-chat` (default)
 - `deepseek-v3.2-exp` (latest experimental)
 - `deepseek-v3.1` (hybrid reasoning)
@@ -380,6 +397,7 @@ GitWhisper supports a comprehensive range of model variants:
 - `deepseek-reasoner`
 
 ### GitHub Models
+
 - `gpt-4o` (default)
 - `DeepSeek-R1`
 - `Llama-3.3-70B-Instruct`
@@ -390,14 +408,17 @@ GitWhisper supports a comprehensive range of model variants:
 - More models are available in the [GitHub Models marketplace](https://github.com/marketplace?type=models)
 
 To run GitHub models you may need the following:
+
 > To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
 
 ### Ollama (self-hosted)
+
 - Check Ollama models here: [https://ollama.com/search](https://ollama.com/search)
 
 ## How It Works
 
 Git Whisper:
+
 1. Checks if you have staged changes in your repository
 2. Chooses agent mode for tool-capable providers, or direct-diff mode for providers without tool support
 3. In agent mode, exposes read-only staged-change tools instead of sending the whole diff at once
@@ -436,15 +457,18 @@ GitWhisper supports generating commit messages and analysis in multiple language
 ### Language Behavior
 
 When using non-English languages:
+
 - **Commit messages**: The commit type (e.g., `feat:`, `fix:`) remains in English for tool compatibility. If emojis are enabled, the emoji also remains standard, while the description is generated in your selected language
 - **Analysis**: The entire analysis response is provided in your selected language
 
 Example commit message in Spanish:
+
 ```
 feat: ✨ Agregar funcionalidad de modo oscuro
 ```
 
 Use the `change-language` command to set your preferred language:
+
 ```bash
 gitwhisper change-language
 gw change-language
@@ -460,7 +484,7 @@ api_keys:
   openai: "your-openai-key"
   # ...
 whisper_language: english
-max_diff_size: 50000  # Max diff size before prompting for interactive staging
+max_diff_size: 50000 # Max diff size before prompting for interactive staging
 ```
 
 ## Requirements
@@ -469,6 +493,7 @@ max_diff_size: 50000  # Max diff size before prompting for interactive staging
 - Git installed and available in your PATH
 
 ## Conventional Commit Format
+
 Git Whisper generates commit messages following the **conventional commit format**:
 
 ```text
@@ -482,6 +507,7 @@ fix: 🐛 Fix login validation
 ```
 
 ### With Prefix
+
 If a prefix (e.g., a ticket number or task ID) is provided, Git Whisper intelligently formats it based on the number of commit messages:
 
 - For a **single commit message**, the prefix is added before the description:
@@ -508,19 +534,19 @@ This ensures your commits are always clean, readable, and traceable.
 
 ### Common Commit Types and Emojis
 
-| Type       | Emoji | Description                                      |
-|------------|-------|--------------------------------------------------|
-| `feat`     | ✨     | New feature                                      |
-| `fix`      | 🐛     | Bug fix                                          |
-| `docs`     | 📚     | Documentation changes                            |
-| `style`    | 💄     | Code style changes (formatting, whitespace, etc.)|
-| `refactor` | ♻️     | Code refactoring (no new features or fixes)      |
-| `test`     | 🧪     | Adding or updating tests                         |
-| `chore`    | 🔧     | Build process or auxiliary tool changes          |
-| `perf`     | ⚡     | Performance improvements                         |
-| `ci`       | 👷     | Continuous Integration/Deployment changes        |
-| `build`    | 📦     | Build system or dependency changes               |
-| `revert`   | ⏪     | Revert a previous commit                         |
+| Type       | Emoji | Description                                       |
+| ---------- | ----- | ------------------------------------------------- |
+| `feat`     | ✨    | New feature                                       |
+| `fix`      | 🐛    | Bug fix                                           |
+| `docs`     | 📚    | Documentation changes                             |
+| `style`    | 💄    | Code style changes (formatting, whitespace, etc.) |
+| `refactor` | ♻️    | Code refactoring (no new features or fixes)       |
+| `test`     | 🧪    | Adding or updating tests                          |
+| `chore`    | 🔧    | Build process or auxiliary tool changes           |
+| `perf`     | ⚡    | Performance improvements                          |
+| `ci`       | 👷    | Continuous Integration/Deployment changes         |
+| `build`    | 📦    | Build system or dependency changes                |
+| `revert`   | ⏪    | Revert a previous commit                          |
 
 ## Contributing
 
