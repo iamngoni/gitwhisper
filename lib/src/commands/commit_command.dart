@@ -66,6 +66,11 @@ class CommitCommand extends Command<int> {
         abbr: 'c',
         help: 'Confirm commit message before applying',
       )
+      ..addFlag(
+        'dry-run',
+        help: 'Generate and print the commit message without committing.',
+        negatable: false,
+      )
       ..addOption(
         'tag',
         abbr: 't',
@@ -260,6 +265,9 @@ class CommitCommand extends Command<int> {
     // Handle --auto-push, fallback to false if not provided
     final autoPush = (argResults?['auto-push'] as bool?) ?? false;
 
+    // Handle --dry-run: generate the message but never commit/push/tag.
+    final dryRun = (argResults?['dry-run'] as bool?) ?? false;
+
     // Handle --confirm, fallback to global config, then false
     // Check if --confirm or --no-confirm was explicitly provided
     final confirm = argResults?.wasParsed('confirm') ?? false
@@ -324,6 +332,7 @@ class CommitCommand extends Command<int> {
           autoPush: autoPush,
           tag: tag,
           confirm: confirm,
+          dryRun: dryRun,
           modelName: modelName,
           modelVariant: modelVariant,
         );
@@ -368,8 +377,8 @@ class CommitCommand extends Command<int> {
           return ExitCode.software.code;
         }
 
-        // Handle confirmation workflow if enabled
-        if (confirm) {
+        // Handle confirmation workflow if enabled (skipped for dry runs).
+        if (confirm && !dryRun) {
           final finalMessage = await _handleCommitConfirmation(
             commitMessage: commitMessage,
             generator: generator,
@@ -396,6 +405,11 @@ class CommitCommand extends Command<int> {
             ..info('\n---------------------------------\n')
             ..info(commitMessage)
             ..info('\n---------------------------------\n');
+        }
+
+        if (dryRun) {
+          _logger.info('Dry run: no commit was created.');
+          return ExitCode.success.code;
         }
 
         try {
@@ -510,8 +524,8 @@ class CommitCommand extends Command<int> {
             continue;
           }
 
-          // Handle confirmation workflow if enabled
-          if (confirm) {
+          // Handle confirmation workflow if enabled (skipped for dry runs).
+          if (confirm && !dryRun) {
             _logger.info('[$folderName] Review commit message:');
             final finalMessage = await _handleCommitConfirmation(
               commitMessage: commitMessage,
@@ -542,6 +556,12 @@ class CommitCommand extends Command<int> {
               ..info('\n----------- $folderName -----------\n')
               ..info(commitMessage)
               ..info('\n-----------------------------------\n');
+          }
+
+          if (dryRun) {
+            _logger.info('[$folderName] Dry run: no commit was created.');
+            successCount++;
+            continue;
           }
 
           try {
@@ -1140,6 +1160,7 @@ class CommitCommand extends Command<int> {
     required bool autoPush,
     String? tag,
     required bool confirm,
+    bool dryRun = false,
     required String modelName,
     required String modelVariant,
   }) async {
@@ -1216,7 +1237,7 @@ class CommitCommand extends Command<int> {
       final configManager = ConfigManager();
       await configManager.load();
 
-      if (confirm) {
+      if (confirm && !dryRun) {
         final finalMessage = await _handleCommitConfirmation(
           commitMessage: commitMessage,
           generator: generator,
@@ -1241,6 +1262,11 @@ class CommitCommand extends Command<int> {
           ..info('\n---------------------------------\n')
           ..info(commitMessage)
           ..info('\n---------------------------------\n');
+      }
+
+      if (dryRun) {
+        _logger.info('Dry run: no commit was created.');
+        return ExitCode.success.code;
       }
 
       try {

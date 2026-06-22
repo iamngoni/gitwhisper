@@ -1,4 +1,5 @@
 ## 1.0.0
+- Added `gw commit --dry-run` to generate and print the commit message without creating a commit, pushing, or tagging.
 - Enabled agent mode by default for tool-capable providers: OpenAI, Claude, Gemini, Grok, Llama, DeepSeek, GitHub Models, Ollama, Codex, and Claude Code. Models without tool support automatically use direct-diff mode.
 - Switched local Codex and Claude Code providers to ACP registry-backed local agents instead of direct CLI prompt execution.
 - Added ACP registry commands: `gw acp list`, `info`, `resolve`, `install`, `cache path`, and `cache refresh`.
