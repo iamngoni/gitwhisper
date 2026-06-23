@@ -324,7 +324,7 @@ class AcpCacheRefreshCommand extends Command<int> {
   @override
   Future<int> run() async {
     try {
-      final registry = await _registryLoader.load();
+      final registry = await _registryLoader.load(forceRefresh: true);
       _logger.success(
         'Refreshed ACP registry cache with ${registry.agents.length} agents.',
       );

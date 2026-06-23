@@ -24,10 +24,23 @@ import '../models/commit_generator.dart';
 import '../models/commit_generator_factory.dart';
 import '../models/language.dart';
 
+/// Builds the [CommitGenerator] used to produce commit messages.
+///
+/// Defaults to [CommitGeneratorFactory.create]; tests inject a fake so the
+/// command can run without real providers or network access.
+typedef CommitGeneratorBuilder = CommitGenerator Function(
+  String model,
+  String? apiKey, {
+  String? variant,
+  String? baseUrl,
+});
+
 class CommitCommand extends Command<int> {
   CommitCommand({
     required Logger logger,
-  }) : _logger = logger {
+    CommitGeneratorBuilder? generatorBuilder,
+  })  : _logger = logger,
+        _generatorBuilder = generatorBuilder ?? CommitGeneratorFactory.create {
     argParser
       ..addOption(
         'model',
@@ -86,6 +99,7 @@ class CommitCommand extends Command<int> {
   String get name => 'commit';
 
   final Logger _logger;
+  final CommitGeneratorBuilder _generatorBuilder;
   final AgentToolActivityFormatter _agentToolFormatter =
       const AgentToolActivityFormatter();
 
@@ -278,7 +292,7 @@ class CommitCommand extends Command<int> {
     final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
 
     // Create the appropriate AI generator based on model name
-    final generator = CommitGeneratorFactory.create(
+    final generator = _generatorBuilder(
       modelName,
       apiKey,
       variant: modelVariant,

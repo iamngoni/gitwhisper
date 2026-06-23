@@ -11,6 +11,38 @@ typedef AcpProcessStarter = Future<Process> Function(
 
 typedef AcpRetryPredicate = bool Function(String text, int turn);
 
+/// Callback invoked when the agent reports tool activity during a prompt, so
+/// the UI can show live progress instead of a silent wait.
+typedef AcpActivityCallback = void Function(AcpToolActivity activity);
+
+/// A single tool call reported by the agent through `session/update`.
+class AcpToolActivity {
+  const AcpToolActivity({
+    required this.title,
+    this.path,
+    this.hunkIndex,
+    this.kind,
+    this.status,
+  });
+
+  final String title;
+
+  /// File the tool acted on, when the agent reports one. Different agents place
+  /// arguments differently (`rawInput.path` vs `rawInput.arguments.path`), so
+  /// this is normalized by [AcpClient].
+  final String? path;
+  final int? hunkIndex;
+  final String? kind;
+  final String? status;
+}
+
+class _ToolCallActivityState {
+  String? title;
+  String? path;
+  int? hunkIndex;
+  bool emitted = false;
+}
+
 class AcpException implements Exception {
   const AcpException(this.message, {this.details});
 
@@ -241,8 +273,11 @@ class AcpClient {
     this.mcpServers = const <Map<String, dynamic>>[],
     this.logFile,
     this.timeout = const Duration(minutes: 5),
+    Duration? initializeTimeout,
+    this.onActivity,
     AcpProcessStarter? startProcess,
-  }) : _startProcess = startProcess ?? Process.start;
+  })  : initializeTimeout = initializeTimeout ?? const Duration(minutes: 2),
+        _startProcess = startProcess ?? Process.start;
 
   final String executable;
   final List<String> arguments;
@@ -251,6 +286,15 @@ class AcpClient {
   final List<Map<String, dynamic>> mcpServers;
   final File? logFile;
   final Duration timeout;
+
+  /// Shorter timeout for the `initialize` handshake so a stuck launch (first
+  /// run download, missing auth) fails fast with a clear message instead of
+  /// hanging for the full [timeout].
+  final Duration initializeTimeout;
+
+  /// Optional live activity callback for agent tool calls.
+  final AcpActivityCallback? onActivity;
+
   final AcpProcessStarter _startProcess;
 
   Process? _process;
@@ -259,6 +303,7 @@ class AcpClient {
   IOSink? _logSink;
   final _pending = <int, Completer<Map<String, dynamic>>>{};
   final _agentText = StringBuffer();
+  final _toolCalls = <String, _ToolCallActivityState>{};
   List<AcpAuthMethod> _authMethods = const <AcpAuthMethod>[];
   var _nextId = 0;
 
@@ -393,8 +438,10 @@ class AcpClient {
 
   Future<Map<String, dynamic>> _request(
     String method,
-    Map<String, dynamic> params,
-  ) async {
+    Map<String, dynamic> params, {
+    Duration? timeoutOverride,
+    String? timeoutHint,
+  }) async {
     final id = _nextId++;
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
@@ -407,14 +454,15 @@ class AcpClient {
     });
 
     return completer.future.timeout(
-      timeout,
+      timeoutOverride ?? timeout,
       onTimeout: () async {
         final stderr = await _stderrFuture?.timeout(
           const Duration(milliseconds: 100),
           onTimeout: () => '',
         );
+        final hint = timeoutHint == null ? '' : '\n$timeoutHint';
         throw AcpException(
-          'ACP request "$method" timed out.'
+          'ACP request "$method" timed out.$hint'
           '${stderr == null || stderr.trim().isEmpty ? '' : '\n$stderr'}',
         );
       },
@@ -435,6 +483,11 @@ class AcpClient {
           'version': '1.0.0',
         },
       },
+      timeoutOverride: initializeTimeout,
+      timeoutHint:
+          'The agent did not start in time. On first run it may still be '
+          'downloading, or it may need authentication. Try running the agent '
+          'directly once to finish setup, then retry.',
     );
   }
 
@@ -592,8 +645,79 @@ class AcpClient {
     final update = params['update'];
     if (update is! Map<String, dynamic>) return;
 
-    if (update['sessionUpdate'] != 'agent_message_chunk') return;
-    _appendText(update['content']);
+    final kind = update['sessionUpdate'];
+    if (kind == 'agent_message_chunk') {
+      _appendText(update['content']);
+      return;
+    }
+
+    if (kind == 'tool_call' || kind == 'tool_call_update') {
+      _reportToolActivity(update);
+    }
+  }
+
+  void _reportToolActivity(Map<String, dynamic> update) {
+    final callback = onActivity;
+    if (callback == null) return;
+
+    final id = update['toolCallId']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    // A single tool call is reported across several messages: the initial
+    // `tool_call` then one or more `tool_call_update`s. Some agents (codex)
+    // include the file path up front; others (claude) only send it in a later
+    // update. Accumulate fields and emit exactly once — as soon as a path is
+    // known, or when the call finishes if it never carries one.
+    final state = _toolCalls.putIfAbsent(id, _ToolCallActivityState.new);
+    if (state.emitted) return;
+
+    final title = update['title']?.toString();
+    if (title != null && title.trim().isNotEmpty) state.title = title.trim();
+
+    final rawInput = update['rawInput'];
+    state.path ??= _activityString(rawInput, 'path');
+    state.hunkIndex ??= _activityInt(rawInput, 'hunkIndex');
+
+    if (state.title == null) return;
+
+    final status = update['status']?.toString();
+    final terminal = status == 'completed' ||
+        status == 'failed' ||
+        status == 'cancelled';
+    if (state.path == null && !terminal) return;
+
+    state.emitted = true;
+    callback(
+      AcpToolActivity(
+        title: state.title!,
+        path: state.path,
+        hunkIndex: state.hunkIndex,
+        kind: update['kind']?.toString(),
+        status: status,
+      ),
+    );
+  }
+
+  static String? _activityString(Object? rawInput, String key) {
+    if (rawInput is! Map) return null;
+    final direct = rawInput[key];
+    if (direct is String && direct.trim().isNotEmpty) return direct.trim();
+    final args = rawInput['arguments'];
+    if (args is Map) {
+      final nested = args[key];
+      if (nested is String && nested.trim().isNotEmpty) return nested.trim();
+    }
+    return null;
+  }
+
+  static int? _activityInt(Object? rawInput, String key) {
+    if (rawInput is! Map) return null;
+    var value = rawInput[key];
+    if (value == null && rawInput['arguments'] is Map) {
+      value = (rawInput['arguments'] as Map)[key];
+    }
+    if (value is int) return value;
+    return int.tryParse('${value ?? ''}');
   }
 
   void _appendText(Object? content) {

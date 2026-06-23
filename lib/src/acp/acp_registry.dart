@@ -254,6 +254,24 @@ class AcpRegistry {
     'claudeagent': 'claude-acp',
   };
 
+  /// ACP registry ids that GitWhisper does not target for commit generation.
+  ///
+  /// GitWhisper only drives **first-party, product-backed coding agents** — ones
+  /// that ship as a branded product with their own authentication and a managed
+  /// model (Codex, Claude Code, Gemini CLI, Cursor, Copilot, etc.). Their commit
+  /// output is predictable and something we can support.
+  ///
+  /// The entries below are excluded because they are not that:
+  /// - Marketplaces / pay-per-call brokers: `agoragentic-acp`.
+  /// - Agent frameworks / SDKs (build-your-own-agent, not a product):
+  ///   `deepagents`, `fast-agent`.
+  /// - Generic / open-source / bring-your-own-provider coding agents and ACP
+  ///   adapters, whose model and output quality vary by user setup:
+  ///   `corust-agent`, `crow-cli`, `glm-acp-agent`, `goose`, `minion-code`,
+  ///   `opencode`, `pi-acp`, `sigit`, `vtcode`.
+  ///
+  /// They remain visible via `gw acp list --all` (marked "not used for
+  /// commits"). To support one, remove it here and file an issue.
   static const unsupportedCommitAgentIds = <String>{
     'agoragentic-acp',
     'corust-agent',
@@ -275,6 +293,7 @@ class AcpRegistryLoader {
     Dio? dio,
     File? cacheFile,
     this.registryUrl = acpRegistryUrl,
+    this.cacheTtl = const Duration(hours: 6),
   })  : _dio = dio ?? Dio(),
         _cacheFile = cacheFile ?? _defaultCacheFile();
 
@@ -282,9 +301,25 @@ class AcpRegistryLoader {
   final File _cacheFile;
   final String registryUrl;
 
+  /// How long a cached registry is considered fresh before a network refresh
+  /// is attempted. A fresh cache is used immediately, keeping the commit hot
+  /// path off the network.
+  final Duration cacheTtl;
+
   File get cacheFile => _cacheFile;
 
-  Future<AcpRegistry> load() async {
+  /// Loads the registry, preferring a fresh on-disk cache.
+  ///
+  /// When the cache is missing or older than [cacheTtl] (or [forceRefresh] is
+  /// set), the latest registry is fetched from [registryUrl] and the cache is
+  /// updated. Network failures fall back to any existing cache so commits keep
+  /// working offline.
+  Future<AcpRegistry> load({bool forceRefresh = false}) async {
+    if (!forceRefresh && _isCacheFresh()) {
+      final cached = _readCache();
+      if (cached != null) return cached;
+    }
+
     try {
       final response = await _dio.get<String>(registryUrl);
       final body = response.data;
@@ -297,10 +332,8 @@ class AcpRegistryLoader {
       // Fall through to cache.
     }
 
-    if (_cacheFile.existsSync()) {
-      final body = _cacheFile.readAsStringSync();
-      return AcpRegistry.fromJson(jsonDecode(body) as Map<String, dynamic>);
-    }
+    final cached = _readCache();
+    if (cached != null) return cached;
 
     throw AcpRegistryException(
       'Could not load the ACP registry from $registryUrl and no cached '
@@ -308,6 +341,19 @@ class AcpRegistryLoader {
       'again. If your agent is missing from the registry, file an issue: '
       '$acpSupportIssueUrl',
     );
+  }
+
+  bool _isCacheFresh() {
+    if (!_cacheFile.existsSync()) return false;
+    final age = DateTime.now().difference(_cacheFile.statSync().modified);
+    return age >= Duration.zero && age < cacheTtl;
+  }
+
+  AcpRegistry? _readCache() {
+    if (!_cacheFile.existsSync()) return null;
+    final body = _cacheFile.readAsStringSync();
+    if (body.trim().isEmpty) return null;
+    return AcpRegistry.fromJson(jsonDecode(body) as Map<String, dynamic>);
   }
 
   static File _defaultCacheFile() {

@@ -94,8 +94,9 @@ Or download the executable binary that will work on your operating system direct
 - 🧩 Choose specific model variants (gpt-4o, claude-sonnet-4, etc.)
 - 🔑 Securely saves API keys for future use
 - 🌍 Multi-language support for commit messages and analysis
+- 🧪 `--dry-run` to preview the generated message without creating a commit
 - 🧠 Agent mode is used by default for providers that support tools
-- 🛠️ Local ACP agents can inspect staged changes through GitWhisper's read-only MCP tools
+- 🛠️ Local ACP agents can inspect staged changes through GitWhisper's read-only MCP tools, with live tool activity shown while they work
 - 🔌 Supports multiple AI models:
   - Claude (Anthropic)
   - Claude Code ACP agent
@@ -146,6 +147,10 @@ gw commit -t v1.0.0
 # Combine tag with auto-push to push both commit and tag
 gw commit -t v1.0.0 -a
 
+# Preview the generated message without committing (no commit, push, or tag)
+gitwhisper commit --dry-run
+gw commit --dry-run
+
 # Use local ACP agent providers (no GitWhisper API key required)
 gitwhisper commit --model codex
 gitwhisper commit --model claude-code
@@ -167,9 +172,10 @@ gw list-variants --model claude
 # Work with ACP agents from the registry
 gitwhisper acp list
 gw acp list
-gw acp info vtcode
+gw acp list --all        # include entries not used for commits
+gw acp info qoder
 gw acp resolve codex
-gw acp install vtcode
+gw acp install poolside
 gw acp cache path
 gw acp cache refresh
 
@@ -284,14 +290,42 @@ Local ACP agent providers do not need GitWhisper API keys:
 - Other supported ACP agent ids can be used directly, for example `qoder`, `poolside`, `cline`, or other agents shown by `gw acp list`.
 
 GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
-If the registry cannot be fetched, GitWhisper uses the cached copy. If there is
-no cache yet, it prints a clear registry/cache error with a link to file a
-support issue.
+The cache is used first when it is fresh (refreshed at most every 6 hours), so
+commits stay off the network on the hot path; a stale or missing cache triggers
+a background fetch. If the registry cannot be fetched, GitWhisper falls back to
+the cached copy. If there is no cache yet, it prints a clear registry/cache
+error with a link to file a support issue. Run `gw acp cache refresh` to force
+an immediate network refresh.
 Binary-only ACP agents are installed under `~/.gitwhisper/acp/agents/` when you
 run `gw acp install <agent>` or when GitWhisper needs to launch them.
 Unsupported or generic registry entries are hidden from the default commit-agent
-list. Use `gw acp list --all` to see every registry entry, including agents that
-GitWhisper does not target for commit generation.
+list. Use `gw acp list --all` to see every registry entry; entries GitWhisper
+does not target for commit generation are marked "not used for commits".
+
+**Which agents are supported.** GitWhisper drives only first-party,
+product-backed coding agents — ones that ship as a branded product with their
+own authentication and a managed model (Codex, Claude Code, Gemini CLI, Cursor,
+GitHub Copilot, and similar). Their commit output is predictable and supported.
+The supported set is whatever the live registry publishes minus the exclusions
+below, so it grows as the registry does; run `gw acp list` for the current list.
+
+**What is excluded, and why.** The following registry ids are not targeted for
+commit generation because they are not product-backed coding agents:
+
+- Marketplaces / pay-per-call brokers: `agoragentic-acp`.
+- Agent frameworks or SDKs (build-your-own-agent, not a product): `deepagents`,
+  `fast-agent`.
+- Generic, open-source, or bring-your-own-provider coding agents and ACP
+  adapters, whose model and output quality vary by user setup: `corust-agent`,
+  `crow-cli`, `glm-acp-agent`, `goose`, `minion-code`, `opencode`, `pi-acp`,
+  `sigit`, `vtcode`.
+
+This list lives in code (`unsupportedCommitAgentIds`) and may change over time;
+`gw acp list --all` is always the source of truth. If an agent you want is
+excluded, open an issue and we can evaluate adding it.
+While a local ACP agent works, GitWhisper shows its tool activity live (which
+files it reads, diffs, searches, and blames) instead of a silent wait. Failed or
+empty agent responses are logged under `~/.gitwhisper/acp/logs/` for debugging.
 
 Agent mode is enabled by default for tool-capable providers:
 

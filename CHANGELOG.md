@@ -1,5 +1,8 @@
 ## 1.0.0
 - Added `gw commit --dry-run` to generate and print the commit message without creating a commit, pushing, or tagging.
+- Showed live ACP agent tool activity (scanning files, reading diffs, blame, etc.) with filenames while a local agent works, instead of a silent wait. Recognizes both GitWhisper MCP tool calls and the read-only git commands agents run through their own shell.
+- Loaded the ACP registry from a fresh on-disk cache first (6h TTL), keeping the commit hot path off the network; `gw acp cache refresh` forces a network refresh.
+- Added a shorter, fail-fast timeout for the ACP `initialize` handshake with a clear hint when an agent is still downloading on first run or needs authentication.
 - Enabled agent mode by default for tool-capable providers: OpenAI, Claude, Gemini, Grok, Llama, DeepSeek, GitHub Models, Ollama, Codex, and Claude Code. Models without tool support automatically use direct-diff mode.
 - Switched local Codex and Claude Code providers to ACP registry-backed local agents instead of direct CLI prompt execution.
 - Added ACP registry commands: `gw acp list`, `info`, `resolve`, `install`, `cache path`, and `cache refresh`.

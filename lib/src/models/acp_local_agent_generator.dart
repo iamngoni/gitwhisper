@@ -4,6 +4,7 @@ import '../acp/acp_client.dart';
 import '../acp/acp_launcher.dart';
 import '../acp/acp_registry.dart';
 import '../agent/agent_commit_generator.dart';
+import '../agent/agent_tool_activity_formatter.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../git_utils.dart';
@@ -33,6 +34,8 @@ class AcpLocalAgentGenerator extends CommitGenerator
   final AcpProcessStarter? startProcess;
   final AcpAgentLauncher? agentLauncher;
   final Duration timeout;
+
+  static const _activityFormatter = AgentToolActivityFormatter();
 
   static const _commitRetryPrompt =
       'You stopped before returning the final commit message. Using the '
@@ -197,6 +200,7 @@ ${getAgentCommitPrompt(
       ],
       logFile: logFile,
       timeout: timeout,
+      onActivity: _logActivity,
       startProcess: startProcess,
     ).prompt(
       cwd: workingDirectory ?? Directory.current.path,
@@ -207,6 +211,16 @@ ${getAgentCommitPrompt(
       shouldRetry: requireConventionalCommit
           ? (text, turn) => _shouldRetryForCommitMessage(text)
           : null,
+    );
+  }
+
+  void _logActivity(AcpToolActivity activity) {
+    $logger.info(
+      _activityFormatter.formatAcp(
+        activity.title,
+        path: activity.path,
+        hunkIndex: activity.hunkIndex,
+      ),
     );
   }
 
