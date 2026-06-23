@@ -94,7 +94,7 @@ jobs:
           Section: utils
           Priority: optional
           Architecture: amd64
-          Maintainer: Ngonidzashe Mangudya <you@example.com>
+          Maintainer: Ngonidzashe Mangudya <imngonii@gmail.com>
           Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
           EOF
 
@@ -115,7 +115,7 @@ jobs:
           Section: utils
           Priority: optional
           Architecture: arm64
-          Maintainer: Ngonidzashe Mangudya <you@example.com>
+          Maintainer: Ngonidzashe Mangudya <imngonii@gmail.com>
           Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
           EOF
 
