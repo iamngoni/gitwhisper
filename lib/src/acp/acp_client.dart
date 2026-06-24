@@ -16,7 +16,42 @@ typedef AcpRetryPredicate = bool Function(String text, int turn);
 typedef AcpActivityCallback = void Function(AcpToolActivity activity);
 
 /// Callback invoked for ACP lifecycle milestones before tool activity starts.
-typedef AcpStatusCallback = void Function(String status);
+typedef AcpStatusCallback = void Function(AcpStatusEvent status);
+
+enum AcpStatusPhase { started, completed, failed }
+
+class AcpStatusEvent {
+  const AcpStatusEvent({
+    required this.title,
+    required this.phase,
+    this.elapsed,
+  });
+
+  const AcpStatusEvent.started(String title)
+      : this(title: title, phase: AcpStatusPhase.started);
+
+  const AcpStatusEvent.completed(String title, Duration elapsed)
+      : this(
+          title: title,
+          phase: AcpStatusPhase.completed,
+          elapsed: elapsed,
+        );
+
+  const AcpStatusEvent.failed(String title, Duration elapsed)
+      : this(title: title, phase: AcpStatusPhase.failed, elapsed: elapsed);
+
+  final String title;
+  final AcpStatusPhase phase;
+  final Duration? elapsed;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'title': title,
+      'phase': phase.name,
+      if (elapsed != null) 'elapsedMs': elapsed!.inMilliseconds,
+    };
+  }
+}
 
 /// A single tool call reported by the agent through `session/update`.
 class AcpToolActivity {
@@ -44,6 +79,14 @@ class _ToolCallActivityState {
   String? path;
   int? hunkIndex;
   bool emitted = false;
+}
+
+class _AcpTimedStatus {
+  _AcpTimedStatus(this.title) : stopwatch = Stopwatch()..start();
+
+  final String title;
+  final Stopwatch stopwatch;
+  bool finished = false;
 }
 
 class AcpException implements Exception {
@@ -312,6 +355,7 @@ class AcpClient {
   final _agentText = StringBuffer();
   final _toolCalls = <String, _ToolCallActivityState>{};
   List<AcpAuthMethod> _authMethods = const <AcpAuthMethod>[];
+  _AcpTimedStatus? _promptWaitStatus;
   var _nextId = 0;
 
   Future<String> prompt({
@@ -320,20 +364,20 @@ class AcpClient {
     List<String> retryPrompts = const <String>[],
     AcpRetryPredicate? shouldRetry,
   }) async {
-    _reportStatus('Launching ACP process...');
-    await _start();
+    await _withStatus('Launching ACP process', _start);
 
     try {
-      _reportStatus('Initializing ACP agent...');
-      await _initialize();
+      await _withStatus('Initializing ACP agent', _initialize);
 
-      _reportStatus('Starting ACP session...');
-      final session = await _request(
-        'session/new',
-        <String, dynamic>{
-          'cwd': cwd,
-          'mcpServers': mcpServers,
-        },
+      final session = await _withStatus(
+        'Starting ACP session',
+        () => _request(
+          'session/new',
+          <String, dynamic>{
+            'cwd': cwd,
+            'mcpServers': mcpServers,
+          },
+        ),
       );
 
       final result = session['result'];
@@ -347,20 +391,31 @@ class AcpClient {
       final prompts = <String>[text, ...retryPrompts];
       for (var index = 0; index < prompts.length; index++) {
         _agentText.clear();
-        _reportStatus(
+        final promptStatus = _startStatus(
           index == 0
-              ? 'Waiting for ACP agent to inspect staged changes...'
-              : 'Asking ACP agent for the final commit message...',
+              ? 'Waiting for ACP agent to inspect staged changes'
+              : 'Asking ACP agent for the final commit message',
         );
-        await _request(
-          'session/prompt',
-          <String, dynamic>{
-            'sessionId': sessionId,
-            'prompt': <Map<String, dynamic>>[
-              <String, dynamic>{'type': 'text', 'text': prompts[index]},
-            ],
-          },
-        );
+        _promptWaitStatus = promptStatus;
+        try {
+          await _request(
+            'session/prompt',
+            <String, dynamic>{
+              'sessionId': sessionId,
+              'prompt': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'text', 'text': prompts[index]},
+              ],
+            },
+          );
+          _completeStatus(promptStatus);
+        } catch (_) {
+          _failStatus(promptStatus);
+          rethrow;
+        } finally {
+          if (identical(_promptWaitStatus, promptStatus)) {
+            _promptWaitStatus = null;
+          }
+        }
 
         final agentText = _agentText.toString().trim();
         _log('final_agent_text', agentText);
@@ -377,16 +432,16 @@ class AcpClient {
   }
 
   Future<void> authenticate({required String methodId}) async {
-    _reportStatus('Launching ACP process...');
-    await _start();
+    await _withStatus('Launching ACP process', _start);
 
     try {
-      _reportStatus('Initializing ACP agent...');
-      await _initialize();
-      _reportStatus('Running ACP authentication...');
-      await _request(
-        'authenticate',
-        <String, dynamic>{'methodId': methodId},
+      await _withStatus('Initializing ACP agent', _initialize);
+      await _withStatus(
+        'Running ACP authentication',
+        () => _request(
+          'authenticate',
+          <String, dynamic>{'methodId': methodId},
+        ),
       );
     } finally {
       await close();
@@ -675,9 +730,6 @@ class AcpClient {
   }
 
   void _reportToolActivity(Map<String, dynamic> update) {
-    final callback = onActivity;
-    if (callback == null) return;
-
     final id = update['toolCallId']?.toString();
     if (id == null || id.isEmpty) return;
 
@@ -704,6 +756,11 @@ class AcpClient {
     if (state.path == null && !terminal) return;
 
     state.emitted = true;
+    _completePromptWaitStatus();
+
+    final callback = onActivity;
+    if (callback == null) return;
+
     callback(
       AcpToolActivity(
         title: state.title!,
@@ -753,10 +810,58 @@ class AcpClient {
     }
   }
 
-  void _reportStatus(String status) {
+  Future<T> _withStatus<T>(
+    String title,
+    Future<T> Function() action,
+  ) async {
+    final status = _startStatus(title);
+    try {
+      final result = await action();
+      _completeStatus(status);
+      return result;
+    } catch (_) {
+      _failStatus(status);
+      rethrow;
+    }
+  }
+
+  _AcpTimedStatus _startStatus(String title) {
+    final status = _AcpTimedStatus(title);
+    _reportStatus(AcpStatusEvent.started(title));
+    return status;
+  }
+
+  void _completePromptWaitStatus() {
+    final status = _promptWaitStatus;
+    if (status == null) return;
+    _completeStatus(status);
+    _promptWaitStatus = null;
+  }
+
+  void _completeStatus(_AcpTimedStatus status) {
+    if (status.finished) return;
+    status
+      ..finished = true
+      ..stopwatch.stop();
+    _reportStatus(
+      AcpStatusEvent.completed(status.title, status.stopwatch.elapsed),
+    );
+  }
+
+  void _failStatus(_AcpTimedStatus status) {
+    if (status.finished) return;
+    status
+      ..finished = true
+      ..stopwatch.stop();
+    _reportStatus(
+      AcpStatusEvent.failed(status.title, status.stopwatch.elapsed),
+    );
+  }
+
+  void _reportStatus(AcpStatusEvent status) {
     final callback = onStatus;
     if (callback != null) callback(status);
-    _log('status', status);
+    _log('status', jsonEncode(status.toJson()));
   }
 
   void _failPending(Object error) {

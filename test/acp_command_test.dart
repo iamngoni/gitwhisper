@@ -96,6 +96,34 @@ void main() {
     );
   });
 
+  test('acp install installs npx agents into the npm cache', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'install',
+      'codex',
+    ]);
+
+    expect(exitCode, ExitCode.success.code);
+    expect(
+      File(
+        p.join(
+          fixture.agentCache.path,
+          'codex-acp',
+          '0.15.0',
+          'darwin-aarch64',
+          'npm',
+          'node_modules',
+          '.bin',
+          _binFileName('codex-acp'),
+        ),
+      ).existsSync(),
+      isTrue,
+    );
+  });
+
   test('acp cache path returns cache locations', () async {
     final fixture = await AcpCommandFixture.create();
     addTearDown(fixture.dispose);
@@ -174,6 +202,14 @@ class AcpCommandFixture {
               await File(p.join(directory.path, 'vtcode'))
                   .writeAsString('fake');
             },
+            installNpm: (packageSpec, directory) async {
+              expect(packageSpec, '@zed-industries/codex-acp@0.15.0');
+              await _writeFakeNpmPackage(
+                directory: directory,
+                packageName: '@zed-industries/codex-acp',
+                binName: 'codex-acp',
+              );
+            },
           ),
         ),
       );
@@ -186,4 +222,38 @@ class AcpCommandFixture {
   }
 
   Future<void> dispose() => root.delete(recursive: true);
+}
+
+Future<void> _writeFakeNpmPackage({
+  required Directory directory,
+  required String packageName,
+  required String binName,
+}) async {
+  final packageDirectory = Directory(
+    p.joinAll(<String>[
+      directory.path,
+      'node_modules',
+      ...packageName.split('/'),
+    ]),
+  );
+  await packageDirectory.create(recursive: true);
+  await File(p.join(packageDirectory.path, 'package.json')).writeAsString(
+    jsonEncode(<String, dynamic>{
+      'name': packageName,
+      'bin': <String, String>{
+        binName: 'bin/$binName.js',
+      },
+    }),
+  );
+
+  final binDirectory =
+      Directory(p.join(directory.path, 'node_modules', '.bin'));
+  await binDirectory.create(recursive: true);
+  await File(p.join(binDirectory.path, _binFileName(binName))).writeAsString(
+    '#!/usr/bin/env node\n',
+  );
+}
+
+String _binFileName(String binName) {
+  return Platform.isWindows ? '$binName.cmd' : binName;
 }

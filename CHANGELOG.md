@@ -1,3 +1,8 @@
+## 1.0.2
+- Show per-step execution timings while launching ACP agents, initializing sessions, and waiting for staged-change inspection so slow local-agent commits expose where time is spent.
+- Install npm-backed ACP agents into GitWhisper's agent cache with `gw acp install`, then launch cached `node_modules/.bin` executables instead of `npx` when available.
+- Let ACP agent mode inspect staged changes through read-only tools instead of sending the full staged diff up front.
+
 ## 1.0.1
 - Fixed a crash (`Unexpected extension byte`) when staging or committing changes whose diff contains binary or non-UTF-8 content. Git output is now read as raw bytes and decoded leniently instead of crashing the UTF-8 stream decoder.
 

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:mason_logger/mason_logger.dart';
+
 import '../acp/acp_client.dart';
 import '../acp/acp_launcher.dart';
 import '../acp/acp_registry.dart';
@@ -34,6 +36,8 @@ class AcpLocalAgentGenerator extends CommitGenerator
   final AcpProcessStarter? startProcess;
   final AcpAgentLauncher? agentLauncher;
   final Duration timeout;
+  Progress? _acpStatusProgress;
+  String? _acpStatusProgressTitle;
 
   static const _activityFormatter = AgentToolActivityFormatter();
 
@@ -225,8 +229,43 @@ ${getAgentCommitPrompt(
     );
   }
 
-  void _logStatus(String status) {
-    $logger.info(status);
+  void _logStatus(AcpStatusEvent status) {
+    switch (status.phase) {
+      case AcpStatusPhase.started:
+        _acpStatusProgress?.cancel();
+        _acpStatusProgress = $logger.progress(status.title);
+        _acpStatusProgressTitle = status.title;
+      case AcpStatusPhase.completed:
+        final progress = _takeStatusProgress(status.title);
+        if (progress != null) {
+          progress.complete(status.title);
+        } else {
+          $logger.success('${status.title} ${_formatDuration(status.elapsed)}');
+        }
+      case AcpStatusPhase.failed:
+        final progress = _takeStatusProgress(status.title);
+        if (progress != null) {
+          progress.fail(status.title);
+        } else {
+          $logger
+              .err('${status.title} failed ${_formatDuration(status.elapsed)}');
+        }
+    }
+  }
+
+  Progress? _takeStatusProgress(String title) {
+    if (_acpStatusProgressTitle != title) return null;
+    final progress = _acpStatusProgress;
+    _acpStatusProgress = null;
+    _acpStatusProgressTitle = null;
+    return progress;
+  }
+
+  String _formatDuration(Duration? duration) {
+    if (duration == null) return '';
+    final milliseconds = duration.inMilliseconds;
+    if (milliseconds < 100) return '(${milliseconds}ms)';
+    return '(${(milliseconds / 1000).toStringAsFixed(1)}s)';
   }
 
   bool _shouldRetryForCommitMessage(String text) {

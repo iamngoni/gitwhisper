@@ -20,7 +20,7 @@ void main() {
         final script = File(p.join(dir.path, 'fake_acp.py'))
           ..writeAsStringSync(_activityScript);
         final activities = <AcpToolActivity>[];
-        final statuses = <String>[];
+        final statuses = <AcpStatusEvent>[];
 
         final client = AcpClient(
           executable: 'python3',
@@ -33,13 +33,29 @@ void main() {
 
         expect(text, 'feat: add helpers');
         expect(
-          statuses,
-          containsAll(<String>[
-            'Launching ACP process...',
-            'Initializing ACP agent...',
-            'Starting ACP session...',
-            'Waiting for ACP agent to inspect staged changes...',
+          statuses.map((status) => (status.phase, status.title)),
+          containsAll(<(AcpStatusPhase, String)>[
+            (AcpStatusPhase.started, 'Launching ACP process'),
+            (AcpStatusPhase.completed, 'Launching ACP process'),
+            (AcpStatusPhase.started, 'Initializing ACP agent'),
+            (AcpStatusPhase.completed, 'Initializing ACP agent'),
+            (AcpStatusPhase.started, 'Starting ACP session'),
+            (AcpStatusPhase.completed, 'Starting ACP session'),
+            (
+              AcpStatusPhase.started,
+              'Waiting for ACP agent to inspect staged changes',
+            ),
+            (
+              AcpStatusPhase.completed,
+              'Waiting for ACP agent to inspect staged changes',
+            ),
           ]),
+        );
+        expect(
+          statuses
+              .where((status) => status.phase == AcpStatusPhase.completed)
+              .map((status) => status.elapsed),
+          everyElement(isNotNull),
         );
 
         // No-arg tool: emitted once (on completion), no path.

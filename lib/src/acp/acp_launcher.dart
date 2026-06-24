@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -12,6 +13,11 @@ typedef AcpBinaryInstaller = Future<void> Function(
   Directory installDirectory,
 );
 
+typedef AcpNpmInstaller = Future<void> Function(
+  String packageSpec,
+  Directory installDirectory,
+);
+
 typedef AcpInstallStatusCallback = void Function(String status);
 
 class AcpAgentLauncher {
@@ -20,15 +26,18 @@ class AcpAgentLauncher {
     String? platformKey,
     Dio? dio,
     AcpBinaryInstaller? installBinary,
+    AcpNpmInstaller? installNpm,
   })  : _cacheDirectory = cacheDirectory ?? _defaultAgentCacheDirectory(),
         _platformKey = platformKey ?? currentPlatformKey(),
         _dio = dio ?? Dio(),
-        _installBinary = installBinary;
+        _installBinary = installBinary,
+        _installNpm = installNpm;
 
   final Directory _cacheDirectory;
   final String _platformKey;
   final Dio _dio;
   final AcpBinaryInstaller? _installBinary;
+  final AcpNpmInstaller? _installNpm;
 
   Directory get cacheDirectory => _cacheDirectory;
 
@@ -38,6 +47,12 @@ class AcpAgentLauncher {
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
   }) async {
+    final installedNpmCommand = _installedNpmLaunchCommand(agent);
+    if (installedNpmCommand != null) {
+      onStatus?.call('Using installed npm package ${agent.npxPackage}');
+      return installedNpmCommand;
+    }
+
     final npxCommand = _npxLaunchCommand(agent);
     if (npxCommand != null) {
       onStatus?.call('Using npx package ${agent.npxPackage}');
@@ -78,6 +93,19 @@ class AcpAgentLauncher {
     if (method.command.isNotEmpty) {
       final package = agent.npxPackage;
       if (package != null && package.isNotEmpty) {
+        final installedNpmCommand = _installedNpmLaunchCommand(
+          agent,
+          arguments: method.command.skip(1).toList(),
+          environment: <String, String>{
+            ...agent.npxEnv,
+            ...method.environment,
+          },
+        );
+        if (installedNpmCommand != null) {
+          onStatus?.call('Using installed npm package $package');
+          return installedNpmCommand;
+        }
+
         return AcpLaunchCommand(
           executable: 'npx',
           arguments: <String>['-y', package, ...method.command.skip(1)],
@@ -122,6 +150,19 @@ class AcpAgentLauncher {
 
     final package = agent.npxPackage;
     if (package != null && package.isNotEmpty) {
+      final installedNpmCommand = _installedNpmLaunchCommand(
+        agent,
+        arguments: method.args,
+        environment: <String, String>{
+          ...agent.npxEnv,
+          ...method.environment,
+        },
+      );
+      if (installedNpmCommand != null) {
+        onStatus?.call('Using installed npm package $package');
+        return installedNpmCommand;
+      }
+
       return AcpLaunchCommand(
         executable: 'npx',
         arguments: <String>['-y', package, ...method.args],
@@ -156,6 +197,10 @@ class AcpAgentLauncher {
   }
 
   String describeLaunchSupport(AcpAgentDefinition agent) {
+    if (_installedNpmLaunchCommand(agent) != null) {
+      return 'npm package installed for $_platformKey';
+    }
+
     if (_npxLaunchCommand(agent) != null) {
       return 'npx -y ${agent.npxPackage}';
     }
@@ -181,9 +226,9 @@ class AcpAgentLauncher {
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
   }) async {
-    final npxCommand = _npxLaunchCommand(agent);
-    if (npxCommand != null) {
-      onStatus?.call('Using npx package ${agent.npxPackage}');
+    final package = agent.npxPackage;
+    if (package != null && package.isNotEmpty) {
+      await _installNpmIfNeeded(agent, onStatus: onStatus);
       return;
     }
 
@@ -212,6 +257,26 @@ class AcpAgentLauncher {
     );
   }
 
+  AcpLaunchCommand? _installedNpmLaunchCommand(
+    AcpAgentDefinition agent, {
+    List<String>? arguments,
+    Map<String, String>? environment,
+  }) {
+    final package = agent.npxPackage;
+    if (package == null || package.isEmpty) return null;
+
+    final installDirectory = _npmInstallDirectoryFor(agent);
+    final executable = _resolveInstalledNpmExecutable(agent, installDirectory);
+    if (executable == null) return null;
+
+    return AcpLaunchCommand(
+      executable: executable,
+      arguments: arguments ?? agent.npxArgs,
+      environment: environment ?? agent.npxEnv,
+      workingDirectory: installDirectory.path,
+    );
+  }
+
   Directory _installDirectoryFor(AcpAgentDefinition agent) {
     return Directory(
       path.join(
@@ -221,6 +286,42 @@ class AcpAgentLauncher {
         _platformKey,
       ),
     );
+  }
+
+  Directory _npmInstallDirectoryFor(AcpAgentDefinition agent) {
+    return Directory(path.join(_installDirectoryFor(agent).path, 'npm'));
+  }
+
+  Future<void> _installNpmIfNeeded(
+    AcpAgentDefinition agent, {
+    AcpInstallStatusCallback? onStatus,
+  }) async {
+    final package = agent.npxPackage;
+    if (package == null || package.isEmpty) return;
+
+    final installDirectory = _npmInstallDirectoryFor(agent);
+    final existing = _resolveInstalledNpmExecutable(agent, installDirectory);
+    if (existing != null) {
+      onStatus?.call('NPM package already installed');
+      return;
+    }
+
+    if (installDirectory.existsSync()) {
+      await installDirectory.delete(recursive: true);
+    }
+    await installDirectory.create(recursive: true);
+
+    onStatus?.call('Installing npm package $package');
+    final installNpm = _installNpm ?? _installNpmPackage;
+    await installNpm(package, installDirectory);
+
+    final executable = _resolveInstalledNpmExecutable(agent, installDirectory);
+    if (executable == null) {
+      throw AcpRegistryException(
+        'Installed ACP npm package "$package", but no executable bin was '
+        'found.',
+      );
+    }
   }
 
   Future<void> _installBinaryIfNeeded(
@@ -316,6 +417,106 @@ class AcpAgentLauncher {
       throw AcpRegistryException('Failed to download ACP binary archive: $url');
     }
     await destination.writeAsBytes(bytes);
+  }
+
+  Future<void> _installNpmPackage(
+    String packageSpec,
+    Directory installDirectory,
+  ) async {
+    final result = await Process.run(
+      'npm',
+      <String>[
+        'install',
+        '--prefix',
+        installDirectory.path,
+        '--no-audit',
+        '--no-fund',
+        packageSpec,
+      ],
+    );
+
+    if (result.exitCode != 0) {
+      throw AcpRegistryException(
+        'Failed to install ACP npm package $packageSpec: ${result.stderr}',
+      );
+    }
+  }
+
+  String? _resolveInstalledNpmExecutable(
+    AcpAgentDefinition agent,
+    Directory installDirectory,
+  ) {
+    final package = agent.npxPackage;
+    if (package == null || package.isEmpty) return null;
+
+    final packageName = _npmPackageName(package);
+    final packageDirectory = Directory(
+      path.joinAll(<String>[
+        installDirectory.path,
+        'node_modules',
+        ...packageName.split('/'),
+      ]),
+    );
+    final packageJsonFile =
+        File(path.join(packageDirectory.path, 'package.json'));
+    if (!packageJsonFile.existsSync()) return null;
+
+    final packageJson = jsonDecode(packageJsonFile.readAsStringSync());
+    if (packageJson is! Map<String, dynamic>) return null;
+
+    final binName = _npmBinName(packageName, packageJson['bin']);
+    if (binName == null || binName.isEmpty) return null;
+
+    final binaryName = Platform.isWindows ? '$binName.cmd' : binName;
+    final binary = File(
+      path.join(installDirectory.path, 'node_modules', '.bin', binaryName),
+    );
+    if (binary.existsSync()) return binary.path;
+
+    if (Platform.isWindows) {
+      final ps1Binary = File(
+        path.join(
+          installDirectory.path,
+          'node_modules',
+          '.bin',
+          '$binName.ps1',
+        ),
+      );
+      if (ps1Binary.existsSync()) return ps1Binary.path;
+    }
+
+    return null;
+  }
+
+  String _npmPackageName(String packageSpec) {
+    if (packageSpec.startsWith('@')) {
+      final slashIndex = packageSpec.indexOf('/');
+      if (slashIndex == -1) return packageSpec;
+      final versionIndex = packageSpec.indexOf('@', slashIndex + 1);
+      return versionIndex == -1
+          ? packageSpec
+          : packageSpec.substring(0, versionIndex);
+    }
+
+    final versionIndex = packageSpec.indexOf('@');
+    return versionIndex == -1
+        ? packageSpec
+        : packageSpec.substring(0, versionIndex);
+  }
+
+  String? _npmBinName(String packageName, Object? bin) {
+    final packageBaseName = packageName.split('/').last;
+    if (bin is String && bin.isNotEmpty) return packageBaseName;
+    if (bin is! Map) return null;
+
+    if (bin.containsKey(packageBaseName)) return packageBaseName;
+
+    for (final key in bin.keys) {
+      final name = key.toString();
+      if (name.isNotEmpty) return name;
+    }
+
+    return null;
   }
 
   String _formatBytes(int bytes) {
