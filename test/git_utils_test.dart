@@ -1,7 +1,56 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:gitwhisper/src/git_utils.dart';
+import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
 void main() {
+  group('GitUtils.getStagedDiff', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await Directory.systemTemp.createTemp('gitwhisper_diff_');
+      Future<void> git(List<String> args) async {
+        final result =
+            await Process.run('git', args, workingDirectory: repo.path);
+        if (result.exitCode != 0) {
+          throw StateError('git ${args.join(' ')} failed: ${result.stderr}');
+        }
+      }
+
+      await git(['init']);
+      await git(['config', 'user.email', 'test@example.com']);
+      await git(['config', 'user.name', 'Test']);
+    });
+
+    tearDown(() async {
+      if (repo.existsSync()) await repo.delete(recursive: true);
+    });
+
+    test('does not crash when staged content is not valid UTF-8', () async {
+      // Bytes that are invalid UTF-8 (lone 0xFF/0xFE, then a bad continuation
+      // sequence). Previously these crashed Process.run's UTF-8 stream decoder
+      // with "Unexpected extension byte".
+      final badBytes = Uint8List.fromList(
+        <int>[0xFF, 0xFE, 0x00, ...'invalid'.codeUnits, 0xC0, 0xC1, 0x0A],
+      );
+      File(path.join(repo.path, 'bad.bin')).writeAsBytesSync(badBytes);
+
+      final stage = await Process.run(
+        'git',
+        ['add', 'bad.bin'],
+        workingDirectory: repo.path,
+      );
+      expect(stage.exitCode, 0);
+
+      final diff = await GitUtils.getStagedDiff(folderPath: repo.path);
+
+      // The call returns (no throw) and references the staged file.
+      expect(diff, contains('bad.bin'));
+    });
+  });
+
   group('GitUtils.sanitizeGeneratedCommitMessage', () {
     test('keeps plain commit messages unchanged', () {
       expect(

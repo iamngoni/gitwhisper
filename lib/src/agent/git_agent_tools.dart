@@ -529,22 +529,28 @@ class GitAgentTools {
   }
 
   Future<String> _runGit(List<String> args) async {
+    // Capture stdout/stderr as raw bytes and decode leniently. Git diff output
+    // can contain binary or non-UTF-8 content, and the default UTF-8 stream
+    // decoding used by Process.run throws "Unexpected extension byte" on the
+    // first invalid byte. allowMalformed swaps those bytes for U+FFFD instead.
     final result = await Process.run(
       'git',
       args,
       workingDirectory: folderPath,
+      stdoutEncoding: null,
+      stderrEncoding: null,
     );
 
     if (result.exitCode != 0) {
       throw ProcessException(
         'git',
         args,
-        result.stderr.toString(),
+        utf8.decode(result.stderr as List<int>, allowMalformed: true),
         result.exitCode,
       );
     }
 
-    return result.stdout.toString();
+    return utf8.decode(result.stdout as List<int>, allowMalformed: true);
   }
 
   String _truncate(String value) {

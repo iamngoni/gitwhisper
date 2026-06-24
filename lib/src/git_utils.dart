@@ -6,6 +6,7 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
@@ -47,24 +48,36 @@ class GitUtils {
     return gitRepos;
   }
 
-  /// Get the diff of staged changes
-  static Future<String> getStagedDiff({String? folderPath}) async {
+  /// Run a git command capturing stdout as raw bytes and decode it leniently.
+  ///
+  /// `Process.run` defaults to decoding stdout with [systemEncoding] (UTF-8),
+  /// which throws "Unexpected extension byte" as soon as the stream contains a
+  /// byte that is not valid UTF-8 — for example when a `git diff` includes a
+  /// binary file or a file saved in a non-UTF-8 encoding. Reading the raw bytes
+  /// and decoding with `allowMalformed: true` replaces the offending bytes with
+  /// the Unicode replacement character instead of crashing.
+  static Future<String> _gitText(
+    List<String> args, {
+    String? folderPath,
+  }) async {
     final result = await Process.run(
       'git',
-      ['diff', '--cached'],
+      args,
       workingDirectory: folderPath,
+      stdoutEncoding: null,
     );
-    return result.exitCode == 0 ? (result.stdout as String) : '';
+    if (result.exitCode != 0) return '';
+    return utf8.decode(result.stdout as List<int>, allowMalformed: true);
+  }
+
+  /// Get the diff of staged changes
+  static Future<String> getStagedDiff({String? folderPath}) async {
+    return _gitText(['diff', '--cached'], folderPath: folderPath);
   }
 
   /// Get the diff of unstagged changes
   static Future<String> getUnstagedDiff({String? folderPath}) async {
-    final result = await Process.run(
-      'git',
-      ['diff'],
-      workingDirectory: folderPath,
-    );
-    return result.exitCode == 0 ? (result.stdout as String) : '';
+    return _gitText(['diff'], folderPath: folderPath);
   }
 
   /// Check if there are staged changes

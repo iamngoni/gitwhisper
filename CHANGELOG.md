@@ -1,3 +1,6 @@
+## 1.0.1
+- Fixed a crash (`Unexpected extension byte`) when staging or committing changes whose diff contains binary or non-UTF-8 content. Git output is now read as raw bytes and decoded leniently instead of crashing the UTF-8 stream decoder.
+
 ## 1.0.0
 - Added `gw commit --dry-run` to generate and print the commit message without creating a commit, pushing, or tagging.
 - Showed live ACP agent tool activity (scanning files, reading diffs, blame, etc.) with filenames while a local agent works, instead of a silent wait. Recognizes both GitWhisper MCP tool calls and the read-only git commands agents run through their own shell.
