@@ -201,6 +201,7 @@ ${getAgentCommitPrompt(
       logFile: logFile,
       timeout: timeout,
       onActivity: _logActivity,
+      onStatus: _logStatus,
       startProcess: startProcess,
     ).prompt(
       cwd: workingDirectory ?? Directory.current.path,
@@ -222,6 +223,10 @@ ${getAgentCommitPrompt(
         hunkIndex: activity.hunkIndex,
       ),
     );
+  }
+
+  void _logStatus(String status) {
+    $logger.info(status);
   }
 
   bool _shouldRetryForCommitMessage(String text) {
@@ -336,6 +341,7 @@ ${getAgentCommitPrompt(
       workingDirectory: launch.workingDirectory ?? workingDirectory,
       logFile: _createLogFile('${agent.id}-auth'),
       timeout: timeout,
+      onStatus: _logStatus,
       startProcess: startProcess,
     ).authenticate(methodId: method.id);
     $logger.success('Authentication complete. Retrying ${agent.id}...');

@@ -307,49 +307,51 @@ class CommitCommand extends Command<int> {
 
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
-      final diff = await GitUtils.getStagedDiff();
-      if (diff.isEmpty) {
-        _logger.err('No changes detected in staged files.');
-        return ExitCode.usage.code;
-      }
-
       // Check for large files before proceeding
       final largeFileResult = await _checkForLargeFiles(configManager);
       if (largeFileResult != null) {
         return largeFileResult;
       }
 
-      // Re-get diff in case files were unstaged
-      final updatedDiff = await GitUtils.getStagedDiff();
-      if (updatedDiff.isEmpty) {
-        _logger.err('No changes detected in staged files.');
-        return ExitCode.usage.code;
-      }
+      var updatedDiff = '';
+      if (agentMode) {
+        if (!await GitUtils.hasStagedChanges()) {
+          _logger.err('No changes detected in staged files.');
+          return ExitCode.usage.code;
+        }
+      } else {
+        // Get the diff after large-file handling in case files were unstaged.
+        updatedDiff = await GitUtils.getStagedDiff();
+        if (updatedDiff.isEmpty) {
+          _logger.err('No changes detected in staged files.');
+          return ExitCode.usage.code;
+        }
 
-      // Check if diff is too large - auto process file-by-file
-      if (!agentMode &&
-          GitUtils.isDiffTooLarge(
-            updatedDiff,
-            maxSize: configManager.getMaxDiffSize(),
-          )) {
-        _logger.info(
-          '\nDiff exceeds max size (${GitUtils.estimateDiffSize(updatedDiff)} chars), '
-          'processing file-by-file...\n',
-        );
+        // Check if diff is too large - auto process file-by-file.
+        if (GitUtils.isDiffTooLarge(
+          updatedDiff,
+          maxSize: configManager.getMaxDiffSize(),
+        )) {
+          _logger.info(
+            '\nDiff exceeds max size '
+            '(${GitUtils.estimateDiffSize(updatedDiff)} chars), processing '
+            'file-by-file...\n',
+          );
 
-        return _processFileByFileSummaries(
-          diff: updatedDiff,
-          generator: generator,
-          language: language,
-          prefix: prefix,
-          withEmoji: withEmoji,
-          autoPush: autoPush,
-          tag: tag,
-          confirm: confirm,
-          dryRun: dryRun,
-          modelName: modelName,
-          modelVariant: modelVariant,
-        );
+          return _processFileByFileSummaries(
+            diff: updatedDiff,
+            generator: generator,
+            language: language,
+            prefix: prefix,
+            withEmoji: withEmoji,
+            autoPush: autoPush,
+            tag: tag,
+            confirm: confirm,
+            dryRun: dryRun,
+            modelName: modelName,
+            modelVariant: modelVariant,
+          );
+        }
       }
 
       try {
@@ -471,13 +473,6 @@ class CommitCommand extends Command<int> {
 
       for (final f in foldersWithStagedChanges) {
         final folderName = path.basename(f);
-        var diff = await GitUtils.getStagedDiff(folderPath: f);
-        if (diff.isEmpty) {
-          _logger.warn(
-            '[$folderName] No changes detected in staged files, skipping.',
-          );
-          continue;
-        }
 
         // Check for large files in this repo
         final largeFileResult = await _checkForLargeFiles(
@@ -490,13 +485,27 @@ class CommitCommand extends Command<int> {
           continue;
         }
 
-        // Re-get diff in case files were unstaged
-        diff = await GitUtils.getStagedDiff(folderPath: f);
-        if (diff.isEmpty) {
-          _logger.warn(
-            '[$folderName] No staged changes remaining after handling large files, skipping.',
-          );
-          continue;
+        var diff = '';
+        if (agentMode) {
+          final hasStagedAfterLargeFileHandling =
+              await GitUtils.hasStagedChanges(folderPath: f);
+          if (!hasStagedAfterLargeFileHandling) {
+            _logger.warn(
+              '[$folderName] No staged changes remaining after handling large '
+              'files, skipping.',
+            );
+            continue;
+          }
+        } else {
+          // Re-get diff in case files were unstaged
+          diff = await GitUtils.getStagedDiff(folderPath: f);
+          if (diff.isEmpty) {
+            _logger.warn(
+              '[$folderName] No staged changes remaining after handling large '
+              'files, skipping.',
+            );
+            continue;
+          }
         }
 
         try {

@@ -15,6 +15,9 @@ typedef AcpRetryPredicate = bool Function(String text, int turn);
 /// the UI can show live progress instead of a silent wait.
 typedef AcpActivityCallback = void Function(AcpToolActivity activity);
 
+/// Callback invoked for ACP lifecycle milestones before tool activity starts.
+typedef AcpStatusCallback = void Function(String status);
+
 /// A single tool call reported by the agent through `session/update`.
 class AcpToolActivity {
   const AcpToolActivity({
@@ -275,6 +278,7 @@ class AcpClient {
     this.timeout = const Duration(minutes: 5),
     Duration? initializeTimeout,
     this.onActivity,
+    this.onStatus,
     AcpProcessStarter? startProcess,
   })  : initializeTimeout = initializeTimeout ?? const Duration(minutes: 2),
         _startProcess = startProcess ?? Process.start;
@@ -295,6 +299,9 @@ class AcpClient {
   /// Optional live activity callback for agent tool calls.
   final AcpActivityCallback? onActivity;
 
+  /// Optional callback for process/session milestones.
+  final AcpStatusCallback? onStatus;
+
   final AcpProcessStarter _startProcess;
 
   Process? _process;
@@ -313,11 +320,14 @@ class AcpClient {
     List<String> retryPrompts = const <String>[],
     AcpRetryPredicate? shouldRetry,
   }) async {
+    _reportStatus('Launching ACP process...');
     await _start();
 
     try {
+      _reportStatus('Initializing ACP agent...');
       await _initialize();
 
+      _reportStatus('Starting ACP session...');
       final session = await _request(
         'session/new',
         <String, dynamic>{
@@ -337,6 +347,11 @@ class AcpClient {
       final prompts = <String>[text, ...retryPrompts];
       for (var index = 0; index < prompts.length; index++) {
         _agentText.clear();
+        _reportStatus(
+          index == 0
+              ? 'Waiting for ACP agent to inspect staged changes...'
+              : 'Asking ACP agent for the final commit message...',
+        );
         await _request(
           'session/prompt',
           <String, dynamic>{
@@ -362,10 +377,13 @@ class AcpClient {
   }
 
   Future<void> authenticate({required String methodId}) async {
+    _reportStatus('Launching ACP process...');
     await _start();
 
     try {
+      _reportStatus('Initializing ACP agent...');
       await _initialize();
+      _reportStatus('Running ACP authentication...');
       await _request(
         'authenticate',
         <String, dynamic>{'methodId': methodId},
@@ -681,9 +699,8 @@ class AcpClient {
     if (state.title == null) return;
 
     final status = update['status']?.toString();
-    final terminal = status == 'completed' ||
-        status == 'failed' ||
-        status == 'cancelled';
+    final terminal =
+        status == 'completed' || status == 'failed' || status == 'cancelled';
     if (state.path == null && !terminal) return;
 
     state.emitted = true;
@@ -734,6 +751,12 @@ class AcpClient {
         _appendText(item);
       }
     }
+  }
+
+  void _reportStatus(String status) {
+    final callback = onStatus;
+    if (callback != null) callback(status);
+    _log('status', status);
   }
 
   void _failPending(Object error) {

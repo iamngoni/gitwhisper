@@ -14,58 +14,76 @@ void main() {
 
     tearDown(() => dir.delete(recursive: true));
 
-    test('surfaces agent tool calls through onActivity', () async {
-      final script = File(p.join(dir.path, 'fake_acp.py'))
-        ..writeAsStringSync(_activityScript);
-      final activities = <AcpToolActivity>[];
+    test(
+      'surfaces agent tool calls through onActivity',
+      () async {
+        final script = File(p.join(dir.path, 'fake_acp.py'))
+          ..writeAsStringSync(_activityScript);
+        final activities = <AcpToolActivity>[];
+        final statuses = <String>[];
 
-      final client = AcpClient(
-        executable: 'python3',
-        arguments: <String>[script.path],
-        onActivity: activities.add,
-      );
+        final client = AcpClient(
+          executable: 'python3',
+          arguments: <String>[script.path],
+          onActivity: activities.add,
+          onStatus: statuses.add,
+        );
 
-      final text = await client.prompt(cwd: dir.path, text: 'go');
+        final text = await client.prompt(cwd: dir.path, text: 'go');
 
-      expect(text, 'feat: add helpers');
+        expect(text, 'feat: add helpers');
+        expect(
+          statuses,
+          containsAll(<String>[
+            'Launching ACP process...',
+            'Initializing ACP agent...',
+            'Starting ACP session...',
+            'Waiting for ACP agent to inspect staged changes...',
+          ]),
+        );
 
-      // No-arg tool: emitted once (on completion), no path.
-      final listCalls =
-          activities.where((a) => a.title.contains('list_staged_files'));
-      expect(listCalls.length, 1);
-      expect(listCalls.single.path, isNull);
+        // No-arg tool: emitted once (on completion), no path.
+        final listCalls =
+            activities.where((a) => a.title.contains('list_staged_files'));
+        expect(listCalls.length, 1);
+        expect(listCalls.single.path, isNull);
 
-      // Path tool where the path only arrives in a later tool_call_update
-      // (the claude-acp shape) must still surface the filename, once.
-      final diffCalls =
-          activities.where((a) => a.title.contains('get_file_diff')).toList();
-      expect(diffCalls.length, 1);
-      expect(diffCalls.single.path, 'lib/src/foo.dart');
-    }, skip: Platform.isWindows ? 'POSIX fake agent only' : null);
+        // Path tool where the path only arrives in a later tool_call_update
+        // (the claude-acp shape) must still surface the filename, once.
+        final diffCalls =
+            activities.where((a) => a.title.contains('get_file_diff')).toList();
+        expect(diffCalls.length, 1);
+        expect(diffCalls.single.path, 'lib/src/foo.dart');
+      },
+      skip: Platform.isWindows ? 'POSIX fake agent only' : null,
+    );
 
-    test('initialize fails fast with a helpful hint when the agent stalls',
-        () async {
-      final script = File(p.join(dir.path, 'stalled_acp.py'))
-        ..writeAsStringSync(_stalledScript);
+    test(
+      'initialize fails fast with a helpful hint when the agent stalls',
+      () async {
+        final script = File(p.join(dir.path, 'stalled_acp.py'))
+          ..writeAsStringSync(_stalledScript);
 
-      final client = AcpClient(
-        executable: 'python3',
-        arguments: <String>[script.path],
-        initializeTimeout: const Duration(milliseconds: 300),
-        timeout: const Duration(seconds: 10),
-      );
+        final client = AcpClient(
+          executable: 'python3',
+          arguments: <String>[script.path],
+          initializeTimeout: const Duration(milliseconds: 300),
+          timeout: const Duration(seconds: 10),
+        );
 
-      await expectLater(
-        client.prompt(cwd: dir.path, text: 'go'),
-        throwsA(
-          isA<AcpException>().having(
-            (e) => e.message,
-            'message',
-            allOf(contains('initialize'), contains('did not start in time')),
+        await expectLater(
+          client.prompt(cwd: dir.path, text: 'go'),
+          throwsA(
+            isA<AcpException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('initialize'), contains('did not start in time')),
+            ),
           ),
-        ),
-      );
-    }, skip: Platform.isWindows ? 'POSIX fake agent only' : null);
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX fake agent only' : null,
+    );
   });
 
   test('ACP auth errors explain agent provider setup', () {

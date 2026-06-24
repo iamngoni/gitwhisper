@@ -189,7 +189,7 @@ void main() {
       expect(file['path'], 'lib/a.dart');
       expect(file['additions'], greaterThan(0));
       expect(file['deletions'], greaterThan(0));
-      expect(file['diffSize'], greaterThan(0));
+      expect(file['changedLines'], greaterThan(0));
       expect(file['isBinary'], isFalse);
       expect(file['isLikelyGenerated'], isFalse);
       expect(file['isLockfile'], isFalse);

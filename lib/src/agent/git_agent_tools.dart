@@ -20,8 +20,9 @@ class GitAgentTools {
         _openAiTool(
           name: 'list_staged_files',
           description: 'List files that currently have staged changes. '
-              'Returns JSON containing each staged path and its git status. '
-              'Use this before requesting individual file diffs.',
+              'Returns JSON containing each staged path, git status, and '
+              'compact change metadata. Use this before requesting individual '
+              'file diffs.',
           parameters: _emptyParameters(),
         ),
         _openAiTool(
@@ -97,8 +98,9 @@ class GitAgentTools {
         _claudeTool(
           name: 'list_staged_files',
           description: 'List files that currently have staged changes. '
-              'Returns JSON containing each staged path and its git status. '
-              'Use this before requesting individual file diffs.',
+              'Returns JSON containing each staged path, git status, and '
+              'compact change metadata. Use this before requesting individual '
+              'file diffs.',
           inputSchema: _emptyParameters(),
         ),
         _claudeTool(
@@ -213,6 +215,7 @@ class GitAgentTools {
 
   Future<String> _listStagedFiles() async {
     final output = await _runGit(<String>['diff', '--cached', '--name-status']);
+    final statsByPath = await _stagedNumStats();
     final files = <Map<String, dynamic>>[];
 
     for (final line in output.split('\n')) {
@@ -239,12 +242,12 @@ class GitAgentTools {
 
     for (final file in files) {
       final filePath = file['path'] as String;
-      final diff = await _fileDiff(filePath);
-      final stats = _diffStats(diff);
+      final stats = statsByPath[filePath];
       file
-        ..addAll(stats)
-        ..['diffSize'] = diff.length
-        ..['isBinary'] = _isBinaryDiff(diff)
+        ..['additions'] = stats?.additions ?? 0
+        ..['deletions'] = stats?.deletions ?? 0
+        ..['changedLines'] = (stats?.additions ?? 0) + (stats?.deletions ?? 0)
+        ..['isBinary'] = stats?.isBinary ?? false
         ..['isLikelyGenerated'] = _isLikelyGenerated(filePath)
         ..['isLockfile'] = _isLockfile(filePath);
     }
@@ -493,6 +496,29 @@ class GitAgentTools {
 
   Future<String> _fileDiff(String stagedPath) {
     return _runGit(<String>['diff', '--cached', '--', stagedPath]);
+  }
+
+  Future<Map<String, _StagedNumStat>> _stagedNumStats() async {
+    final output = await _runGit(<String>['diff', '--cached', '--numstat']);
+    final stats = <String, _StagedNumStat>{};
+
+    for (final line in output.split('\n')) {
+      if (line.trim().isEmpty) continue;
+
+      final parts = line.split('\t');
+      if (parts.length < 3) continue;
+
+      final additions = int.tryParse(parts[0]) ?? 0;
+      final deletions = int.tryParse(parts[1]) ?? 0;
+      final stagedPath = _normalizeGitPath(parts.sublist(2).join('\t'));
+      stats[stagedPath] = _StagedNumStat(
+        additions: additions,
+        deletions: deletions,
+        isBinary: parts[0] == '-' || parts[1] == '-',
+      );
+    }
+
+    return stats;
   }
 
   Future<List<String>> _readTextFileLines(String stagedPath) async {
@@ -790,6 +816,18 @@ class GitAgentTools {
     parameters['required'] = <String>['path', 'query'];
     return parameters;
   }
+}
+
+class _StagedNumStat {
+  const _StagedNumStat({
+    required this.additions,
+    required this.deletions,
+    required this.isBinary,
+  });
+
+  final int additions;
+  final int deletions;
+  final bool isBinary;
 }
 
 class AgentToolUse {
