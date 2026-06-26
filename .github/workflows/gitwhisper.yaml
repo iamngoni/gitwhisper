@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 📚 Git Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: 🎯 Setup Dart
         uses: dart-lang/setup-dart@v1
