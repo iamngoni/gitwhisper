@@ -7,7 +7,9 @@
 //
 
 import 'acp_local_agent_generator.dart';
+import 'claude_code_direct_generator.dart';
 import 'claude_generator.dart';
+import 'codex_direct_generator.dart';
 import 'commit_generator.dart';
 import 'deepseek_generator.dart';
 import 'gemini_generator.dart';
@@ -31,9 +33,17 @@ class CommitGeneratorFactory {
           apiKey,
           variant: variant,
         );
+      case 'claude-code':
+        return ClaudeCodeDirectGenerator(
+          variant: variant,
+        );
       case 'openai':
         return OpenAIGenerator(
           apiKey,
+          variant: variant,
+        );
+      case 'codex':
+        return CodexDirectGenerator(
           variant: variant,
         );
       case 'gemini':

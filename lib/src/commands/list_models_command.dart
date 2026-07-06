@@ -28,10 +28,10 @@ class ListModelsCommand extends Command<int> {
       ..info('Available models:')
       ..info('  - claude (Anthropic Claude)')
       ..info(
-        '  - claude-code (Claude Code ACP agent - no GitWhisper API key)',
+        '  - claude-code (Claude Code local auth - no GitWhisper API key)',
       )
       ..info(
-        '  - codex (Codex ACP agent - no GitWhisper API key)',
+        '  - codex (Codex local auth - no GitWhisper API key)',
       )
       ..info('  - openai (OpenAI GPT models)')
       ..info('  - gemini (Google Gemini)')

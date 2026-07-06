@@ -88,14 +88,14 @@ class ListVariantsCommand extends Command<int> {
         _logger.info('  - claude-3-sonnet-20240307');
         _logger.info('  - claude-3-haiku-20240307');
       case 'claude-code':
-        _logger.info('  Uses the Claude ACP agent default model.');
+        _logger.info('  - claude-sonnet-4-5-20250929 (default)');
         _logger.info(
-          '  Configure model selection in the local ACP agent.',
+          '  Reads Claude Code local credentials; override with --variant.',
         );
       case 'codex':
-        _logger.info('  Uses the Codex ACP agent default model.');
+        _logger.info('  - gpt-5.5 (default)');
         _logger.info(
-          '  Configure model selection in the local ACP agent.',
+          '  Reads Codex config/auth; override with --variant.',
         );
       case 'gemini':
         _logger.info('  - gemini-2.0-flash (default)');

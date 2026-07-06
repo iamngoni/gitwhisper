@@ -18,7 +18,20 @@ import 'language.dart';
 import 'model_variants.dart';
 
 class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
-  ClaudeGenerator(super.apiKey, {super.variant});
+  ClaudeGenerator(super.apiKey, {super.variant, String? baseUrl})
+      : baseUrl = baseUrl ?? 'https://api.anthropic.com';
+
+  final String baseUrl;
+
+  String get messagesEndpoint =>
+      '${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/v1/messages';
+
+  Future<Map<String, String>> resolveHeaders() async {
+    return <String, String>{
+      if (apiKey != null && apiKey!.isNotEmpty) 'x-api-key': apiKey!,
+      'anthropic-version': '2023-06-01',
+    };
+  }
 
   @override
   String get modelName => 'claude';
@@ -41,13 +54,11 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
     );
 
     try {
+      final headers = await resolveHeaders();
       final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.anthropic.com/v1/messages',
+        messagesEndpoint,
         options: Options(
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          headers: headers,
         ),
         data: {
           'model': actualVariant,
@@ -62,7 +73,7 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
       );
 
       if (response.statusCode == 200) {
-        return response.data!['content'][0]['text'].toString().trim();
+        return _extractClaudeText(_extractClaudeContent(response.data)).trim();
       } else {
         throw ServerException(
           message: 'Unexpected response from Claude API',
@@ -79,13 +90,11 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
     final prompt = getAnalysisPrompt(diff, language);
 
     try {
+      final headers = await resolveHeaders();
       final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.anthropic.com/v1/messages',
+        messagesEndpoint,
         options: Options(
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          headers: headers,
         ),
         data: {
           'model': actualVariant,
@@ -100,7 +109,7 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
       );
 
       if (response.statusCode == 200) {
-        return response.data!['content'][0]['text'].toString().trim();
+        return _extractClaudeText(_extractClaudeContent(response.data)).trim();
       } else {
         throw ServerException(
           message: 'Unexpected response from Claude API',
@@ -131,13 +140,11 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
 
     while (true) {
       try {
+        final headers = await resolveHeaders();
         final Response<Map<String, dynamic>> response = await $dio.post(
-          'https://api.anthropic.com/v1/messages',
+          messagesEndpoint,
           options: Options(
-            headers: {
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-            },
+            headers: headers,
           ),
           data: {
             'model': actualVariant,

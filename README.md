@@ -99,8 +99,8 @@ Or download the executable binary that will work on your operating system direct
 - 🛠️ Local ACP agents can inspect staged changes through GitWhisper's read-only MCP tools, with live tool activity shown while they work
 - 🔌 Supports multiple AI models:
   - Claude (Anthropic)
-  - Claude Code ACP agent
-  - Codex ACP agent
+  - Claude Code local auth
+  - Codex local auth
   - OpenAI (GPT)
   - Gemini (Google)
   - Grok (xAI)
@@ -151,9 +151,11 @@ gw commit -t v1.0.0 -a
 gitwhisper commit --dry-run
 gw commit --dry-run
 
-# Use local ACP agent providers (no GitWhisper API key required)
+# Use local-auth agent providers (no GitWhisper API key required)
 gitwhisper commit --model codex
 gitwhisper commit --model claude-code
+
+# Use local ACP agent providers from the registry
 gitwhisper commit --model qoder
 gitwhisper commit --model poolside
 
@@ -283,10 +285,10 @@ You can provide API keys in several ways:
    - `LLAMA_API_KEY` (for Llama)
 3. **Saved configuration**: Use the `save-key` command to store your API key permanently
 
-Local ACP agent providers do not need GitWhisper API keys:
+Local-auth agent providers and ACP agents do not need GitWhisper API keys:
 
-- `codex` resolves `codex-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
-- `claude-code` resolves `claude-acp` from the ACP registry, launches its registry distribution, and lets that local agent inspect staged changes.
+- `codex` reads the same local Codex credentials used by the Codex CLI, calls the Codex Responses API directly, and lets that model inspect staged changes through GitWhisper's read-only tools.
+- `claude-code` reads Claude Code local credentials from environment, `~/.claude`, or the macOS keychain, calls Anthropic Messages directly, and lets that model inspect staged changes through GitWhisper's read-only tools.
 - Other supported ACP agent ids can be used directly, for example `qoder`, `poolside`, `cline`, or other agents shown by `gw acp list`.
 
 GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
@@ -341,7 +343,7 @@ Agent mode is enabled by default for tool-capable providers:
 - `gw commit --model claude-code`
 - `gw commit --model <supported-acp-agent-id>`
 
-In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, diff hunks, file-content chunks, file search, related files, summaries, and blame. Local ACP agents receive these through GitWhisper's MCP server. The full diff is not sent in one prompt.
+In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, diff hunks, file-content chunks, file search, related files, summaries, and blame. Direct API-backed providers receive these through native tool/function-calling APIs; local ACP agents receive them through GitWhisper's MCP server. The full diff is not sent in one prompt.
 Models without tool support automatically use the regular direct-diff mode.
 
 ## Model Variants
@@ -381,10 +383,15 @@ GitWhisper supports a comprehensive range of model variants:
 - `claude-3-sonnet-20240307`
 - `claude-3-haiku-20240307`
 
+### Local-Auth Agent Providers
+
+These providers call the model APIs directly while reusing local CLI credentials:
+
+- `codex` uses the model in `~/.codex/config.toml` when configured, otherwise `gpt-5.5`. Override with `--variant`.
+- `claude-code` uses `claude-sonnet-4-5-20250929` by default. Override with `--variant`.
+
 ### Local ACP Agent Providers
 
-- `codex` uses the Codex ACP agent default model. Configure model selection in the local ACP agent.
-- `claude-code` uses the Claude ACP agent default model. Configure model selection in the local ACP agent.
 - Supported ACP agent ids from `gw acp list` use that agent's own model/configuration.
 
 ### Gemini (Google)

@@ -14,15 +14,11 @@ class ModelVariants {
   /// Default Claude model variant
   static const String claudeDefault = 'claude-sonnet-4-5-20250929';
 
-  /// Default Claude Code ACP agent model variant.
-  ///
-  /// Empty means the local ACP agent should use its configured default.
-  static const String claudeCodeDefault = '';
+  /// Default Claude Code model variant for the direct Anthropic harness.
+  static const String claudeCodeDefault = 'claude-sonnet-4-5-20250929';
 
-  /// Default Codex ACP agent model variant.
-  ///
-  /// Empty means the local ACP agent should use its configured default.
-  static const String codexDefault = '';
+  /// Default Codex model variant for the direct Responses API harness.
+  static const String codexDefault = 'gpt-5.5';
 
   /// Default Gemini model variant
   static const String geminiDefault = 'gemini-2.0-flash';
