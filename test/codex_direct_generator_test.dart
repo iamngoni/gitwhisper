@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
 import 'package:gitwhisper/src/agent/git_agent_tools.dart';
+import 'package:gitwhisper/src/constants.dart';
 import 'package:gitwhisper/src/models/codex_direct_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:path/path.dart' as p;
@@ -26,6 +28,7 @@ void main() {
             return <String, dynamic>{
               'output': <Map<String, dynamic>>[
                 <String, dynamic>{
+                  'id': 'rs_tool_call',
                   'type': 'function_call',
                   'call_id': 'call_1',
                   'name': 'list_staged_files',
@@ -70,6 +73,7 @@ void main() {
       expect(requests.first.headers['Authorization'], 'Bearer chatgpt-token');
       expect(requests.first.headers['ChatGPT-Account-ID'], 'account_123');
       expect(requests.first.body['model'], 'gpt-test');
+      expect(requests.first.body['stream'], isTrue);
       expect(requests.first.body['tools'], isA<List<dynamic>>());
       expect(
         requests.last.body['input'],
@@ -77,6 +81,7 @@ void main() {
           containsPair('type', 'function_call_output'),
         ),
       );
+      expect(requests.last.body['input'].toString(), isNot(contains('rs_')));
     });
 
     test('runs codex login when auth.json is missing', () async {
@@ -126,6 +131,129 @@ void main() {
 
       expect(generator.defaultVariant, 'gpt-custom');
     });
+
+    test('parses streaming Responses SSE from Codex endpoint', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'chatgpt-token');
+      final capturedRequests = <RequestOptions>[];
+      final interceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          capturedRequests.add(options);
+          handler.resolve(
+            Response<ResponseBody>(
+              requestOptions: options,
+              statusCode: 200,
+              data: ResponseBody.fromString(
+                [
+                  _sse(
+                    'response.output_text.delta',
+                    <String, dynamic>{
+                      'type': 'response.output_text.delta',
+                      'delta': 'docs: ',
+                    },
+                  ),
+                  _sse(
+                    'response.output_text.delta',
+                    <String, dynamic>{
+                      'type': 'response.output_text.delta',
+                      'delta': 'Stream Codex responses',
+                    },
+                  ),
+                  _sse(
+                    'response.output_item.done',
+                    <String, dynamic>{
+                      'type': 'response.output_item.done',
+                      'item': <String, dynamic>{
+                        'type': 'message',
+                        'role': 'assistant',
+                        'content': <Map<String, dynamic>>[
+                          <String, dynamic>{
+                            'type': 'output_text',
+                            'text': 'docs: Stream Codex responses',
+                          },
+                        ],
+                      },
+                    },
+                  ),
+                  _sse(
+                    'response.completed',
+                    <String, dynamic>{
+                      'type': 'response.completed',
+                      'response': <String, dynamic>{'id': 'resp_1'},
+                    },
+                  ),
+                ].join(),
+                200,
+              ),
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = CodexDirectGenerator(
+        codexHome: root.path,
+        environment: const <String, String>{},
+        variant: 'gpt-test',
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/README.md b/README.md\n+Docs',
+        Language.english,
+        withEmoji: false,
+      );
+
+      expect(message, 'docs: Stream Codex responses');
+      expect(capturedRequests, hasLength(1));
+      expect(capturedRequests.single.responseType, ResponseType.stream);
+      expect(capturedRequests.single.headers['Accept'], 'text/event-stream');
+      final body = capturedRequests.single.data as Map<String, dynamic>;
+      expect(body['stream'], isTrue);
+    });
+
+    test('retries once when agent returns prose instead of a header', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'chatgpt-token');
+
+      final requests = <_CapturedRequest>[];
+      final generator = CodexDirectGenerator(
+        codexHome: root.path,
+        environment: const <String, String>{},
+        variant: 'gpt-test',
+        postResponses: (endpoint, headers, body) async {
+          requests.add(_CapturedRequest(endpoint, headers, body));
+          if (requests.length == 1) {
+            return <String, dynamic>{
+              'output_text': 'I inspected the staged changes.',
+            };
+          }
+          return <String, dynamic>{
+            'output_text': 'feat: Add direct Codex harness',
+          };
+        },
+      );
+
+      final message = await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(
+            folderPath: root.path,
+            onToolUse: (_) {},
+          ),
+          language: Language.english,
+          withEmoji: false,
+        ),
+      );
+
+      expect(message, 'feat: Add direct Codex harness');
+      expect(requests, hasLength(2));
+      expect(
+        requests.last.body['input'].toString(),
+        contains('return only the final conventional commit message'),
+      );
+    });
   });
 }
 
@@ -165,4 +293,8 @@ class _CapturedRequest {
   final Uri endpoint;
   final Map<String, String> headers;
   final Map<String, dynamic> body;
+}
+
+String _sse(String event, Map<String, dynamic> data) {
+  return 'event: $event\ndata: ${jsonEncode(data)}\n\n';
 }

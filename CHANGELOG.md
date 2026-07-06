@@ -1,3 +1,8 @@
+## 1.0.4
+- Added direct local-auth API generators for Codex and Claude Code so commit generation can bypass ACP startup while still using each tool's existing login state.
+- Fixed Claude Code direct OAuth requests by matching the Claude Code streaming request shape required by Anthropic's API.
+- Kept ACP-backed agents available for other local-agent providers while routing Codex and Claude Code through their faster direct harnesses.
+
 ## 1.0.2
 - Show per-step execution timings while launching ACP agents, initializing sessions, and waiting for staged-change inspection so slow local-agent commits expose where time is spent.
 - Install npm-backed ACP agents into GitWhisper's agent cache with `gw acp install`, then launch cached `node_modules/.bin` executables instead of `npx` when available.

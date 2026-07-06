@@ -9,6 +9,7 @@ import '../agent/git_agent_tools.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
+import '../git_utils.dart';
 import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
@@ -49,6 +50,11 @@ class CodexDirectGenerator extends CommitGenerator
       Uri.parse('https://auth.openai.com/oauth/token');
 
   static const String _oauthClientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
+  static const String _commitRetryPrompt =
+      'You stopped before returning the final commit message. Using the '
+      'staged-change context you already inspected, return only the final '
+      'conventional commit message now. No explanation, no planning text, no '
+      'Markdown.';
 
   final String? _codexHome;
   final Map<String, String>? _environment;
@@ -80,7 +86,6 @@ class CodexDirectGenerator extends CommitGenerator
         prefix: prefix,
         withEmoji: withEmoji,
       ),
-      maxOutputTokens: maxTokens,
     );
   }
 
@@ -88,7 +93,6 @@ class CodexDirectGenerator extends CommitGenerator
   Future<String> analyzeChanges(String diff, Language language) {
     return _runResponsesPrompt(
       prompt: getAnalysisPrompt(diff, language),
-      maxOutputTokens: maxAnalysisTokens,
     );
   }
 
@@ -100,7 +104,6 @@ class CodexDirectGenerator extends CommitGenerator
         prefix: request.prefix,
         withEmoji: request.withEmoji,
       ),
-      maxOutputTokens: maxTokens,
       tools: request.tools,
       maxToolCalls: request.maxToolCalls,
     );
@@ -108,7 +111,6 @@ class CodexDirectGenerator extends CommitGenerator
 
   Future<String> _runResponsesPrompt({
     required String prompt,
-    required int maxOutputTokens,
     GitAgentTools? tools,
     int maxToolCalls = 0,
   }) async {
@@ -127,12 +129,12 @@ class CodexDirectGenerator extends CommitGenerator
 
     var toolCallCount = 0;
     var retriedAfterRefresh = false;
+    var retriedForCommitMessage = false;
 
     while (true) {
       final body = _requestBody(
         input: input,
         tools: tools,
-        maxOutputTokens: maxOutputTokens,
       );
 
       late final Map<String, dynamic> response;
@@ -159,6 +161,15 @@ class CodexDirectGenerator extends CommitGenerator
             'Codex response did not include final text.',
           );
         }
+        if (tools != null &&
+            !retriedForCommitMessage &&
+            _shouldRetryForCommitMessage(text)) {
+          input
+            ..addAll(outputItems.map(_stripResponseItemForInput))
+            ..add(_inputTextMessage(_commitRetryPrompt));
+          retriedForCommitMessage = true;
+          continue;
+        }
         return text;
       }
 
@@ -175,7 +186,7 @@ class CodexDirectGenerator extends CommitGenerator
         );
       }
 
-      input.addAll(outputItems);
+      input.addAll(outputItems.map(_stripResponseItemForInput));
       for (final toolCall in toolCalls) {
         final output = await _executeToolCall(tools, toolCall);
         input.add(<String, dynamic>{
@@ -187,21 +198,51 @@ class CodexDirectGenerator extends CommitGenerator
     }
   }
 
+  static bool _shouldRetryForCommitMessage(String text) {
+    final normalized = text.trim().toLowerCase();
+    if (normalized.isEmpty ||
+        normalized.contains('upgrade your plan to continue') ||
+        normalized.contains('payment required') ||
+        normalized.contains('paid credits') ||
+        normalized.contains('out of credits') ||
+        normalized.contains('quota exceeded') ||
+        normalized.contains('rate limit') ||
+        normalized.startsWith('error:')) {
+      return false;
+    }
+    return GitUtils.sanitizeGeneratedCommitMessage(
+      text,
+      requireConventionalCommit: true,
+    ).trim().isEmpty;
+  }
+
+  static Map<String, dynamic> _inputTextMessage(String text) {
+    return <String, dynamic>{
+      'role': 'user',
+      'content': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'input_text',
+          'text': text,
+        },
+      ],
+    };
+  }
+
   Map<String, dynamic> _requestBody({
     required List<Map<String, dynamic>> input,
-    required int maxOutputTokens,
     GitAgentTools? tools,
   }) {
     return <String, dynamic>{
       'model': actualVariant,
       'input': input,
+      'tool_choice': 'auto',
+      'parallel_tool_calls': tools != null,
+      'reasoning': null,
       'store': false,
-      'stream': false,
-      'max_output_tokens': maxOutputTokens,
+      'stream': true,
+      'include': <String>[],
       if (tools != null) ...<String, dynamic>{
         'tools': _responsesToolDefinitions,
-        'tool_choice': 'auto',
-        'parallel_tool_calls': true,
       },
     };
   }
@@ -211,30 +252,189 @@ class CodexDirectGenerator extends CommitGenerator
     Map<String, dynamic> body,
   ) async {
     final endpoint = _endpointOverride ?? auth.endpoint;
-    final headers = auth.headers;
+    final headers = <String, String>{
+      ...auth.headers,
+      'Accept': 'text/event-stream',
+    };
     final postResponses = _postResponses;
     if (postResponses != null) {
       return postResponses(endpoint, headers, body);
     }
 
-    final Response<Map<String, dynamic>> response = await $dio.postUri(
+    final Response<ResponseBody> response = await $dio.postUri<ResponseBody>(
       endpoint,
-      options: Options(headers: headers),
+      options: Options(
+        headers: headers,
+        responseType: ResponseType.stream,
+        validateStatus: (_) => true,
+      ),
       data: body,
     );
 
     if (response.statusCode != 200) {
-      throw ServerException(
-        message: 'Unexpected response from Codex API',
-        statusCode: response.statusCode ?? 500,
+      final errorBody = await _readResponseBodyAsString(response.data);
+      throw InvalidRequestException(
+        message: _extractErrorMessage(errorBody) ??
+            'Unexpected response from Codex API.',
+        statusCode: response.statusCode ?? 400,
       );
     }
 
-    final data = response.data;
-    if (data == null) {
-      throw const FormatException('Codex response was empty.');
+    final responseBody = response.data;
+    if (responseBody == null) {
+      throw const FormatException('Codex response stream was empty.');
     }
-    return data;
+    return _readStreamingResponse(responseBody);
+  }
+
+  Future<String> _readResponseBodyAsString(ResponseBody? responseBody) async {
+    if (responseBody == null) return '';
+    final buffer = StringBuffer();
+    await for (final chunk
+        in responseBody.stream.cast<List<int>>().transform(utf8.decoder)) {
+      buffer.write(chunk);
+    }
+    return buffer.toString();
+  }
+
+  static String? _extractErrorMessage(String body) {
+    if (body.trim().isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<dynamic, dynamic>) {
+        final object = Map<String, dynamic>.from(decoded);
+        final error = object['error'];
+        if (error is Map<dynamic, dynamic>) {
+          return _nonEmptyString(error['message']) ??
+              _nonEmptyString(error['code']) ??
+              _nonEmptyString(error['type']);
+        }
+        return _nonEmptyString(object['message']);
+      }
+    } on FormatException {
+      return body.trim();
+    }
+
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _readStreamingResponse(
+    ResponseBody responseBody,
+  ) async {
+    final output = <Map<String, dynamic>>[];
+    final outputText = StringBuffer();
+    var completed = false;
+    var eventName = '';
+    final dataLines = <String>[];
+
+    await for (final line in responseBody.stream
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())) {
+      if (line.isEmpty) {
+        _consumeSseEvent(
+          eventName: eventName,
+          dataLines: dataLines,
+          output: output,
+          outputText: outputText,
+          markCompleted: () => completed = true,
+        );
+        eventName = '';
+        dataLines.clear();
+        continue;
+      }
+
+      if (line.startsWith(':')) continue;
+
+      final separatorIndex = line.indexOf(':');
+      final field =
+          separatorIndex == -1 ? line : line.substring(0, separatorIndex);
+      final value = separatorIndex == -1
+          ? ''
+          : line.substring(separatorIndex + 1).trimLeft();
+
+      if (field == 'event') {
+        eventName = value;
+      } else if (field == 'data') {
+        dataLines.add(value);
+      }
+    }
+
+    if (eventName.isNotEmpty || dataLines.isNotEmpty) {
+      _consumeSseEvent(
+        eventName: eventName,
+        dataLines: dataLines,
+        output: output,
+        outputText: outputText,
+        markCompleted: () => completed = true,
+      );
+    }
+
+    if (!completed) {
+      throw const FormatException(
+        'Codex response stream closed before response.completed.',
+      );
+    }
+
+    return <String, dynamic>{
+      'output': output,
+      if (outputText.isNotEmpty) 'output_text': outputText.toString(),
+    };
+  }
+
+  static void _consumeSseEvent({
+    required String eventName,
+    required List<String> dataLines,
+    required List<Map<String, dynamic>> output,
+    required StringBuffer outputText,
+    required void Function() markCompleted,
+  }) {
+    if (dataLines.isEmpty) return;
+
+    final data = dataLines.join('\n').trim();
+    if (data.isEmpty || data == '[DONE]') return;
+
+    final decoded = jsonDecode(data);
+    if (decoded is! Map<dynamic, dynamic>) return;
+
+    final event = Map<String, dynamic>.from(decoded);
+    final type = _nonEmptyString(event['type']) ?? eventName;
+
+    switch (type) {
+      case 'response.output_item.done':
+        final item = event['item'];
+        if (item is Map<dynamic, dynamic>) {
+          output.add(Map<String, dynamic>.from(item));
+        }
+      case 'response.output_text.delta':
+        final delta = event['delta'];
+        if (delta is String) outputText.write(delta);
+      case 'response.completed':
+        markCompleted();
+      case 'response.failed':
+        _throwStreamingFailure(event, fallback: 'Codex response failed.');
+      case 'response.incomplete':
+        _throwStreamingFailure(
+          event,
+          fallback: 'Codex response was incomplete.',
+        );
+    }
+  }
+
+  static Never _throwStreamingFailure(
+    Map<String, dynamic> event, {
+    required String fallback,
+  }) {
+    final response = event['response'];
+    final error = response is Map<dynamic, dynamic> ? response['error'] : null;
+    if (error is Map<dynamic, dynamic>) {
+      final errorMap = Map<String, dynamic>.from(error);
+      final message = _nonEmptyString(errorMap['message']) ?? fallback;
+      throw InvalidRequestException(message: message);
+    }
+
+    throw FormatException(fallback);
   }
 
   Future<_CodexAuth> _loadAuth({bool allowLogin = true}) async {
@@ -442,6 +642,12 @@ class CodexDirectGenerator extends CommitGenerator
       );
     }
     return calls;
+  }
+
+  static Map<String, dynamic> _stripResponseItemForInput(
+    Map<String, dynamic> item,
+  ) {
+    return Map<String, dynamic>.from(item)..remove('id');
   }
 
   static String _extractText(Map<String, dynamic> response) {
