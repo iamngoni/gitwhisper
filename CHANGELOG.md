@@ -1,3 +1,6 @@
+## 1.0.5
+- No change
+
 ## 1.0.4
 - Added direct local-auth API generators for Codex and Claude Code so commit generation can bypass ACP startup while still using each tool's existing login state.
 - Fixed Claude Code direct OAuth requests by matching the Claude Code streaming request shape required by Anthropic's API.
