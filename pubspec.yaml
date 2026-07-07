@@ -1,6 +1,6 @@
 name: gitwhisper
 description: AI-powered Git commit message generator that whispers the perfect commit message for your changes
-version: 1.0.7
+version: 1.0.8
 repository: https://github.com/iamngoni/gitwhisper
 homepage: https://github.com/iamngoni/gitwhisper
 
@@ -10,6 +10,7 @@ environment:
 dependencies:
   args: ^2.6.0
   cli_completion: ^0.5.1
+  crypto: ^3.0.6
   dio: ^5.8.0+1
   mason_logger: ^0.3.2
   path: ^1.9.1

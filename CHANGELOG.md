@@ -1,3 +1,9 @@
+## 1.0.8
+- Prefer Claude Code's macOS keychain OAuth credentials over stale `.credentials.json` copies so direct calls follow the same live login state as Claude Code.
+- Match Claude Code's keychain service naming, `CLAUDE_CONFIG_DIR` hash suffix, hex keychain save format, and external auth precedence for direct Claude Code calls.
+- Match Claude Code's file-descriptor credentials, `apiKeyHelper` settings auth, managed OAuth contexts, bare/simple mode, keychain-first legacy API keys, and staging/custom OAuth refresh configuration.
+- Continue with the stored Claude Code access token once when proactive refresh fails, surfacing the setup-token error only if the API rejects that token too.
+
 ## 1.0.7
 - Match Claude Code's production OAuth token refresh endpoint and Claude.ai scope expansion.
 - Decode macOS keychain values that `security` returns as hex and save refreshed Claude Code keychain credentials as compact JSON.

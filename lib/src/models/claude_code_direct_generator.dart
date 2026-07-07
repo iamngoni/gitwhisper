@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
@@ -30,6 +32,23 @@ typedef ClaudeCodeTokenRefresher = Future<Map<String, dynamic>> Function(
   Map<String, dynamic> body,
 );
 
+typedef ClaudeCodeKeychainReader = Future<String?> Function(String service);
+
+typedef ClaudeCodeKeychainWriter = Future<void> Function(
+  String service,
+  String value,
+);
+
+typedef ClaudeCodeFileDescriptorCredentialReader = String? Function(
+  String envVar,
+  String wellKnownPath,
+);
+
+typedef ClaudeCodeApiKeyHelperRunner = Future<String> Function(
+  String command,
+  Duration timeout,
+);
+
 class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   ClaudeCodeDirectGenerator({
     String? apiKey,
@@ -40,6 +59,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     ClaudeCodeLoginRunner? runLogin,
     ClaudeCodeMessagesStreamer? streamMessages,
     ClaudeCodeTokenRefresher? refreshToken,
+    ClaudeCodeKeychainReader? readMacOsKeychainService,
+    ClaudeCodeKeychainWriter? writeMacOsKeychainService,
+    ClaudeCodeFileDescriptorCredentialReader? readFileDescriptorCredential,
+    ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
     this.loginExecutable = 'claude',
     this.loginArguments = const <String>['setup-token'],
     this.useMacOsKeychain = true,
@@ -49,6 +72,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _runLogin = runLogin ?? _defaultRunLogin,
         _streamMessages = streamMessages,
         _refreshToken = refreshToken,
+        _readMacOsKeychain = readMacOsKeychainService,
+        _writeMacOsKeychain = writeMacOsKeychainService,
+        _readFileDescriptorCredential = readFileDescriptorCredential,
+        _runApiKeyHelper = runApiKeyHelper ?? _defaultRunApiKeyHelper,
         super(
           apiKey,
           variant: variant,
@@ -58,11 +85,22 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   static const String _systemPrompt =
       "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
-  static final Uri _refreshTokenEndpoint =
-      Uri.parse('https://platform.claude.com/v1/oauth/token');
-  static const String _oauthClientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+  static const String _prodOAuthClientId =
+      '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+  static const String _nonProdOAuthClientId =
+      '22422756-60c9-4084-8eb7-27705fd5cf9a';
   static const Duration _refreshBuffer = Duration(minutes: 5);
+  static const Duration _apiKeyHelperDefaultTtl = Duration(minutes: 5);
+  static const Duration _apiKeyHelperTimeout = Duration(minutes: 10);
   static const String _claudeAiInferenceScope = 'user:inference';
+  static const String _ccrOAuthTokenPath =
+      '/home/claude/.claude/remote/.oauth_token';
+  static const String _ccrApiKeyPath = '/home/claude/.claude/remote/.api_key';
+  static const Set<String> _allowedCustomOAuthBaseUrls = <String>{
+    'https://beacon.claude-ai.staging.ant.dev',
+    'https://claude.fedstart.com',
+    'https://claude-staging.fedstart.com',
+  };
   static const List<String> _defaultOAuthScopes = <String>[
     'user:profile',
     _claudeAiInferenceScope,
@@ -77,9 +115,16 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   final ClaudeCodeLoginRunner _runLogin;
   final ClaudeCodeMessagesStreamer? _streamMessages;
   final ClaudeCodeTokenRefresher? _refreshToken;
+  final ClaudeCodeKeychainReader? _readMacOsKeychain;
+  final ClaudeCodeKeychainWriter? _writeMacOsKeychain;
+  final ClaudeCodeFileDescriptorCredentialReader? _readFileDescriptorCredential;
+  final ClaudeCodeApiKeyHelperRunner _runApiKeyHelper;
   final String loginExecutable;
   final List<String> loginArguments;
   final bool useMacOsKeychain;
+  final Map<String, String?> _fileDescriptorCredentialCache =
+      <String, String?>{};
+  _ClaudeCodeApiKeyHelperCache? _apiKeyHelperCache;
 
   Map<String, String> get _env => _environment ?? Platform.environment;
 
@@ -500,14 +545,20 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   Future<_ClaudeCodeAuth> _loadAuth({bool allowLogin = true}) async {
-    final envAuth = _readEnvironmentAuth();
+    final envAuth = await _readEnvironmentAuth();
     if (envAuth != null) return envAuth;
+
+    if (_isBareMode) {
+      throw const AuthenticationException(
+        message: 'Claude Code bare mode requires ANTHROPIC_API_KEY.',
+      );
+    }
 
     final storedOAuthCredentials = await _readStoredOAuthCredentials();
     if (storedOAuthCredentials != null) {
       final auth = _ClaudeCodeAuth(oauthCredentials: storedOAuthCredentials);
       if (_shouldRefresh(storedOAuthCredentials)) {
-        return _refreshClaudeCodeOAuth(auth);
+        return _refreshClaudeCodeOAuthOrUseStored(auth);
       }
       return auth;
     }
@@ -529,24 +580,80 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     );
   }
 
-  _ClaudeCodeAuth? _readEnvironmentAuth() {
-    final apiKey = _nonBlank(_explicitApiKey) ??
-        _nonBlank(_env['ANTHROPIC_API_KEY']) ??
+  Future<_ClaudeCodeAuth?> _readEnvironmentAuth() async {
+    final explicitApiKey = _nonBlank(_explicitApiKey);
+    final envApiKey = _nonBlank(_env['ANTHROPIC_API_KEY']) ??
         _nonBlank(_env['CLAUDE_API_KEY']);
-    final bearerToken = _nonBlank(_env['CLAUDE_CODE_OAUTH_TOKEN']) ??
-        _nonBlank(_env['ANTHROPIC_AUTH_TOKEN']);
+    final apiKeyFromFileDescriptor = _isBareMode
+        ? null
+        : _readCredentialFromFileDescriptor(
+            'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
+            _ccrApiKeyPath,
+          );
+    final apiKey = explicitApiKey ?? envApiKey ?? apiKeyFromFileDescriptor;
+    final externalBearerToken =
+        _isManagedOAuthContext ? null : _nonBlank(_env['ANTHROPIC_AUTH_TOKEN']);
+    final claudeCodeOAuthToken = _isBareMode
+        ? null
+        : _nonBlank(_env['CLAUDE_CODE_OAUTH_TOKEN']) ??
+            _readCredentialFromFileDescriptor(
+              'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
+              _ccrOAuthTokenPath,
+            );
 
-    if (apiKey == null && bearerToken == null) return null;
-    return _ClaudeCodeAuth(apiKey: apiKey, bearerToken: bearerToken);
+    if (_isBareMode) {
+      if (apiKey == null) return null;
+      return _ClaudeCodeAuth(apiKey: apiKey);
+    }
+
+    if (_isManagedOAuthContext && claudeCodeOAuthToken != null) {
+      return _ClaudeCodeAuth(
+        bearerToken: claudeCodeOAuthToken,
+        bearerSource: _ClaudeCodeBearerSource.claudeCodeOAuthToken,
+      );
+    }
+
+    if (apiKey != null || externalBearerToken != null) {
+      return _ClaudeCodeAuth(
+        apiKey: apiKey,
+        bearerToken: externalBearerToken,
+        bearerSource: externalBearerToken == null
+            ? null
+            : _ClaudeCodeBearerSource.anthropicAuthToken,
+      );
+    }
+
+    final apiKeyHelperToken = await _readApiKeyHelperToken();
+    if (apiKeyHelperToken != null) {
+      return _ClaudeCodeAuth(
+        bearerToken: apiKeyHelperToken,
+        bearerSource: _ClaudeCodeBearerSource.apiKeyHelper,
+      );
+    }
+
+    if (claudeCodeOAuthToken != null) {
+      return _ClaudeCodeAuth(
+        bearerToken: claudeCodeOAuthToken,
+        bearerSource: _ClaudeCodeBearerSource.claudeCodeOAuthToken,
+      );
+    }
+
+    return null;
   }
 
   Future<_ClaudeCodeOAuthCredentials?> _readStoredOAuthCredentials() async {
-    final fileCredentials = await _readClaudeAiOauthCredentialsFromFile();
-    if (fileCredentials != null) return fileCredentials;
+    final keychainCredentials =
+        await _readClaudeAiOauthCredentialsFromMacOsKeychain();
+    if (keychainCredentials != null) return keychainCredentials;
 
+    return _readClaudeAiOauthCredentialsFromFile();
+  }
+
+  Future<_ClaudeCodeOAuthCredentials?>
+      _readClaudeAiOauthCredentialsFromMacOsKeychain() async {
     if (!useMacOsKeychain) return null;
     final keychainValue = await _readMacOsKeychainService(
-      'Claude Code-credentials',
+      _macOsKeychainServiceName(credentials: true),
     );
     if (keychainValue == null) return null;
 
@@ -557,14 +664,16 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   Future<String?> _readStoredApiKey() async {
-    final globalConfigKey = await _readGlobalConfigApiKey();
-    if (globalConfigKey != null) return globalConfigKey;
+    if (useMacOsKeychain) {
+      final keychainValue = await _readMacOsKeychainService(
+        _macOsKeychainServiceName(),
+      );
+      if (keychainValue != null && !keychainValue.startsWith('{')) {
+        return _nonBlank(keychainValue);
+      }
+    }
 
-    if (!useMacOsKeychain) return null;
-    final keychainValue = await _readMacOsKeychainService('Claude Code');
-    if (keychainValue == null || keychainValue.startsWith('{')) return null;
-
-    return _nonBlank(keychainValue);
+    return _readGlobalConfigApiKey();
   }
 
   Future<_ClaudeCodeOAuthCredentials?>
@@ -608,7 +717,131 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return null;
   }
 
+  Future<String?> _readApiKeyHelperToken() async {
+    if (_isBareMode || _isManagedOAuthContext) return null;
+
+    final command = _configuredApiKeyHelper;
+    if (command == null) return null;
+
+    final ttl = _apiKeyHelperTtl;
+    final cached = _apiKeyHelperCache;
+    if (cached != null && DateTime.now().difference(cached.timestamp) < ttl) {
+      return cached.value;
+    }
+
+    try {
+      final value = _nonBlank(
+        await _runApiKeyHelper(command, _apiKeyHelperTimeout),
+      );
+      if (value == null) {
+        throw StateError('did not return a value');
+      }
+      _apiKeyHelperCache = _ClaudeCodeApiKeyHelperCache(value);
+      return value;
+    } on Object catch (error) {
+      $logger.warn('Claude Code apiKeyHelper failed: $error');
+      _apiKeyHelperCache = _ClaudeCodeApiKeyHelperCache(' ');
+      return ' ';
+    }
+  }
+
+  String? get _configuredApiKeyHelper {
+    String? helper;
+    for (final file in _claudeSettingsFiles) {
+      final settings = _readJsonObjectSync(file);
+      final value = settings['apiKeyHelper'];
+      if (value is String) {
+        helper = _nonBlank(value) ?? helper;
+      }
+    }
+    return helper;
+  }
+
+  List<File> get _claudeSettingsFiles {
+    final userSettingsFileName =
+        _isEnvTruthy(_env['CLAUDE_CODE_USE_COWORK_PLUGINS'])
+            ? 'cowork_settings.json'
+            : 'settings.json';
+    return <File>[
+      File(path.join(_resolvedClaudeConfigDir, userSettingsFileName)),
+      File(path.join(Directory.current.path, '.claude', 'settings.json')),
+      File(path.join(Directory.current.path, '.claude', 'settings.local.json')),
+      ..._managedSettingsFiles,
+    ];
+  }
+
+  List<File> get _managedSettingsFiles {
+    final managedPath = _managedSettingsPath;
+    final files = <File>[
+      File(path.join(managedPath, 'managed-settings.json')),
+    ];
+
+    final dropInDir = Directory(path.join(managedPath, 'managed-settings.d'));
+    try {
+      if (dropInDir.existsSync()) {
+        final dropIns = dropInDir.listSync().whereType<File>().where((file) {
+          final name = path.basename(file.path);
+          return name.endsWith('.json') && !name.startsWith('.');
+        }).toList()
+          ..sort(
+            (left, right) =>
+                path.basename(left.path).compareTo(path.basename(right.path)),
+          );
+        files.addAll(dropIns);
+      }
+    } on FileSystemException {
+      return files;
+    }
+
+    return files;
+  }
+
+  String get _managedSettingsPath {
+    if (_env['USER_TYPE'] == 'ant') {
+      final override = _nonBlank(_env['CLAUDE_CODE_MANAGED_SETTINGS_PATH']);
+      if (override != null) return override;
+    }
+
+    if (Platform.isMacOS) return '/Library/Application Support/ClaudeCode';
+    if (Platform.isWindows) return r'C:\Program Files\ClaudeCode';
+    return '/etc/claude-code';
+  }
+
+  Map<String, dynamic> _readJsonObjectSync(File file) {
+    try {
+      if (!file.existsSync()) return <String, dynamic>{};
+      final decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is Map<dynamic, dynamic>) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } on FormatException {
+      return <String, dynamic>{};
+    } on FileSystemException {
+      return <String, dynamic>{};
+    }
+
+    return <String, dynamic>{};
+  }
+
+  Duration get _apiKeyHelperTtl {
+    final raw = _nonBlank(_env['CLAUDE_CODE_API_KEY_HELPER_TTL_MS']);
+    if (raw == null) return _apiKeyHelperDefaultTtl;
+
+    final milliseconds = int.tryParse(raw);
+    if (milliseconds == null || milliseconds < 0) {
+      return _apiKeyHelperDefaultTtl;
+    }
+    return Duration(milliseconds: milliseconds);
+  }
+
   Future<String?> _readMacOsKeychainService(String service) async {
+    final injectedReader = _readMacOsKeychain;
+    if (injectedReader != null) {
+      final value = await injectedReader(service);
+      if (value == null) return null;
+      return _decodeMacOsKeychainPassword(value);
+    }
+
     if (!Platform.isMacOS) return null;
 
     final account = _nonBlank(_env['USER']) ?? _nonBlank(_env['LOGNAME']);
@@ -630,6 +863,46 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       if (result.exitCode != 0) return null;
       return _decodeMacOsKeychainPassword(result.stdout.toString());
     } on ProcessException {
+      return null;
+    }
+  }
+
+  String? _readCredentialFromFileDescriptor(
+    String envVar,
+    String wellKnownPath,
+  ) {
+    if (_fileDescriptorCredentialCache.containsKey(envVar)) {
+      return _fileDescriptorCredentialCache[envVar];
+    }
+
+    final injectedReader = _readFileDescriptorCredential;
+    if (injectedReader != null) {
+      final value = _nonBlank(injectedReader(envVar, wellKnownPath));
+      _fileDescriptorCredentialCache[envVar] = value;
+      return value;
+    }
+
+    final fdValue = _nonBlank(_env[envVar]);
+    String? value;
+    if (fdValue != null) {
+      final fd = int.tryParse(fdValue);
+      if (fd != null) {
+        final fdPath = Platform.isMacOS || Platform.operatingSystem == 'freebsd'
+            ? '/dev/fd/$fd'
+            : '/proc/self/fd/$fd';
+        value = _readCredentialFile(fdPath);
+      }
+    }
+
+    value ??= _readCredentialFile(wellKnownPath);
+    _fileDescriptorCredentialCache[envVar] = value;
+    return value;
+  }
+
+  String? _readCredentialFile(String filePath) {
+    try {
+      return _nonBlank(File(filePath).readAsStringSync());
+    } on FileSystemException {
       return null;
     }
   }
@@ -711,13 +984,42 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       return null;
     }
 
+    final changedAuth = await _readChangedStoredOAuth(failedAuth);
+    if (changedAuth != null) return changedAuth;
+
+    return _refreshClaudeCodeOAuth(failedAuth);
+  }
+
+  Future<_ClaudeCodeAuth> _refreshClaudeCodeOAuthOrUseStored(
+    _ClaudeCodeAuth auth,
+  ) async {
+    try {
+      return await _refreshClaudeCodeOAuth(auth);
+    } on AuthenticationException catch (error) {
+      final changedAuth = await _readChangedStoredOAuth(auth);
+      if (changedAuth != null) return changedAuth;
+
+      $logger.warn(
+        'Claude Code authentication refresh failed; trying stored access '
+        'token once. ${error.message}',
+      );
+      return auth;
+    }
+  }
+
+  Future<_ClaudeCodeAuth?> _readChangedStoredOAuth(
+    _ClaudeCodeAuth failedAuth,
+  ) async {
+    final failedCredentials = failedAuth.oauthCredentials;
+    if (failedCredentials == null) return null;
+
     final currentCredentials = await _readStoredOAuthCredentials();
     if (currentCredentials != null &&
         currentCredentials.accessToken != failedCredentials.accessToken) {
       return _ClaudeCodeAuth(oauthCredentials: currentCredentials);
     }
 
-    return _refreshClaudeCodeOAuth(failedAuth);
+    return null;
   }
 
   Future<_ClaudeCodeAuth> _refreshClaudeCodeOAuth(
@@ -855,13 +1157,22 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
 
     final value = jsonEncode(store.root);
-    await _writeMacOsKeychainService('Claude Code-credentials', value);
+    await _writeMacOsKeychainService(
+      _macOsKeychainServiceName(credentials: true),
+      value,
+    );
   }
 
   Future<void> _writeMacOsKeychainService(
     String service,
     String value,
   ) async {
+    final injectedWriter = _writeMacOsKeychain;
+    if (injectedWriter != null) {
+      await injectedWriter(service, value);
+      return;
+    }
+
     if (!Platform.isMacOS) return;
 
     final account = _nonBlank(_env['USER']) ?? _nonBlank(_env['LOGNAME']);
@@ -872,13 +1183,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         'security',
         <String>[
           'add-generic-password',
+          '-U',
           '-a',
           account,
           '-s',
           service,
-          '-w',
-          value,
-          '-U',
+          '-X',
+          _hexEncode(value),
         ],
       );
       if (result.exitCode != 0) {
@@ -981,6 +1292,105 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return path.join(Directory.current.path, '.claude');
   }
 
+  Uri get _refreshTokenEndpoint {
+    final customBaseUrl = _customOAuthBaseUrl;
+    if (customBaseUrl != null) {
+      return Uri.parse('$customBaseUrl/v1/oauth/token');
+    }
+
+    if (_env['USER_TYPE'] == 'ant') {
+      if (_isEnvTruthy(_env['USE_LOCAL_OAUTH'])) {
+        final apiBase = (_nonBlank(_env['CLAUDE_LOCAL_OAUTH_API_BASE']) ??
+                'http://localhost:8000')
+            .replaceFirst(RegExp(r'/$'), '');
+        return Uri.parse('$apiBase/v1/oauth/token');
+      }
+
+      if (_isEnvTruthy(_env['USE_STAGING_OAUTH'])) {
+        return Uri.parse(
+          'https://platform.staging.ant.dev/v1/oauth/token',
+        );
+      }
+    }
+
+    return Uri.parse('https://platform.claude.com/v1/oauth/token');
+  }
+
+  String get _oauthClientId {
+    final override = _nonBlank(_env['CLAUDE_CODE_OAUTH_CLIENT_ID']);
+    if (override != null) return override;
+
+    if (_env['USER_TYPE'] == 'ant' &&
+        (_isEnvTruthy(_env['USE_LOCAL_OAUTH']) ||
+            _isEnvTruthy(_env['USE_STAGING_OAUTH']))) {
+      return _nonProdOAuthClientId;
+    }
+
+    return _prodOAuthClientId;
+  }
+
+  String? get _customOAuthBaseUrl {
+    final value = _nonBlank(_env['CLAUDE_CODE_CUSTOM_OAUTH_URL'])
+        ?.replaceFirst(RegExp(r'/$'), '');
+    if (value == null) return null;
+    if (!_allowedCustomOAuthBaseUrls.contains(value)) {
+      throw const AuthenticationException(
+        message: 'CLAUDE_CODE_CUSTOM_OAUTH_URL is not an approved endpoint.',
+      );
+    }
+    return value;
+  }
+
+  String _macOsKeychainServiceName({bool credentials = false}) {
+    final credentialsSuffix = credentials ? '-credentials' : '';
+    return 'Claude Code'
+        '$_oauthFileSuffix$credentialsSuffix$_configDirHashSuffix';
+  }
+
+  String get _oauthFileSuffix {
+    if (_nonBlank(_env['CLAUDE_CODE_CUSTOM_OAUTH_URL']) != null) {
+      return '-custom-oauth';
+    }
+    if (_env['USER_TYPE'] == 'ant') {
+      if (_isEnvTruthy(_env['USE_LOCAL_OAUTH'])) return '-local-oauth';
+      if (_isEnvTruthy(_env['USE_STAGING_OAUTH'])) return '-staging-oauth';
+    }
+    return '';
+  }
+
+  String get _configDirHashSuffix {
+    if (_nonBlank(_env['CLAUDE_CONFIG_DIR']) == null) return '';
+
+    final digest = crypto.sha256
+        .convert(utf8.encode(_resolvedClaudeConfigDir))
+        .toString()
+        .substring(0, 8);
+    return '-$digest';
+  }
+
+  static bool _isEnvTruthy(String? value) {
+    final normalized = _nonBlank(value)?.toLowerCase();
+    if (normalized == null) return false;
+    return normalized == '1' ||
+        normalized == 'true' ||
+        normalized == 'yes' ||
+        normalized == 'on';
+  }
+
+  bool get _isManagedOAuthContext {
+    return _isEnvTruthy(_env['CLAUDE_CODE_REMOTE']) ||
+        _env['CLAUDE_CODE_ENTRYPOINT'] == 'claude-desktop';
+  }
+
+  bool get _isBareMode => _isEnvTruthy(_env['CLAUDE_CODE_SIMPLE']);
+
+  static String _hexEncode(String value) {
+    return utf8
+        .encode(value)
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
   static String? _nonBlank(String? value) {
     if (value == null) return null;
     final trimmed = value.trim();
@@ -999,26 +1409,73 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     );
     return process.exitCode;
   }
+
+  static Future<String> _defaultRunApiKeyHelper(
+    String command,
+    Duration timeout,
+  ) async {
+    final executable = Platform.isWindows ? 'cmd' : '/bin/sh';
+    final arguments =
+        Platform.isWindows ? <String>['/c', command] : <String>['-c', command];
+    final process = await Process.start(
+      executable,
+      arguments,
+    );
+    final stdoutFuture = process.stdout.transform(utf8.decoder).join();
+    final stderrFuture = process.stderr.transform(utf8.decoder).join();
+
+    late final int exitCode;
+    try {
+      exitCode = await process.exitCode.timeout(timeout);
+    } on TimeoutException {
+      process.kill();
+      throw StateError('timed out');
+    }
+
+    final stdout = (await stdoutFuture).trim();
+    final stderr = (await stderrFuture).trim();
+    if (exitCode != 0) {
+      throw StateError(
+        stderr.isEmpty ? 'exited $exitCode' : 'exited $exitCode: $stderr',
+      );
+    }
+    if (stdout.isEmpty) {
+      throw StateError('did not return a value');
+    }
+
+    return stdout;
+  }
+}
+
+class _ClaudeCodeApiKeyHelperCache {
+  _ClaudeCodeApiKeyHelperCache(this.value) : timestamp = DateTime.now();
+
+  final String value;
+  final DateTime timestamp;
 }
 
 class _ClaudeCodeAuth {
   const _ClaudeCodeAuth({
     this.apiKey,
     this.bearerToken,
+    this.bearerSource,
     this.oauthCredentials,
   });
 
   final String? apiKey;
   final String? bearerToken;
+  final _ClaudeCodeBearerSource? bearerSource;
   final _ClaudeCodeOAuthCredentials? oauthCredentials;
 
   String? get accessToken => bearerToken ?? oauthCredentials?.accessToken;
 
   Map<String, String> get headers {
     final token = accessToken;
+    final usesClaudeAiOAuth = oauthCredentials != null ||
+        bearerSource == _ClaudeCodeBearerSource.claudeCodeOAuthToken;
     final betas = <String>{
-      if (token != null) 'oauth-2025-04-20',
       'claude-code-20250219',
+      if (usesClaudeAiOAuth) 'oauth-2025-04-20',
     };
 
     return <String, String>{
@@ -1029,6 +1486,12 @@ class _ClaudeCodeAuth {
       'anthropic-beta': betas.join(','),
     };
   }
+}
+
+enum _ClaudeCodeBearerSource {
+  anthropicAuthToken,
+  apiKeyHelper,
+  claudeCodeOAuthToken,
 }
 
 class _ClaudeCodeOAuthCredentials {
