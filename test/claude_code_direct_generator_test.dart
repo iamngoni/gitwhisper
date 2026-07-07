@@ -116,8 +116,7 @@ void main() {
       );
     });
 
-    test('refreshes expired stored OAuth credentials before request',
-        () async {
+    test('refreshes expired stored OAuth credentials before request', () async {
       await _writeCredentials(
         tempDir,
         'expired-token',
@@ -132,9 +131,14 @@ void main() {
         refreshToken: (endpoint, body) async {
           expect(
             endpoint.toString(),
-            'https://console.anthropic.com/v1/oauth/token',
+            'https://platform.claude.com/v1/oauth/token',
           );
           expect(body['refresh_token'], 'refresh-token');
+          expect(
+            body['scope'],
+            'user:profile user:inference user:sessions:claude_code '
+            'user:mcp_servers user:file_upload',
+          );
           return <String, dynamic>{
             'access_token': 'fresh-token',
             'refresh_token': 'fresh-refresh-token',
@@ -181,7 +185,16 @@ void main() {
         environment: const <String, String>{},
         useMacOsKeychain: false,
         refreshToken: (endpoint, body) async {
+          expect(
+            endpoint.toString(),
+            'https://platform.claude.com/v1/oauth/token',
+          );
           expect(body['refresh_token'], 'refresh-token');
+          expect(
+            body['scope'],
+            'user:profile user:inference user:sessions:claude_code '
+            'user:mcp_servers user:file_upload',
+          );
           return <String, dynamic>{
             'access_token': 'fresh-token',
             'refresh_token': 'fresh-refresh-token',
@@ -230,8 +243,7 @@ Future<void> _writeCredentials(
       'claudeAiOauth': <String, dynamic>{
         'accessToken': token,
         'refreshToken': refreshToken,
-        'expiresAt': (expiresAt ??
-                DateTime.now().add(const Duration(hours: 1)))
+        'expiresAt': (expiresAt ?? DateTime.now().add(const Duration(hours: 1)))
             .toUtc()
             .millisecondsSinceEpoch,
         'scopes': <String>['user:inference'],

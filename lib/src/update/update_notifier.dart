@@ -31,8 +31,10 @@ class UpdateNotifier {
   final LatestVersionProvider? _latestVersionProvider;
   final String _currentVersion;
 
-  Future<void> maybePrompt() async {
-    if (_checkedThisSession || _skippedThisSession || !_canPrompt) return;
+  Future<bool> maybePrompt() async {
+    if (_checkedThisSession || _skippedThisSession || !_canPrompt) {
+      return false;
+    }
     _checkedThisSession = true;
 
     late final String latestVersion;
@@ -41,10 +43,10 @@ class UpdateNotifier {
               _pubUpdater.getLatestVersion('gitwhisper'))
           .timeout(const Duration(seconds: 2));
     } on Object {
-      return;
+      return false;
     }
 
-    if (!_isNewerVersion(latestVersion, _currentVersion)) return;
+    if (!_isNewerVersion(latestVersion, _currentVersion)) return false;
 
     _logger
       ..info('')
@@ -60,20 +62,20 @@ class UpdateNotifier {
     if (action != 'update now') {
       _skippedThisSession = true;
       _logger.info('Staying on $_currentVersion for this session.');
-      return;
+      return false;
     }
 
-    await _updateTo(latestVersion);
+    return _updateTo(latestVersion);
   }
 
-  Future<void> _updateTo(String latestVersion) async {
+  Future<bool> _updateTo(String latestVersion) async {
     final detection = await _installUpdateManager.detect();
 
     if (detection.type == InstallType.unknown) {
       _logger
         ..warn('Could not detect how GitWhisper was installed.')
         ..info('Run `gitwhisper update` to see manual update options.');
-      return;
+      return false;
     }
 
     final progress = _logger.progress('Updating GitWhisper to $latestVersion');
@@ -84,11 +86,16 @@ class UpdateNotifier {
         await _installUpdateManager.runUpdateCommands(detection);
       }
       progress.complete('Updated GitWhisper to $latestVersion');
+      _logger.info(
+        'Restart GitWhisper to use $latestVersion. Re-run your command now.',
+      );
+      return true;
     } on Object catch (error) {
       progress.fail('Failed to update GitWhisper');
       _logger
         ..err(error.toString())
         ..info('Run `gitwhisper update` to retry.');
+      return false;
     }
   }
 

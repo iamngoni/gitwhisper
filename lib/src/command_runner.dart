@@ -116,12 +116,13 @@ class GitWhisperCommandRunner extends CompletionCommandRunner<int> {
     }
 
     if (_shouldCheckForUpdates(topLevelResults)) {
-      await (_updateNotifier ??
+      final updated = await (_updateNotifier ??
               UpdateNotifier(
                 logger: $logger,
                 pubUpdater: _pubUpdater,
               ))
           .maybePrompt();
+      if (updated) return ExitCode.success.code;
     }
 
     // Handle no command

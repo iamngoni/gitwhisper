@@ -1,3 +1,8 @@
+## 1.0.7
+- Match Claude Code's production OAuth token refresh endpoint and Claude.ai scope expansion.
+- Decode macOS keychain values that `security` returns as hex and save refreshed Claude Code keychain credentials as compact JSON.
+- Stop command execution after a successful automatic self-update so the stale in-memory process does not continue running old code.
+
 ## 1.0.6
 - Refresh stored Claude Code OAuth credentials before direct API calls when the access token is expired or rejected with 401, matching Claude Code's retry behavior.
 - Refresh and retry Codex direct API calls when stored ChatGPT auth is expired or rejected with 401.

@@ -91,7 +91,8 @@ class UpdateCommand extends Command<int> {
         ..info('')
         ..info(
           'See the release notes here: $url',
-        );
+        )
+        ..info('Start a new GitWhisper command to use $latestVersion.');
 
       return ExitCode.success.code;
     } on Object catch (e) {
@@ -113,6 +114,7 @@ class UpdateCommand extends Command<int> {
     try {
       await _installUpdateManager.runUpdateCommands(detection);
       updateProgress.complete('GitWhisper update complete');
+      _logger.info('Start a new GitWhisper command to use the update.');
       return ExitCode.success.code;
     } on Object catch (e) {
       updateProgress.fail('Failed to update GitWhisper');

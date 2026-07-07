@@ -59,12 +59,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   static const String _systemPrompt =
       "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
   static final Uri _refreshTokenEndpoint =
-      Uri.parse('https://console.anthropic.com/v1/oauth/token');
+      Uri.parse('https://platform.claude.com/v1/oauth/token');
   static const String _oauthClientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
   static const Duration _refreshBuffer = Duration(minutes: 5);
+  static const String _claudeAiInferenceScope = 'user:inference';
   static const List<String> _defaultOAuthScopes = <String>[
     'user:profile',
-    'user:inference',
+    _claudeAiInferenceScope,
     'user:sessions:claude_code',
     'user:mcp_servers',
     'user:file_upload',
@@ -216,8 +217,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       try {
         return await _sendStreamingMessages(auth, body);
       } on DioException catch (error) {
-        if (!retriedAfterUnauthorized &&
-            error.response?.statusCode == 401) {
+        if (!retriedAfterUnauthorized && error.response?.statusCode == 401) {
           final refreshedAuth = await _recoverFromUnauthorized(auth);
           if (refreshedAuth != null) {
             auth = refreshedAuth;
@@ -411,8 +411,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         switch (delta['type']) {
           case 'text_delta':
             if (block != null) {
-              block['text'] =
-                  '${block['text'] ?? ''}${delta['text'] ?? ''}';
+              block['text'] = '${block['text'] ?? ''}${delta['text'] ?? ''}';
             }
           case 'input_json_delta':
             inputJsonBuffers
@@ -629,10 +628,31 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       );
 
       if (result.exitCode != 0) return null;
-      return _nonBlank(result.stdout.toString());
+      return _decodeMacOsKeychainPassword(result.stdout.toString());
     } on ProcessException {
       return null;
     }
+  }
+
+  String? _decodeMacOsKeychainPassword(String raw) {
+    final value = _nonBlank(raw);
+    if (value == null) return null;
+    if (!_looksLikeHex(value)) return value;
+
+    try {
+      final bytes = <int>[];
+      for (var index = 0; index < value.length; index += 2) {
+        bytes.add(int.parse(value.substring(index, index + 2), radix: 16));
+      }
+      return _nonBlank(utf8.decode(bytes));
+    } on Object {
+      return value;
+    }
+  }
+
+  bool _looksLikeHex(String value) {
+    if (value.length.isOdd || value.length < 2) return false;
+    return RegExp(r'^[0-9a-fA-F]+$').hasMatch(value);
   }
 
   _ClaudeCodeOAuthCredentials? _extractClaudeAiOauthCredentials(
@@ -719,8 +739,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final refreshToken = credentials.refreshToken;
     if (refreshToken == null) return credentials;
 
-    final scopes =
-        credentials.scopes.isEmpty ? _defaultOAuthScopes : credentials.scopes;
+    final scopes = _refreshScopesFor(credentials.scopes);
     final body = <String, dynamic>{
       'grant_type': 'refresh_token',
       'refresh_token': refreshToken,
@@ -747,6 +766,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     );
   }
 
+  static List<String> _refreshScopesFor(List<String> scopes) {
+    if (scopes.isEmpty || scopes.contains(_claudeAiInferenceScope)) {
+      return _defaultOAuthScopes;
+    }
+    return scopes;
+  }
+
   Future<Map<String, dynamic>> _postTokenRefresh(
     Map<String, dynamic> body,
   ) async {
@@ -767,14 +793,31 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     );
 
     if (response.statusCode != 200 || response.data == null) {
+      final detail = _refreshFailureDetail(response.data);
       throw AuthenticationException(
         message: 'Claude Code token refresh failed with status '
-            '${response.statusCode ?? 0}. Run `claude setup-token`.',
+            '${response.statusCode ?? 0}'
+            '${detail == null ? '' : ': $detail'}. '
+            'Run `claude setup-token`.',
         statusCode: response.statusCode ?? 401,
       );
     }
 
     return response.data!;
+  }
+
+  static String? _refreshFailureDetail(Object? data) {
+    if (data is! Map<dynamic, dynamic>) return null;
+    final error = data['error'];
+    if (error is Map<dynamic, dynamic>) {
+      return _nonBlank(error['message']?.toString()) ??
+          _nonBlank(error['error_description']?.toString()) ??
+          _nonBlank(error['type']?.toString()) ??
+          _nonBlank(error['code']?.toString());
+    }
+    if (error is String) return _nonBlank(error);
+    return _nonBlank(data['error_description']?.toString()) ??
+        _nonBlank(data['message']?.toString());
   }
 
   Future<void> _saveClaudeAiOauthCredentials(
@@ -803,14 +846,15 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
     store.root['claudeAiOauth'] = oauth;
 
-    const encoder = JsonEncoder.withIndent('  ');
-    final value = '${encoder.convert(store.root)}\n';
     final file = store.file;
     if (file != null) {
+      const encoder = JsonEncoder.withIndent('  ');
+      final value = '${encoder.convert(store.root)}\n';
       await file.writeAsString(value);
       return;
     }
 
+    final value = jsonEncode(store.root);
     await _writeMacOsKeychainService('Claude Code-credentials', value);
   }
 

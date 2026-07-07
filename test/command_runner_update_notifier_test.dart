@@ -14,6 +14,22 @@ void main() {
     expect(notifier.calls, 1);
   });
 
+  test('stops after a successful automatic update', () async {
+    final notifier = RecordingUpdateNotifier(updated: true);
+    final runner = GitWhisperCommandRunner(updateNotifier: notifier);
+
+    final exitCode = await runner.run([
+      'set-defaults',
+      '--model',
+      'openai',
+      '--confirm-commits',
+      '--no-confirm-commits',
+    ]);
+
+    expect(exitCode, ExitCode.success.code);
+    expect(notifier.calls, 1);
+  });
+
   test('does not check for updates for version command', () async {
     final notifier = RecordingUpdateNotifier();
     final runner = GitWhisperCommandRunner(updateNotifier: notifier);
@@ -46,12 +62,14 @@ void main() {
 }
 
 class RecordingUpdateNotifier extends UpdateNotifier {
-  RecordingUpdateNotifier() : super(logger: Logger());
+  RecordingUpdateNotifier({this.updated = false}) : super(logger: Logger());
 
+  final bool updated;
   int calls = 0;
 
   @override
-  Future<void> maybePrompt() async {
+  Future<bool> maybePrompt() async {
     calls++;
+    return updated;
   }
 }
