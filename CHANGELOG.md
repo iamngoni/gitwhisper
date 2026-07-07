@@ -1,5 +1,7 @@
-## 1.0.5
-- No change
+## 1.0.6
+- Refresh stored Claude Code OAuth credentials before direct API calls when the access token is expired or rejected with 401, matching Claude Code's retry behavior.
+- Refresh and retry Codex direct API calls when stored ChatGPT auth is expired or rejected with 401.
+- Log when Claude Code or Codex authentication is being refreshed so auth recovery is visible without exposing token details.
 
 ## 1.0.4
 - Added direct local-auth API generators for Codex and Claude Code so commit generation can bypass ACP startup while still using each tool's existing login state.

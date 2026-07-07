@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:gitwhisper/src/models/claude_code_direct_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:test/test.dart';
@@ -114,20 +115,154 @@ void main() {
         "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
       );
     });
+
+    test('refreshes expired stored OAuth credentials before request',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+
+      Map<String, String>? headers;
+      final generator = ClaudeCodeDirectGenerator(
+        claudeConfigDir: tempDir.path,
+        environment: const <String, String>{},
+        useMacOsKeychain: false,
+        refreshToken: (endpoint, body) async {
+          expect(
+            endpoint.toString(),
+            'https://console.anthropic.com/v1/oauth/token',
+          );
+          expect(body['refresh_token'], 'refresh-token');
+          return <String, dynamic>{
+            'access_token': 'fresh-token',
+            'refresh_token': 'fresh-refresh-token',
+            'expires_in': 3600,
+            'scope': 'user:profile user:inference',
+          };
+        },
+        streamMessages: (requestEndpoint, requestHeaders, requestBody) async {
+          headers = requestHeaders;
+          return <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'text',
+              'text': 'fix: Refresh expired Claude Code OAuth token',
+            },
+          ];
+        },
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/a.txt b/a.txt',
+        Language.english,
+      );
+
+      expect(message, 'fix: Refresh expired Claude Code OAuth token');
+      expect(headers?['Authorization'], 'Bearer fresh-token');
+
+      final stored = await _readStoredOauth(tempDir);
+      expect(stored['accessToken'], 'fresh-token');
+      expect(stored['refreshToken'], 'fresh-refresh-token');
+      expect(stored['scopes'], <String>['user:profile', 'user:inference']);
+      expect(stored['expiresAt'], isA<int>());
+    });
+
+    test('refreshes and retries once after stored OAuth 401', () async {
+      await _writeCredentials(
+        tempDir,
+        'stale-token',
+      );
+
+      var callCount = 0;
+      final seenAuthorizations = <String?>[];
+      final generator = ClaudeCodeDirectGenerator(
+        claudeConfigDir: tempDir.path,
+        environment: const <String, String>{},
+        useMacOsKeychain: false,
+        refreshToken: (endpoint, body) async {
+          expect(body['refresh_token'], 'refresh-token');
+          return <String, dynamic>{
+            'access_token': 'fresh-token',
+            'refresh_token': 'fresh-refresh-token',
+            'expires_in': 3600,
+            'scope': 'user:profile user:inference',
+          };
+        },
+        streamMessages: (requestEndpoint, requestHeaders, requestBody) async {
+          callCount += 1;
+          seenAuthorizations.add(requestHeaders['Authorization']);
+          if (callCount == 1) {
+            throw _unauthorized(requestEndpoint);
+          }
+          return <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'text',
+              'text': 'fix: Retry after Claude Code OAuth refresh',
+            },
+          ];
+        },
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/a.txt b/a.txt',
+        Language.english,
+      );
+
+      expect(message, 'fix: Retry after Claude Code OAuth refresh');
+      expect(callCount, 2);
+      expect(seenAuthorizations, <String>[
+        'Bearer stale-token',
+        'Bearer fresh-token',
+      ]);
+    });
   });
 }
 
-Future<void> _writeCredentials(Directory directory, String token) async {
+Future<void> _writeCredentials(
+  Directory directory,
+  String token, {
+  String refreshToken = 'refresh-token',
+  DateTime? expiresAt,
+}) async {
   await File(pathFor(directory, '.credentials.json')).writeAsString(
     jsonEncode(<String, dynamic>{
       'claudeAiOauth': <String, dynamic>{
         'accessToken': token,
-        'refreshToken': 'refresh-token',
-        'expiresAt':
-            DateTime.now().add(const Duration(hours: 1)).toIso8601String(),
+        'refreshToken': refreshToken,
+        'expiresAt': (expiresAt ??
+                DateTime.now().add(const Duration(hours: 1)))
+            .toUtc()
+            .millisecondsSinceEpoch,
         'scopes': <String>['user:inference'],
       },
     }),
+  );
+}
+
+Future<Map<String, dynamic>> _readStoredOauth(Directory directory) async {
+  final raw = await File(
+    pathFor(directory, '.credentials.json'),
+  ).readAsString();
+  final decoded = jsonDecode(raw) as Map<String, dynamic>;
+  return decoded['claudeAiOauth'] as Map<String, dynamic>;
+}
+
+DioException _unauthorized(Uri endpoint) {
+  final requestOptions = RequestOptions(path: endpoint.toString());
+  return DioException(
+    requestOptions: requestOptions,
+    response: Response<dynamic>(
+      requestOptions: requestOptions,
+      statusCode: 401,
+      data: <String, dynamic>{
+        'type': 'error',
+        'error': <String, dynamic>{
+          'type': 'authentication_error',
+          'message': 'Invalid authentication credentials',
+        },
+      },
+    ),
   );
 }
 

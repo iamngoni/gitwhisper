@@ -25,6 +25,11 @@ typedef ClaudeCodeMessagesStreamer = Future<List<Map<String, dynamic>>>
   Map<String, dynamic> body,
 );
 
+typedef ClaudeCodeTokenRefresher = Future<Map<String, dynamic>> Function(
+  Uri endpoint,
+  Map<String, dynamic> body,
+);
+
 class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   ClaudeCodeDirectGenerator({
     String? apiKey,
@@ -34,6 +39,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     Map<String, String>? environment,
     ClaudeCodeLoginRunner? runLogin,
     ClaudeCodeMessagesStreamer? streamMessages,
+    ClaudeCodeTokenRefresher? refreshToken,
     this.loginExecutable = 'claude',
     this.loginArguments = const <String>['setup-token'],
     this.useMacOsKeychain = true,
@@ -42,6 +48,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _environment = environment,
         _runLogin = runLogin ?? _defaultRunLogin,
         _streamMessages = streamMessages,
+        _refreshToken = refreshToken,
         super(
           apiKey,
           variant: variant,
@@ -51,12 +58,24 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   static const String _systemPrompt =
       "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+  static final Uri _refreshTokenEndpoint =
+      Uri.parse('https://console.anthropic.com/v1/oauth/token');
+  static const String _oauthClientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+  static const Duration _refreshBuffer = Duration(minutes: 5);
+  static const List<String> _defaultOAuthScopes = <String>[
+    'user:profile',
+    'user:inference',
+    'user:sessions:claude_code',
+    'user:mcp_servers',
+    'user:file_upload',
+  ];
 
   final String? _explicitApiKey;
   final String? _claudeConfigDir;
   final Map<String, String>? _environment;
   final ClaudeCodeLoginRunner _runLogin;
   final ClaudeCodeMessagesStreamer? _streamMessages;
+  final ClaudeCodeTokenRefresher? _refreshToken;
   final String loginExecutable;
   final List<String> loginArguments;
   final bool useMacOsKeychain;
@@ -72,10 +91,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   @override
   Future<Map<String, String>> resolveHeaders() async {
     final auth = await _loadAuth();
-    return <String, String>{
-      'anthropic-version': '2023-06-01',
-      ...auth.headers,
-    };
+    return _headersForAuth(auth);
   }
 
   @override
@@ -193,9 +209,35 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   Future<List<Map<String, dynamic>>> _postStreamingMessages(
     Map<String, dynamic> body,
   ) async {
+    var auth = await _loadAuth();
+    var retriedAfterUnauthorized = false;
+
+    while (true) {
+      try {
+        return await _sendStreamingMessages(auth, body);
+      } on DioException catch (error) {
+        if (!retriedAfterUnauthorized &&
+            error.response?.statusCode == 401) {
+          final refreshedAuth = await _recoverFromUnauthorized(auth);
+          if (refreshedAuth != null) {
+            auth = refreshedAuth;
+            retriedAfterUnauthorized = true;
+            continue;
+          }
+        }
+
+        throw ErrorParser.parseProviderError('claude', error);
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _sendStreamingMessages(
+    _ClaudeCodeAuth auth,
+    Map<String, dynamic> body,
+  ) async {
     final endpoint = Uri.parse(messagesEndpoint);
     final headers = <String, String>{
-      ...await resolveHeaders(),
+      ..._headersForAuth(auth),
       'Accept': 'text/event-stream',
     };
 
@@ -217,16 +259,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     if (response.statusCode != 200) {
       final errorBody = await _readResponseBodyAsString(response.data);
       final decodedError = _decodeErrorBody(errorBody);
-      throw ErrorParser.parseProviderError(
-        'claude',
-        DioException(
+      throw DioException(
+        requestOptions: response.requestOptions,
+        response: Response<dynamic>(
           requestOptions: response.requestOptions,
-          response: Response<dynamic>(
-            requestOptions: response.requestOptions,
-            statusCode: response.statusCode,
-            statusMessage: response.statusMessage,
-            data: decodedError ?? errorBody,
-          ),
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          data: decodedError ?? errorBody,
         ),
       );
     }
@@ -237,6 +276,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
 
     return _readStreamingResponse(responseBody);
+  }
+
+  Map<String, String> _headersForAuth(_ClaudeCodeAuth auth) {
+    return <String, String>{
+      'anthropic-version': '2023-06-01',
+      ...auth.headers,
+    };
   }
 
   Future<String> _readResponseBodyAsString(ResponseBody? responseBody) async {
@@ -458,9 +504,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final envAuth = _readEnvironmentAuth();
     if (envAuth != null) return envAuth;
 
-    final storedOAuthToken = await _readStoredOAuthToken();
-    if (storedOAuthToken != null) {
-      return _ClaudeCodeAuth(bearerToken: storedOAuthToken);
+    final storedOAuthCredentials = await _readStoredOAuthCredentials();
+    if (storedOAuthCredentials != null) {
+      final auth = _ClaudeCodeAuth(oauthCredentials: storedOAuthCredentials);
+      if (_shouldRefresh(storedOAuthCredentials)) {
+        return _refreshClaudeCodeOAuth(auth);
+      }
+      return auth;
     }
 
     final storedApiKey = await _readStoredApiKey();
@@ -491,9 +541,9 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return _ClaudeCodeAuth(apiKey: apiKey, bearerToken: bearerToken);
   }
 
-  Future<String?> _readStoredOAuthToken() async {
-    final fileToken = await _readClaudeAiOauthTokenFromFile();
-    if (fileToken != null) return fileToken;
+  Future<_ClaudeCodeOAuthCredentials?> _readStoredOAuthCredentials() async {
+    final fileCredentials = await _readClaudeAiOauthCredentialsFromFile();
+    if (fileCredentials != null) return fileCredentials;
 
     if (!useMacOsKeychain) return null;
     final keychainValue = await _readMacOsKeychainService(
@@ -501,7 +551,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     );
     if (keychainValue == null) return null;
 
-    return _extractClaudeAiOauthToken(keychainValue);
+    return _extractClaudeAiOauthCredentials(
+      keychainValue,
+      _ClaudeCodeOAuthStore.keychain,
+    );
   }
 
   Future<String?> _readStoredApiKey() async {
@@ -515,17 +568,18 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return _nonBlank(keychainValue);
   }
 
-  Future<String?> _readClaudeAiOauthTokenFromFile() async {
+  Future<_ClaudeCodeOAuthCredentials?>
+      _readClaudeAiOauthCredentialsFromFile() async {
     final credentialsFile = File(
       path.join(_resolvedClaudeConfigDir, '.credentials.json'),
     );
     final decoded = await _readJsonObject(credentialsFile);
     if (decoded == null) return null;
 
-    return _readNestedString(decoded, <String>[
-      'claudeAiOauth',
-      'accessToken',
-    ]);
+    return _readClaudeAiOauthCredentials(
+      decoded,
+      _ClaudeCodeOAuthStore.file(credentialsFile, decoded),
+    );
   }
 
   Future<String?> _readGlobalConfigApiKey() async {
@@ -581,17 +635,265 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
-  String? _extractClaudeAiOauthToken(String rawJson) {
+  _ClaudeCodeOAuthCredentials? _extractClaudeAiOauthCredentials(
+    String rawJson,
+    _ClaudeCodeOAuthStore Function(Map<String, dynamic> root) createStore,
+  ) {
     try {
       final decoded = jsonDecode(rawJson);
       if (decoded is! Map<dynamic, dynamic>) return null;
-      return _readNestedString(
-        Map<String, dynamic>.from(decoded),
-        <String>['claudeAiOauth', 'accessToken'],
+      final root = Map<String, dynamic>.from(decoded);
+      return _readClaudeAiOauthCredentials(
+        root,
+        createStore(root),
       );
     } on FormatException {
       return null;
     }
+  }
+
+  _ClaudeCodeOAuthCredentials? _readClaudeAiOauthCredentials(
+    Map<String, dynamic> root,
+    _ClaudeCodeOAuthStore store,
+  ) {
+    final oauth = root['claudeAiOauth'];
+    if (oauth is! Map<dynamic, dynamic>) return null;
+
+    final oauthMap = Map<String, dynamic>.from(oauth);
+    final accessToken = _nonBlank(oauthMap['accessToken']?.toString());
+    if (accessToken == null) return null;
+
+    return _ClaudeCodeOAuthCredentials(
+      accessToken: accessToken,
+      refreshToken: _nonBlank(oauthMap['refreshToken']?.toString()),
+      expiresAt: _parseExpiresAt(oauthMap['expiresAt']),
+      scopes: _readScopes(oauthMap['scopes']),
+      subscriptionType: _nonBlank(oauthMap['subscriptionType']?.toString()),
+      rateLimitTier: _nonBlank(oauthMap['rateLimitTier']?.toString()),
+      store: store,
+    );
+  }
+
+  bool _shouldRefresh(_ClaudeCodeOAuthCredentials credentials) {
+    final expiresAt = credentials.expiresAt;
+    if (credentials.refreshToken == null || expiresAt == null) return false;
+    return DateTime.now()
+        .toUtc()
+        .add(_refreshBuffer)
+        .isAfter(expiresAt.toUtc());
+  }
+
+  Future<_ClaudeCodeAuth?> _recoverFromUnauthorized(
+    _ClaudeCodeAuth failedAuth,
+  ) async {
+    final failedCredentials = failedAuth.oauthCredentials;
+    if (failedCredentials == null || failedCredentials.refreshToken == null) {
+      return null;
+    }
+
+    final currentCredentials = await _readStoredOAuthCredentials();
+    if (currentCredentials != null &&
+        currentCredentials.accessToken != failedCredentials.accessToken) {
+      return _ClaudeCodeAuth(oauthCredentials: currentCredentials);
+    }
+
+    return _refreshClaudeCodeOAuth(failedAuth);
+  }
+
+  Future<_ClaudeCodeAuth> _refreshClaudeCodeOAuth(
+    _ClaudeCodeAuth auth,
+  ) async {
+    final credentials = auth.oauthCredentials;
+    final refreshToken = credentials?.refreshToken;
+    if (credentials == null || refreshToken == null) return auth;
+
+    $logger.info('Refreshing Claude Code authentication...');
+    final refreshed = await _refreshClaudeCodeOAuthCredentials(credentials);
+    await _saveClaudeAiOauthCredentials(refreshed);
+    return _ClaudeCodeAuth(oauthCredentials: refreshed);
+  }
+
+  Future<_ClaudeCodeOAuthCredentials> _refreshClaudeCodeOAuthCredentials(
+    _ClaudeCodeOAuthCredentials credentials,
+  ) async {
+    final refreshToken = credentials.refreshToken;
+    if (refreshToken == null) return credentials;
+
+    final scopes =
+        credentials.scopes.isEmpty ? _defaultOAuthScopes : credentials.scopes;
+    final body = <String, dynamic>{
+      'grant_type': 'refresh_token',
+      'refresh_token': refreshToken,
+      'client_id': _oauthClientId,
+      'scope': scopes.join(' '),
+    };
+
+    final data = await _postTokenRefresh(body);
+    final accessToken = _nonBlank(data['access_token']?.toString());
+    final expiresIn = _parseExpiresIn(data['expires_in']);
+    if (accessToken == null || expiresIn == null) {
+      throw const AuthenticationException(
+        message: 'Claude Code token refresh did not return usable credentials.',
+      );
+    }
+
+    final responseScopes = _parseScopeString(data['scope']);
+    return credentials.copyWith(
+      accessToken: accessToken,
+      refreshToken:
+          _nonBlank(data['refresh_token']?.toString()) ?? refreshToken,
+      expiresAt: DateTime.now().toUtc().add(Duration(seconds: expiresIn)),
+      scopes: responseScopes.isEmpty ? scopes : responseScopes,
+    );
+  }
+
+  Future<Map<String, dynamic>> _postTokenRefresh(
+    Map<String, dynamic> body,
+  ) async {
+    final refreshToken = _refreshToken;
+    if (refreshToken != null) {
+      return refreshToken(_refreshTokenEndpoint, body);
+    }
+
+    final Response<Map<String, dynamic>> response = await $dio.postUri(
+      _refreshTokenEndpoint,
+      options: Options(
+        headers: const <String, String>{
+          'Content-Type': 'application/json',
+        },
+        validateStatus: (_) => true,
+      ),
+      data: body,
+    );
+
+    if (response.statusCode != 200 || response.data == null) {
+      throw AuthenticationException(
+        message: 'Claude Code token refresh failed with status '
+            '${response.statusCode ?? 0}. Run `claude setup-token`.',
+        statusCode: response.statusCode ?? 401,
+      );
+    }
+
+    return response.data!;
+  }
+
+  Future<void> _saveClaudeAiOauthCredentials(
+    _ClaudeCodeOAuthCredentials credentials,
+  ) async {
+    final store = credentials.store;
+    final oauth = store.root['claudeAiOauth'] is Map<dynamic, dynamic>
+        ? Map<String, dynamic>.from(
+            store.root['claudeAiOauth'] as Map<dynamic, dynamic>,
+          )
+        : <String, dynamic>{};
+
+    oauth['accessToken'] = credentials.accessToken;
+    if (credentials.refreshToken != null) {
+      oauth['refreshToken'] = credentials.refreshToken;
+    }
+    if (credentials.expiresAt != null) {
+      oauth['expiresAt'] = credentials.expiresAt!.millisecondsSinceEpoch;
+    }
+    oauth['scopes'] = credentials.scopes;
+    if (credentials.subscriptionType != null) {
+      oauth['subscriptionType'] = credentials.subscriptionType;
+    }
+    if (credentials.rateLimitTier != null) {
+      oauth['rateLimitTier'] = credentials.rateLimitTier;
+    }
+    store.root['claudeAiOauth'] = oauth;
+
+    const encoder = JsonEncoder.withIndent('  ');
+    final value = '${encoder.convert(store.root)}\n';
+    final file = store.file;
+    if (file != null) {
+      await file.writeAsString(value);
+      return;
+    }
+
+    await _writeMacOsKeychainService('Claude Code-credentials', value);
+  }
+
+  Future<void> _writeMacOsKeychainService(
+    String service,
+    String value,
+  ) async {
+    if (!Platform.isMacOS) return;
+
+    final account = _nonBlank(_env['USER']) ?? _nonBlank(_env['LOGNAME']);
+    if (account == null) return;
+
+    try {
+      final result = await Process.run(
+        'security',
+        <String>[
+          'add-generic-password',
+          '-a',
+          account,
+          '-s',
+          service,
+          '-w',
+          value,
+          '-U',
+        ],
+      );
+      if (result.exitCode != 0) {
+        throw AuthenticationException(
+          message: 'Failed to save refreshed Claude Code credentials.',
+          statusCode: result.exitCode,
+        );
+      }
+    } on ProcessException catch (error) {
+      throw AuthenticationException(
+        message: 'Failed to save refreshed Claude Code credentials: '
+            '${error.message}',
+      );
+    }
+  }
+
+  DateTime? _parseExpiresAt(Object? value) {
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+    }
+    if (value is double) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+    }
+    if (value is String) {
+      final numeric = int.tryParse(value);
+      if (numeric != null) {
+        return DateTime.fromMillisecondsSinceEpoch(numeric, isUtc: true);
+      }
+      return DateTime.tryParse(value)?.toUtc();
+    }
+    return null;
+  }
+
+  int? _parseExpiresIn(Object? value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  List<String> _readScopes(Object? value) {
+    if (value is List<dynamic>) {
+      return value
+          .map((scope) => _nonBlank(scope?.toString()))
+          .whereType<String>()
+          .toList();
+    }
+    if (value is String) return _parseScopeString(value);
+    return const <String>[];
+  }
+
+  List<String> _parseScopeString(Object? value) {
+    final raw = _nonBlank(value?.toString());
+    if (raw == null) return const <String>[];
+    return raw
+        .split(RegExp(r'\s+'))
+        .map(_nonBlank)
+        .whereType<String>()
+        .toList();
   }
 
   String? _readNestedString(
@@ -659,23 +961,74 @@ class _ClaudeCodeAuth {
   const _ClaudeCodeAuth({
     this.apiKey,
     this.bearerToken,
+    this.oauthCredentials,
   });
 
   final String? apiKey;
   final String? bearerToken;
+  final _ClaudeCodeOAuthCredentials? oauthCredentials;
+
+  String? get accessToken => bearerToken ?? oauthCredentials?.accessToken;
 
   Map<String, String> get headers {
+    final token = accessToken;
     final betas = <String>{
-      if (bearerToken != null) 'oauth-2025-04-20',
+      if (token != null) 'oauth-2025-04-20',
       'claude-code-20250219',
     };
 
     return <String, String>{
       if (apiKey != null) 'x-api-key': apiKey!,
-      if (bearerToken != null) ...<String, String>{
-        'Authorization': 'Bearer $bearerToken',
+      if (token != null) ...<String, String>{
+        'Authorization': 'Bearer $token',
       },
       'anthropic-beta': betas.join(','),
     };
   }
+}
+
+class _ClaudeCodeOAuthCredentials {
+  const _ClaudeCodeOAuthCredentials({
+    required this.accessToken,
+    required this.store,
+    this.refreshToken,
+    this.expiresAt,
+    this.scopes = const <String>[],
+    this.subscriptionType,
+    this.rateLimitTier,
+  });
+
+  final String accessToken;
+  final String? refreshToken;
+  final DateTime? expiresAt;
+  final List<String> scopes;
+  final String? subscriptionType;
+  final String? rateLimitTier;
+  final _ClaudeCodeOAuthStore store;
+
+  _ClaudeCodeOAuthCredentials copyWith({
+    String? accessToken,
+    String? refreshToken,
+    DateTime? expiresAt,
+    List<String>? scopes,
+  }) {
+    return _ClaudeCodeOAuthCredentials(
+      accessToken: accessToken ?? this.accessToken,
+      refreshToken: refreshToken ?? this.refreshToken,
+      expiresAt: expiresAt ?? this.expiresAt,
+      scopes: scopes ?? this.scopes,
+      subscriptionType: subscriptionType,
+      rateLimitTier: rateLimitTier,
+      store: store,
+    );
+  }
+}
+
+class _ClaudeCodeOAuthStore {
+  const _ClaudeCodeOAuthStore.file(this.file, this.root);
+
+  const _ClaudeCodeOAuthStore.keychain(this.root) : file = null;
+
+  final File? file;
+  final Map<String, dynamic> root;
 }

@@ -213,6 +213,171 @@ void main() {
       expect(body['stream'], isTrue);
     });
 
+    test('refreshes expired ChatGPT auth before request', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(
+        root,
+        accessToken: _jwt(<String, dynamic>{
+          'exp': DateTime.now()
+                  .toUtc()
+                  .subtract(const Duration(minutes: 1))
+                  .millisecondsSinceEpoch ~/
+              1000,
+        }),
+      );
+
+      final responseRequests = <RequestOptions>[];
+      final refreshBodies = <Map<String, dynamic>>[];
+      final interceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.uri.toString() == 'https://auth.openai.com/oauth/token') {
+            refreshBodies.add(Map<String, dynamic>.from(options.data as Map));
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: <String, dynamic>{
+                  'access_token': 'fresh-token',
+                  'refresh_token': 'fresh-refresh-token',
+                },
+              ),
+            );
+            return;
+          }
+
+          responseRequests.add(options);
+          handler.resolve(
+            Response<ResponseBody>(
+              requestOptions: options,
+              statusCode: 200,
+              data: ResponseBody.fromString(
+                _streamingCommitMessage('docs: Refresh Codex auth'),
+                200,
+              ),
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = CodexDirectGenerator(
+        codexHome: root.path,
+        environment: const <String, String>{},
+        variant: 'gpt-test',
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/README.md b/README.md\n+Docs',
+        Language.english,
+        withEmoji: false,
+      );
+
+      expect(message, 'docs: Refresh Codex auth');
+      expect(refreshBodies, hasLength(1));
+      expect(refreshBodies.single['refresh_token'], 'refresh-token');
+      expect(responseRequests, hasLength(1));
+      expect(
+        responseRequests.single.headers['Authorization'],
+        'Bearer fresh-token',
+      );
+
+      final storedAuth = jsonDecode(
+        await File(p.join(root.path, 'auth.json')).readAsString(),
+      ) as Map<String, dynamic>;
+      final tokens = Map<String, dynamic>.from(
+        storedAuth['tokens'] as Map<dynamic, dynamic>,
+      );
+      expect(tokens['access_token'], 'fresh-token');
+      expect(tokens['refresh_token'], 'fresh-refresh-token');
+    });
+
+    test('refreshes and retries once after Codex 401', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'stale-token');
+
+      final responseRequests = <RequestOptions>[];
+      final refreshBodies = <Map<String, dynamic>>[];
+      final interceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.uri.toString() == 'https://auth.openai.com/oauth/token') {
+            refreshBodies.add(Map<String, dynamic>.from(options.data as Map));
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: <String, dynamic>{
+                  'access_token': 'fresh-token',
+                  'refresh_token': 'fresh-refresh-token',
+                },
+              ),
+            );
+            return;
+          }
+
+          responseRequests.add(options);
+          if (responseRequests.length == 1) {
+            handler.resolve(
+              Response<ResponseBody>(
+                requestOptions: options,
+                statusCode: 401,
+                data: ResponseBody.fromString(
+                  jsonEncode(<String, dynamic>{
+                    'error': <String, dynamic>{
+                      'message': 'Invalid authentication credentials',
+                      'type': 'authentication_error',
+                    },
+                  }),
+                  401,
+                ),
+              ),
+            );
+            return;
+          }
+
+          handler.resolve(
+            Response<ResponseBody>(
+              requestOptions: options,
+              statusCode: 200,
+              data: ResponseBody.fromString(
+                _streamingCommitMessage('docs: Retry Codex auth'),
+                200,
+              ),
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = CodexDirectGenerator(
+        codexHome: root.path,
+        environment: const <String, String>{},
+        variant: 'gpt-test',
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/README.md b/README.md\n+Docs',
+        Language.english,
+        withEmoji: false,
+      );
+
+      expect(message, 'docs: Retry Codex auth');
+      expect(refreshBodies, hasLength(1));
+      expect(refreshBodies.single['refresh_token'], 'refresh-token');
+      expect(responseRequests, hasLength(2));
+      expect(
+        responseRequests.first.headers['Authorization'],
+        'Bearer stale-token',
+      );
+      expect(
+        responseRequests.last.headers['Authorization'],
+        'Bearer fresh-token',
+      );
+    });
+
     test('retries once when agent returns prose instead of a header', () async {
       final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
       addTearDown(() => root.delete(recursive: true));
@@ -297,4 +462,23 @@ class _CapturedRequest {
 
 String _sse(String event, Map<String, dynamic> data) {
   return 'event: $event\ndata: ${jsonEncode(data)}\n\n';
+}
+
+String _streamingCommitMessage(String message) {
+  return [
+    _sse(
+      'response.output_text.delta',
+      <String, dynamic>{
+        'type': 'response.output_text.delta',
+        'delta': message,
+      },
+    ),
+    _sse(
+      'response.completed',
+      <String, dynamic>{
+        'type': 'response.completed',
+        'response': <String, dynamic>{'id': 'resp_1'},
+      },
+    ),
+  ].join();
 }

@@ -273,10 +273,14 @@ class CodexDirectGenerator extends CommitGenerator
 
     if (response.statusCode != 200) {
       final errorBody = await _readResponseBodyAsString(response.data);
-      throw InvalidRequestException(
-        message: _extractErrorMessage(errorBody) ??
-            'Unexpected response from Codex API.',
-        statusCode: response.statusCode ?? 400,
+      throw DioException(
+        requestOptions: response.requestOptions,
+        response: Response<dynamic>(
+          requestOptions: response.requestOptions,
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          data: _decodeErrorBody(errorBody) ?? errorBody,
+        ),
       );
     }
 
@@ -297,26 +301,19 @@ class CodexDirectGenerator extends CommitGenerator
     return buffer.toString();
   }
 
-  static String? _extractErrorMessage(String body) {
-    if (body.trim().isEmpty) return null;
+  static Object? _decodeErrorBody(String body) {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return null;
 
     try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map<dynamic, dynamic>) {
-        final object = Map<String, dynamic>.from(decoded);
-        final error = object['error'];
-        if (error is Map<dynamic, dynamic>) {
-          return _nonEmptyString(error['message']) ??
-              _nonEmptyString(error['code']) ??
-              _nonEmptyString(error['type']);
-        }
-        return _nonEmptyString(object['message']);
-      }
+      return jsonDecode(trimmed);
     } on FormatException {
-      return body.trim();
+      return <String, dynamic>{
+        'error': <String, dynamic>{
+          'message': trimmed,
+        },
+      };
     }
-
-    return null;
   }
 
   Future<Map<String, dynamic>> _readStreamingResponse(
@@ -485,6 +482,8 @@ class CodexDirectGenerator extends CommitGenerator
     if (refreshToken == null || authFile == null || authJson == null) {
       return auth;
     }
+
+    $logger.info('Refreshing Codex authentication...');
 
     final Response<Map<String, dynamic>> response = await $dio.postUri(
       _refreshTokenEndpoint,
