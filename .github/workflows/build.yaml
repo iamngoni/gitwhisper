@@ -7,17 +7,20 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - platform: linux
+            runner: [self-hosted, linux]
             target: gitwhisper
             archive: gitwhisper-linux.tar.gz
-          - os: macos-latest
+          - platform: macos
+            runner: [self-hosted, macOS]
             target: gitwhisper
             archive: gitwhisper-macos.tar.gz
-          - os: windows-latest
+          - platform: windows
+            runner: [self-hosted, Windows]
             target: gitwhisper.exe
             archive: gitwhisper-windows.tar.gz
 
@@ -28,25 +31,25 @@ jobs:
       - run: dart pub get
 
       - name: Install yq (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.platform == 'linux'
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod a+x /usr/local/bin/yq
 
       - name: Install yq (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.platform == 'macos'
         run: brew install yq
 
       - name: Install yq (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.platform == 'windows'
         run: choco install yq
 
       - name: Compile binary (Unix)
-        if: runner.os != 'Windows'
+        if: matrix.platform != 'windows'
         run: dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o ${{ matrix.target }}
 
       - name: Compile binary (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           $version = yq '.version' pubspec.yaml
@@ -57,13 +60,13 @@ jobs:
 
       - name: Calculate sha256 (Linux/macOS)
         id: hash_unix
-        if: runner.os != 'Windows'
+        if: matrix.platform != 'windows'
         run: echo "sha256=$(shasum -a 256 ${{ matrix.archive }} | cut -d ' ' -f1)" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Calculate sha256 (Windows)
         id: hash_win
-        if: runner.os == 'Windows'
+        if: matrix.platform == 'windows'
         run: |
           $hash = Get-FileHash ${{ matrix.archive }} -Algorithm SHA256
           echo "sha256=$($hash.Hash)" >> $env:GITHUB_OUTPUT
@@ -78,7 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish .deb to APT repo
-        if: runner.os == 'Linux'
+        if: matrix.platform == 'linux'
         run: |
           version=${GITHUB_REF_NAME#v}
 
@@ -160,7 +163,7 @@ jobs:
 
   update-homebrew:
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS]
     needs: build
     steps:
       - name: Clone and update formula
