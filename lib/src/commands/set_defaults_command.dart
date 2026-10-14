@@ -6,6 +6,8 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -14,7 +16,11 @@ import '../config_manager.dart';
 class SetDefaultsCommand extends Command<int> {
   SetDefaultsCommand({
     required Logger logger,
-  }) : _logger = logger {
+    ConfigManager? configManager,
+    bool Function()? canPrompt,
+  })  : _logger = logger,
+        _configManager = configManager,
+        _canPrompt = canPrompt ?? _hasTerminal {
     argParser
       ..addOption(
         'model',
@@ -25,7 +31,7 @@ class SetDefaultsCommand extends Command<int> {
         'model-variant',
         abbr: 'v',
         help: 'Specific variant of the AI model to use',
-        valueHelp: 'gpt-4o, claude-3-opus, gemini-pro, etc.',
+        valueHelp: 'gpt-5.6-terra, claude-sonnet-5-5, gemini-3.6-flash, etc.',
       )
       ..addOption(
         'base-url',
@@ -71,11 +77,25 @@ class SetDefaultsCommand extends Command<int> {
   String get name => 'set-defaults';
 
   final Logger _logger;
+  final ConfigManager? _configManager;
+  final bool Function() _canPrompt;
+
+  static bool _hasTerminal() {
+    try {
+      return stdin.hasTerminal && stdout.hasTerminal;
+    } on Object {
+      return false;
+    }
+  }
 
   @override
   Future<int> run() async {
     // Get model name from args or prompt user to choose
     String? modelName = argResults?['model'] as String?;
+    if (modelName == null && !_canPrompt()) {
+      _logger.err('Pass --model when running without a terminal.');
+      return ExitCode.usage.code;
+    }
     modelName ??= _logger.chooseOne(
       'Select the AI model to set as default:',
       choices: [
@@ -113,7 +133,7 @@ class SetDefaultsCommand extends Command<int> {
     final maxDiffSizeStr = argResults?['max-diff-size'] as String?;
 
     // For Ollama, ask about base URL if not provided
-    if (modelName == 'ollama' && baseUrl == null) {
+    if (modelName == 'ollama' && baseUrl == null && _canPrompt()) {
       final bool customBaseUrl = _logger.confirm(
         'Do you want to set a custom base URL for Ollama?',
       );
@@ -131,13 +151,13 @@ class SetDefaultsCommand extends Command<int> {
     }
 
     // Prompt for model variant if not provided
-    if (modelVariant == null) {
+    if (modelVariant == null && _canPrompt()) {
       final bool setVariant = _logger.confirm(
         'Do you want to set a specific model variant for $modelName?',
       );
       if (setVariant) {
         modelVariant = _logger.prompt(
-          'Enter the model variant (e.g., gpt-4o, claude-3-opus, gemini-pro):',
+          'Enter the model variant (e.g., gpt-5.6-terra, claude-sonnet-5-5):',
         );
         if (modelVariant.trim().isEmpty) {
           _logger.warn('No variant specified, skipping variant setting.');
@@ -147,7 +167,7 @@ class SetDefaultsCommand extends Command<int> {
     }
 
     // Initialize config manager
-    final configManager = ConfigManager();
+    final configManager = _configManager ?? ConfigManager();
     await configManager.load();
 
     // Set default model and variant (pass null if variant not provided)
@@ -185,7 +205,13 @@ class SetDefaultsCommand extends Command<int> {
       await configManager.save();
       _logger.success(
           'Commit confirmation disabled. All commits will be automatic.');
-    } else if (!confirmCommits && !noConfirmCommits) {
+    } else if (!_canPrompt()) {
+      // Scripts and CI have no terminal to answer the question below.
+      _logger.detail(
+        'Skipping the commit confirmation question: no terminal attached. '
+        'Use --confirm-commits or --no-confirm-commits to set it.',
+      );
+    } else {
       // Ask about commit confirmation if setting up for first time
       final bool shouldConfirm = _logger.confirm(
         'Do you want to confirm commit messages before they are applied? (Recommended for new users)',
