@@ -462,9 +462,11 @@ void main() {
       final firstRequestData =
           capturedRequests.first.data as Map<String, dynamic>;
       expect(firstRequestData['tools'], isA<List<dynamic>>());
+      // Newer Claude models reject forced tool use, so the prompt alone
+      // steers the first request.
       expect(
         firstRequestData['tool_choice'],
-        <String, dynamic>{'type': 'any'},
+        <String, dynamic>{'type': 'auto'},
       );
       expect(capturedRequests.last.data.toString(), contains('tool_result'));
       expect(capturedRequests.last.data.toString(), contains('diff --git'));

@@ -10,12 +10,17 @@ import 'package:dio/dio.dart';
 
 import '../agent/agent_commit_generator.dart';
 import '../agent/git_agent_tools.dart';
+import '../agent/openai_compatible_agent_runner.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
 import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
+
+/// One Claude Messages API response: its content blocks, and whether it was
+/// cut off at the output token limit.
+typedef _ClaudeTurn = ({List<Map<String, dynamic>> content, bool truncated});
 
 class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
   ClaudeGenerator(super.apiKey, {super.variant, String? baseUrl})
@@ -45,7 +50,7 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
     Language language, {
     String? prefix,
     bool withEmoji = true,
-  }) async {
+  }) {
     final prompt = getCommitPrompt(
       diff,
       language,
@@ -53,72 +58,14 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
       withEmoji: withEmoji,
     );
 
-    try {
-      final headers = await resolveHeaders();
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        messagesEndpoint,
-        options: Options(
-          headers: headers,
-        ),
-        data: {
-          'model': actualVariant,
-          'max_tokens': maxTokens,
-          'messages': [
-            {
-              'role': 'user',
-              'content': prompt,
-            },
-          ],
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return _extractClaudeText(_extractClaudeContent(response.data)).trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from Claude API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('claude', e);
-    }
+    return requestCommitMessage('Claude', (limit) => _complete(prompt, limit));
   }
 
   @override
-  Future<String> analyzeChanges(String diff, Language language) async {
+  Future<String> analyzeChanges(String diff, Language language) {
     final prompt = getAnalysisPrompt(diff, language);
 
-    try {
-      final headers = await resolveHeaders();
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        messagesEndpoint,
-        options: Options(
-          headers: headers,
-        ),
-        data: {
-          'model': actualVariant,
-          'max_tokens': maxAnalysisTokens,
-          'messages': [
-            {
-              'role': 'user',
-              'content': prompt,
-            },
-          ],
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return _extractClaudeText(_extractClaudeContent(response.data)).trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from Claude API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('claude', e);
-    }
+    return requestAnalysis('Claude', (limit) => _complete(prompt, limit));
   }
 
   @override
@@ -138,65 +85,144 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
     ];
 
     var toolCallCount = 0;
+    var toolsEnabled = request.maxToolCalls > 0;
 
     while (true) {
-      try {
-        final headers = await resolveHeaders();
-        final Response<Map<String, dynamic>> response = await $dio.post(
-          messagesEndpoint,
-          options: Options(
-            headers: headers,
-          ),
-          data: {
-            'model': actualVariant,
-            'max_tokens': 1000,
-            'messages': messages,
-            'tools': GitAgentTools.claudeToolDefinitions,
-            if (messages.length == 1)
-              'tool_choice': <String, dynamic>{'type': 'any'},
-          },
+      final turn = await _requestAgentTurn(
+        messages,
+        toolsEnabled: toolsEnabled,
+      );
+      final toolUses = _extractClaudeToolUses(turn.content);
+
+      if (toolUses.isEmpty || !toolsEnabled) {
+        final text = _extractClaudeText(turn.content);
+        if (text.isNotEmpty) return text;
+        throw InvalidResponseException(
+          message: toolUses.isEmpty
+              ? 'Claude returned an empty commit message.'
+              : 'Claude kept requesting tools after they were disabled and '
+                  'returned no commit message.',
         );
-
-        if (response.statusCode != 200) {
-          throw ServerException(
-            message: 'Unexpected response from Claude API',
-            statusCode: response.statusCode ?? 500,
-          );
-        }
-
-        final content = _extractClaudeContent(response.data);
-        final toolUses = _extractClaudeToolUses(content);
-
-        if (toolUses.isEmpty) {
-          return _extractClaudeText(content).trim();
-        }
-
-        toolCallCount += toolUses.length;
-        if (toolCallCount > request.maxToolCalls) {
-          throw StateError(
-            'Agent mode exceeded ${request.maxToolCalls} tool calls.',
-          );
-        }
-
-        messages.add(<String, dynamic>{
-          'role': 'assistant',
-          'content': content,
-        });
-
-        final toolResults = <Map<String, dynamic>>[];
-        for (final toolUse in toolUses) {
-          toolResults.add(
-            await _executeClaudeToolUse(request.tools, toolUse),
-          );
-        }
-
-        messages.add(<String, dynamic>{
-          'role': 'user',
-          'content': toolResults,
-        });
-      } on DioException catch (e) {
-        throw ErrorParser.parseProviderError('claude', e);
       }
+
+      messages.add(<String, dynamic>{
+        'role': 'assistant',
+        'content': turn.content,
+      });
+
+      final userContent = <Map<String, dynamic>>[];
+      for (final toolUse in toolUses) {
+        if (toolCallCount < request.maxToolCalls) {
+          toolCallCount++;
+          userContent.add(await _executeClaudeToolUse(request.tools, toolUse));
+        } else {
+          userContent.add(<String, dynamic>{
+            'type': 'tool_result',
+            'tool_use_id': toolUse['id']?.toString() ?? '',
+            'content': agentToolBudgetSkippedResult,
+            'is_error': true,
+          });
+        }
+      }
+
+      if (toolCallCount >= request.maxToolCalls) {
+        // Out of tool calls: ask for the message instead of failing after
+        // every call has already been paid for.
+        toolsEnabled = false;
+        userContent.add(<String, dynamic>{
+          'type': 'text',
+          'text': agentToolBudgetExhaustedPrompt(request.maxToolCalls),
+        });
+      }
+
+      messages.add(<String, dynamic>{
+        'role': 'user',
+        'content': userContent,
+      });
+    }
+  }
+
+  Future<GeneratedText> _complete(String prompt, int maxTokens) async {
+    final turn = await _postMessages(<String, dynamic>{
+      'model': actualVariant,
+      'max_tokens': maxTokens,
+      'messages': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'role': 'user',
+          'content': prompt,
+        },
+      ],
+    });
+
+    return (text: _extractClaudeText(turn.content), truncated: turn.truncated);
+  }
+
+  Future<_ClaudeTurn> _requestAgentTurn(
+    List<Map<String, dynamic>> messages, {
+    required bool toolsEnabled,
+  }) async {
+    // Newer models reject forced tool use (`any`), so the first request
+    // relies on the prompt, which tells the model to inspect the changes.
+    Future<_ClaudeTurn> send(int maxTokens) {
+      return _postMessages(<String, dynamic>{
+        'model': actualVariant,
+        'max_tokens': maxTokens,
+        'messages': List<Map<String, dynamic>>.of(messages),
+        'tools': GitAgentTools.claudeToolDefinitions,
+        'tool_choice': <String, dynamic>{
+          'type': toolsEnabled ? 'auto' : 'none',
+        },
+      });
+    }
+
+    final turn = await send(agentTurnMaxTokens);
+    if (!turn.truncated) return turn;
+
+    // Cut off mid-message or mid-tool-call: ask again with more room.
+    final retry = await send(truncationRetryMaxTokens);
+    if (retry.truncated && _extractClaudeToolUses(retry.content).isEmpty) {
+      throw ResponseTruncatedException(
+        message: 'Claude stopped at the $truncationRetryMaxTokens-token output '
+            'limit before finishing the commit message.',
+      );
+    }
+    return retry;
+  }
+
+  Future<_ClaudeTurn> _postMessages(Map<String, dynamic> body) async {
+    try {
+      final headers = await resolveHeaders();
+      final Response<Map<String, dynamic>> response = await $dio.post(
+        messagesEndpoint,
+        options: Options(
+          headers: headers,
+        ),
+        data: body,
+      );
+
+      if (response.statusCode != 200) {
+        throw ServerException(
+          message: 'Unexpected response from Claude API',
+          statusCode: response.statusCode ?? 500,
+        );
+      }
+
+      final data = response.data;
+      final stopReason = data?['stop_reason'];
+      if (stopReason == 'refusal') {
+        throw const InvalidResponseException(
+          message: 'Claude declined the request (stop_reason: refusal).',
+          errorType: 'refusal',
+        );
+      }
+
+      return (
+        content: _extractClaudeContent(data),
+        truncated: stopReason == 'max_tokens' ||
+            stopReason == 'model_context_window_exceeded',
+      );
+    } on DioException catch (e) {
+      throw ErrorParser.parseProviderError('claude', e);
     }
   }
 
@@ -205,17 +231,15 @@ class ClaudeGenerator extends CommitGenerator implements AgentCommitGenerator {
   ) {
     final rawContent = data?['content'];
     if (rawContent is! List<dynamic>) {
-      throw const FormatException('Claude response did not include content.');
+      throw const InvalidResponseException(
+        message: 'Claude response did not include content.',
+      );
     }
 
-    final content = <Map<String, dynamic>>[];
-    for (final rawBlock in rawContent) {
-      if (rawBlock is Map<dynamic, dynamic>) {
-        content.add(Map<String, dynamic>.from(rawBlock));
-      }
-    }
-
-    return content;
+    return rawContent
+        .whereType<Map<dynamic, dynamic>>()
+        .map(Map<String, dynamic>.from)
+        .toList();
   }
 
   List<Map<String, dynamic>> _extractClaudeToolUses(
