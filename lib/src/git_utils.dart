@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import 'constants.dart';
+import 'private_files.dart';
 
 /// A git operation that failed. [message] says what went wrong and, where
 /// possible, how to fix it.
@@ -491,6 +492,10 @@ class GitUtils {
     final tempFile = File(path.join(tempDir.path, 'GITWHISPER_EDITMSG'));
 
     try {
+      // createTemp uses the umask on Linux (often 0755), so make the
+      // directory owner-only before the message is written into it.
+      await restrictToOwner(tempDir.path, directory: true);
+
       // Write the initial message to the temp file
       await tempFile.writeAsString(initialMessage);
 
