@@ -49,11 +49,12 @@ class SetDefaultsCommand extends Command<int> {
         help: 'Never confirm commit messages (auto-commit)',
         defaultsTo: false,
       )
+      // No default, so the saved setting only changes when the flag is
+      // passed. Emojis are on until --no-allow-emojis is saved.
       ..addFlag(
         'allow-emojis',
         help: 'Include emojis in commit messages',
-        defaultsTo: true,
-        negatable: true,
+        defaultsTo: null,
       )
       ..addOption(
         'max-diff-size',

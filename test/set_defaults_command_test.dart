@@ -47,6 +47,25 @@ void main() {
       expect(saved.getDefaultModelAndVariant(), ('ollama', 'llama3.2:latest'));
     });
 
+    test('changes the emoji setting only when --allow-emojis is passed',
+        () async {
+      Future<bool> allowsEmojis() async {
+        final saved = ConfigManager(configPath: configPath);
+        await saved.load();
+        return saved.shouldAllowEmojis();
+      }
+
+      await run(['--model', 'openai', '--no-allow-emojis']);
+      expect(await allowsEmojis(), isFalse);
+
+      final exitCode = await run(['--model', 'claude']);
+      expect(exitCode, ExitCode.success.code);
+      expect(await allowsEmojis(), isFalse, reason: 'flag not passed');
+
+      await run(['--model', 'claude', '--allow-emojis']);
+      expect(await allowsEmojis(), isTrue);
+    });
+
     test('requires --model instead of opening a picker', () async {
       final exitCode = await run(['--model-variant', 'gpt-5.6-terra']);
 
