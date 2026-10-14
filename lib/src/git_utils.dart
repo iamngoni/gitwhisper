@@ -484,10 +484,11 @@ class GitUtils {
           (Platform.isWindows ? 'notepad' : 'vi');
     }
 
-    // Create a temporary file for the commit message
-    final tempDir = Directory.systemTemp;
-    final tempFile = File(
-        '${tempDir.path}/GITWHISPER_EDITMSG_${DateTime.now().millisecondsSinceEpoch}');
+    // Write the message inside a fresh private directory: a predictable
+    // name directly in a shared temp directory could be planted or read by
+    // another user.
+    final tempDir = await Directory.systemTemp.createTemp('gitwhisper_');
+    final tempFile = File(path.join(tempDir.path, 'GITWHISPER_EDITMSG'));
 
     try {
       // Write the initial message to the temp file
@@ -525,9 +526,12 @@ class GitUtils {
 
       return cleaned.isNotEmpty ? cleaned : null;
     } finally {
-      // Clean up the temp file
-      if (await tempFile.exists()) {
-        await tempFile.delete();
+      // Clean up the temp directory and the message in it. A failure here
+      // must not lose the edited message.
+      try {
+        await tempDir.delete(recursive: true);
+      } on FileSystemException catch (e) {
+        $logger.detail('Could not remove ${tempDir.path}: $e');
       }
     }
   }

@@ -239,6 +239,66 @@ similarity index 90%
     });
   });
 
+  group('GitUtils.openGitEditor', () {
+    late Directory sandbox;
+
+    setUp(() async {
+      sandbox = await Directory.systemTemp.createTemp('gitwhisper_editor_');
+    });
+
+    tearDown(() async {
+      if (sandbox.existsSync()) await sandbox.delete(recursive: true);
+    });
+
+    test(
+      'edits the message in a private directory that it removes afterwards',
+      () async {
+        final repo = Directory(path.join(sandbox.path, 'repo'))..createSync();
+        final record = File(path.join(sandbox.path, 'edited-path'));
+        // Records the path it was given and replaces the message.
+        final editor = File(path.join(sandbox.path, 'editor.sh'))
+          ..writeAsStringSync(
+            '#!/bin/sh\n'
+            'printf "%s" "\$1" > "${record.path}"\n'
+            'printf "feat: Edited\\n# a comment\\n" > "\$1"\n',
+          );
+        await Process.run('chmod', ['+x', editor.path]);
+        for (final args in [
+          ['init', '-q'],
+          ['config', 'core.editor', editor.path],
+        ]) {
+          final result =
+              await Process.run('git', args, workingDirectory: repo.path);
+          expect(result.exitCode, 0, reason: '${result.stderr}');
+        }
+
+        final message = await GitUtils.openGitEditor(
+          'feat: Original',
+          folderPath: repo.path,
+        );
+
+        expect(message, 'feat: Edited');
+        final edited = File(record.readAsStringSync());
+        expect(path.basename(edited.path), 'GITWHISPER_EDITMSG');
+        expect(
+          path.basename(edited.parent.path),
+          startsWith('gitwhisper_'),
+          reason: 'a fresh directory, not the shared temp directory',
+        );
+        expect(
+          edited.parent.parent.resolveSymbolicLinksSync(),
+          Directory.systemTemp.resolveSymbolicLinksSync(),
+        );
+        expect(edited.parent.existsSync(), isFalse);
+      },
+      skip: Platform.isWindows
+          ? 'POSIX shell editor only'
+          : Platform.environment.containsKey('GIT_EDITOR')
+              ? 'GIT_EDITOR overrides core.editor'
+              : null,
+    );
+  });
+
   group('GitUtils.editorCommand', () {
     const tempFile = r'C:\Users\Jane Doe\AppData\Local\Temp\GITWHISPER_MSG';
 
