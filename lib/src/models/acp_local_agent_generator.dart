@@ -7,6 +7,7 @@ import '../acp/acp_consent.dart';
 import '../acp/acp_debug_log.dart';
 import '../acp/acp_launcher.dart';
 import '../acp/acp_registry.dart';
+import '../acp/acp_repo_trust.dart';
 import '../agent/agent_commit_generator.dart';
 import '../agent/agent_tool_activity_formatter.dart';
 import '../commit_utils.dart';
@@ -29,12 +30,17 @@ class AcpLocalAgentGenerator extends CommitGenerator
     this.timeout = const Duration(minutes: 5),
     this.debugLogs,
     this.prompter,
+    this.trustedRepos,
     super.variant,
   }) : super(null);
 
   final String model;
   final String registryQuery;
   final AcpRegistryLoader? registryLoader;
+
+  /// Repository the agent works in when a request does not name one.
+  /// Defaults to the current directory. Agent processes never start here;
+  /// see [AcpLaunchCommand.workingDirectory].
   final String? workingDirectory;
   final Map<String, String>? environment;
   final AcpProcessStarter? startProcess;
@@ -44,8 +50,13 @@ class AcpLocalAgentGenerator extends CommitGenerator
   /// ACP debug logs. Off unless `GITWHISPER_ACP_DEBUG=1`.
   final AcpDebugLogs? debugLogs;
 
-  /// Asks before running an agent's terminal login command.
+  /// Asks before running an agent's terminal login command, and before an
+  /// agent works in an untrusted repository with agent configuration.
   final AcpConsentPrompter? prompter;
+
+  /// Repositories trusted to supply agent configuration. Defaults to
+  /// `~/.gitwhisper/acp/trusted-repos.json`.
+  final AcpTrustedRepos? trustedRepos;
 
   late final AcpDebugLogs _debugLogs = debugLogs ?? AcpDebugLogs();
   Progress? _acpStatusProgress;
@@ -126,12 +137,17 @@ ${getAgentCommitPrompt(
     AcpDebugLog.lastLogPath = null;
     await _pruneDebugLogs();
 
+    final repoDirectory =
+        repoPath ?? workingDirectory ?? Directory.current.path;
     final registry = await (registryLoader ?? AcpRegistryLoader()).load();
     final agent = registry.resolveSupported(registryQuery);
     final launcher = agentLauncher ?? AcpAgentLauncher();
-    // Ask before the first launch of this agent version, before any spinner
-    // starts, so the prompt is readable.
+    // Ask before the first launch of this agent version, and before it works
+    // in a repository whose agent config can run commands. Both happen before
+    // any spinner starts, so the prompts are readable.
     await launcher.ensureLaunchApproved(agent);
+    await (trustedRepos ?? AcpTrustedRepos(prompter: prompter))
+        .ensureTrusted(repoDirectory, agentId: agent.id);
     final logFile = await _createLogFile(agent.id);
     final launchProgress = $logger.progress('Preparing ACP agent ${agent.id}');
 
@@ -160,7 +176,7 @@ ${getAgentCommitPrompt(
           prompt,
           logFile,
           requireConventionalCommit: requireConventionalCommit,
-          repoPath: repoPath,
+          repoDirectory: repoDirectory,
         ),
       );
     } on AcpAuthenticationRequiredException catch (error) {
@@ -172,7 +188,7 @@ ${getAgentCommitPrompt(
           prompt,
           logFile,
           requireConventionalCommit: requireConventionalCommit,
-          repoPath: repoPath,
+          repoDirectory: repoDirectory,
         ),
       );
     }
@@ -216,21 +232,22 @@ ${getAgentCommitPrompt(
     return text;
   }
 
+  /// Runs one ACP session. The agent process starts in its own directory;
+  /// the repository reaches it only as the session `cwd` and as the git
+  /// tools' `--cwd`.
   Future<String> _prompt(
     AcpLaunchCommand launch,
     Map<String, String> mergedEnvironment,
     String prompt,
     File? logFile, {
+    required String repoDirectory,
     bool requireConventionalCommit = false,
-    String? repoPath,
   }) {
-    final repoDirectory =
-        repoPath ?? workingDirectory ?? Directory.current.path;
     return AcpClient(
       executable: launch.executable,
       arguments: launch.arguments,
       environment: mergedEnvironment.isEmpty ? null : mergedEnvironment,
-      workingDirectory: launch.workingDirectory ?? repoPath ?? workingDirectory,
+      workingDirectory: launch.workingDirectory,
       mcpServers: <Map<String, dynamic>>[
         GitToolsMcpConfig.forCwd(repoDirectory),
       ],
@@ -374,8 +391,6 @@ ${getAgentCommitPrompt(
     final commandLine = formatCommandLine(
       <String>[authLaunch.executable, ...authLaunch.arguments],
     );
-    final authWorkingDirectory =
-        authLaunch.workingDirectory ?? workingDirectory;
 
     // The login command can come from the agent's own error text, so show
     // exactly what will run and ask first. Without a terminal, do not run it.
@@ -386,7 +401,7 @@ ${getAgentCommitPrompt(
         'ACP agent ${agent.id} needs you to sign in ($label).',
         'GitWhisper will run:',
         '  $commandLine',
-        if (authWorkingDirectory != null) '  in $authWorkingDirectory',
+        '  in ${authLaunch.workingDirectory}',
         if (authLaunch.environment.isNotEmpty)
           '  with ${authLaunch.environment.entries.map(
                 (entry) => '${entry.key}=${entry.value}',
@@ -408,7 +423,7 @@ ${getAgentCommitPrompt(
     final process = await Process.start(
       authLaunch.executable,
       authLaunch.arguments,
-      workingDirectory: authLaunch.workingDirectory ?? workingDirectory,
+      workingDirectory: authLaunch.workingDirectory,
       environment: authEnvironment.isEmpty ? null : authEnvironment,
       mode: ProcessStartMode.inheritStdio,
     );
@@ -441,7 +456,7 @@ ${getAgentCommitPrompt(
       executable: launch.executable,
       arguments: launch.arguments,
       environment: mergedEnvironment.isEmpty ? null : mergedEnvironment,
-      workingDirectory: launch.workingDirectory ?? workingDirectory,
+      workingDirectory: launch.workingDirectory,
       logFile: await _createLogFile('${agent.id}-auth'),
       timeout: timeout,
       onStatus: _logStatus,

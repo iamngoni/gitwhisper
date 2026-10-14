@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import '../private_files.dart';
+import '../user_home.dart';
 
 /// GitWhisper's ACP debug logs (`~/.gitwhisper/acp/logs`).
 ///
@@ -17,7 +18,7 @@ class AcpDebugLogs {
     bool? enabled,
     Map<String, String>? environment,
     DateTime Function()? clock,
-  })  : directory = directory ?? _defaultDirectory(),
+  })  : _directoryOverride = directory,
         enabled = enabled ??
             _isEnabledValue(
               (environment ?? Platform.environment)[environmentVariable],
@@ -36,7 +37,11 @@ class AcpDebugLogs {
     r'^[A-Za-z0-9_.-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+Z?\.jsonl$',
   );
 
-  final Directory directory;
+  final Directory? _directoryOverride;
+
+  /// Where logs are written. Resolved on first use, so creating
+  /// [AcpDebugLogs] never needs a home directory.
+  late final Directory directory = _directoryOverride ?? _defaultDirectory();
   final bool enabled;
   final DateTime Function() _clock;
 
@@ -84,10 +89,11 @@ class AcpDebugLogs {
     return normalized == '1' || normalized == 'true';
   }
 
+  /// Throws [UserHomeException] when the home directory is unknown, rather
+  /// than writing logs into the current repository.
   static Directory _defaultDirectory() {
-    final home = Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        Directory.current.path;
-    return Directory(path.join(home, '.gitwhisper', 'acp', 'logs'));
+    return Directory(
+      path.join(userHomeDirectory(), '.gitwhisper', 'acp', 'logs'),
+    );
   }
 }

@@ -1,17 +1,24 @@
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
+import 'package:path/path.dart' as path;
 
 import '../acp/acp_launcher.dart';
 import '../acp/acp_registry.dart';
+import '../acp/acp_repo_trust.dart';
+import '../user_home.dart';
 
 class AcpCommand extends Command<int> {
   AcpCommand({
     required Logger logger,
     AcpRegistryLoader? registryLoader,
     AcpAgentLauncher? agentLauncher,
+    AcpTrustedRepos? trustedRepos,
   }) {
     final loader = registryLoader ?? AcpRegistryLoader();
     final launcher = agentLauncher ?? AcpAgentLauncher();
+    final trusted = trustedRepos ?? AcpTrustedRepos();
 
     addSubcommand(
       AcpListCommand(
@@ -46,8 +53,11 @@ class AcpCommand extends Command<int> {
         logger: logger,
         registryLoader: loader,
         agentLauncher: launcher,
+        trustedRepos: trusted,
       ),
     );
+    addSubcommand(AcpTrustCommand(logger: logger, trustedRepos: trusted));
+    addSubcommand(AcpUntrustCommand(logger: logger, trustedRepos: trusted));
   }
 
   @override
@@ -112,6 +122,9 @@ class AcpListCommand extends Command<int> {
     } on FormatException catch (error) {
       _logger.err('ACP registry is not valid: ${error.message}');
       return ExitCode.software.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
     }
   }
 }
@@ -150,6 +163,9 @@ class AcpInfoCommand extends Command<int> {
     } on AcpRegistryException catch (error) {
       _logger.err(error.message);
       return ExitCode.software.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
     }
   }
 }
@@ -190,6 +206,9 @@ class AcpResolveCommand extends Command<int> {
     } on AcpRegistryException catch (error) {
       _logger.err(error.message);
       return ExitCode.software.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
     }
   }
 }
@@ -252,6 +271,10 @@ class AcpInstallCommand extends Command<int> {
       if (!progressFailed) progress.fail('Failed to resolve $query');
       _logger.err(error.message);
       return ExitCode.software.code;
+    } on UserHomeException catch (error) {
+      if (!progressFailed) progress.fail('Failed to resolve $query');
+      _logger.err(error.message);
+      return ExitCode.config.code;
     }
   }
 }
@@ -261,12 +284,14 @@ class AcpCacheCommand extends Command<int> {
     required Logger logger,
     required AcpRegistryLoader registryLoader,
     required AcpAgentLauncher agentLauncher,
+    required AcpTrustedRepos trustedRepos,
   }) {
     addSubcommand(
       AcpCachePathCommand(
         logger: logger,
         registryLoader: registryLoader,
         agentLauncher: agentLauncher,
+        trustedRepos: trustedRepos,
       ),
     );
     addSubcommand(
@@ -289,13 +314,16 @@ class AcpCachePathCommand extends Command<int> {
     required Logger logger,
     required AcpRegistryLoader registryLoader,
     required AcpAgentLauncher agentLauncher,
+    required AcpTrustedRepos trustedRepos,
   })  : _logger = logger,
         _registryLoader = registryLoader,
-        _agentLauncher = agentLauncher;
+        _agentLauncher = agentLauncher,
+        _trustedRepos = trustedRepos;
 
   final Logger _logger;
   final AcpRegistryLoader _registryLoader;
   final AcpAgentLauncher _agentLauncher;
+  final AcpTrustedRepos _trustedRepos;
 
   @override
   String get description => 'Show ACP cache paths';
@@ -305,11 +333,17 @@ class AcpCachePathCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    _logger
-      ..info('Registry cache: ${_registryLoader.cacheFile.path}')
-      ..info('Agent cache: ${_agentLauncher.cacheDirectory.path}')
-      ..info('Approved agents: ${_agentLauncher.approvals.file.path}');
-    return ExitCode.success.code;
+    try {
+      _logger
+        ..info('Registry cache: ${_registryLoader.cacheFile.path}')
+        ..info('Agent cache: ${_agentLauncher.cacheDirectory.path}')
+        ..info('Approved agents: ${_agentLauncher.approvals.file.path}')
+        ..info('Trusted repositories: ${_trustedRepos.file.path}');
+      return ExitCode.success.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
+    }
   }
 }
 
@@ -340,6 +374,101 @@ class AcpCacheRefreshCommand extends Command<int> {
     } on AcpRegistryException catch (error) {
       _logger.err(error.message);
       return ExitCode.software.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
+    }
+  }
+}
+
+class AcpTrustCommand extends Command<int> {
+  AcpTrustCommand({
+    required Logger logger,
+    required AcpTrustedRepos trustedRepos,
+  })  : _logger = logger,
+        _trustedRepos = trustedRepos;
+
+  final Logger _logger;
+  final AcpTrustedRepos _trustedRepos;
+
+  @override
+  String get description =>
+      "Let ACP agents use a repository's agent configuration (hooks, MCP "
+      'servers, npm config). Defaults to the current directory.';
+
+  @override
+  String get name => 'trust';
+
+  @override
+  String get invocation => 'gitwhisper acp trust [path]';
+
+  @override
+  Future<int> run() async {
+    final target = argResults?.rest.firstOrNull ?? Directory.current.path;
+    if (!Directory(target).existsSync()) {
+      _logger.err('Not a directory: $target');
+      return ExitCode.usage.code;
+    }
+
+    try {
+      final scan = AcpTrustedRepos.scan(target);
+      await _trustedRepos.trust(scan.root);
+      _logger.success('Trusted ${scan.root} for ACP agents.');
+      if (scan.agentConfig.isEmpty) {
+        _logger.info('It has no agent configuration GitWhisper checks for.');
+      } else {
+        _logger.info('ACP agents may run commands from its agent config:');
+        for (final config in scan.agentConfig) {
+          _logger.info('  ${config.displayPath}  ${config.description}');
+        }
+      }
+      return ExitCode.success.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
+    }
+  }
+}
+
+class AcpUntrustCommand extends Command<int> {
+  AcpUntrustCommand({
+    required Logger logger,
+    required AcpTrustedRepos trustedRepos,
+  })  : _logger = logger,
+        _trustedRepos = trustedRepos;
+
+  final Logger _logger;
+  final AcpTrustedRepos _trustedRepos;
+
+  @override
+  String get description =>
+      'Stop trusting a repository trusted with `gitwhisper acp trust`. '
+      'Defaults to the current directory.';
+
+  @override
+  String get name => 'untrust';
+
+  @override
+  String get invocation => 'gitwhisper acp untrust [path]';
+
+  @override
+  Future<int> run() async {
+    final target = argResults?.rest.firstOrNull ?? Directory.current.path;
+    // A deleted repository can still be untrusted by its old path.
+    final root = Directory(target).existsSync()
+        ? AcpTrustedRepos.scan(target).root
+        : path.normalize(path.absolute(target));
+
+    try {
+      if (await _trustedRepos.untrust(root)) {
+        _logger.success('No longer trusting $root for ACP agents.');
+      } else {
+        _logger.info('$root was not trusted.');
+      }
+      return ExitCode.success.code;
+    } on UserHomeException catch (error) {
+      _logger.err(error.message);
+      return ExitCode.config.code;
     }
   }
 }

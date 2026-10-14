@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
+import '../private_files.dart';
+import '../user_home.dart';
 import 'acp_client.dart';
 import 'acp_consent.dart';
 import 'acp_registry.dart';
@@ -30,19 +32,27 @@ class AcpAgentLauncher {
     AcpBinaryInstaller? installBinary,
     AcpNpmInstaller? installNpm,
     AcpAgentApprovals? approvals,
-  })  : _cacheDirectory = cacheDirectory ?? _defaultAgentCacheDirectory(),
+  })  : _cacheDirectoryOverride = cacheDirectory,
         _platformKey = platformKey ?? currentPlatformKey(),
         _dio = dio ?? Dio(),
         _installBinary = installBinary,
         _installNpm = installNpm,
         _approvalsOverride = approvals;
 
-  final Directory _cacheDirectory;
+  /// Most HTTP redirects GitWhisper follows when downloading an agent.
+  static const maxDownloadRedirects = 5;
+
+  final Directory? _cacheDirectoryOverride;
   final String _platformKey;
   final Dio _dio;
   final AcpBinaryInstaller? _installBinary;
   final AcpNpmInstaller? _installNpm;
   final AcpAgentApprovals? _approvalsOverride;
+
+  /// Resolved on first use, so creating a launcher never needs a home
+  /// directory (`gw` builds one for `gw acp` at startup).
+  late final Directory _cacheDirectory =
+      _cacheDirectoryOverride ?? _defaultAgentCacheDirectory();
 
   /// Agent launches the user has approved. By default these are stored in
   /// the agent cache directory.
@@ -79,15 +89,7 @@ class AcpAgentLauncher {
       );
     }
 
-    final binary = agent.binaryDistributions[_platformKey];
-    if (binary == null) {
-      final supported = agent.binaryDistributions.keys.join(', ');
-      throw AcpRegistryException(
-        'ACP agent "${agent.id}" does not publish an npx package or a binary '
-        'for $_platformKey. Supported binary platforms: $supported',
-      );
-    }
-
+    final binary = _binaryFor(agent);
     _validateArchiveUrl(agent, binary.archive);
     if (binary.sha256 != null && !binary.hasValidSha256) {
       throw AcpRegistryException(
@@ -127,33 +129,28 @@ class AcpAgentLauncher {
     return approvals.ensureApproved(agent, launchSourceFor(agent));
   }
 
+  /// Resolves the command that starts [agent]. It always runs in a
+  /// GitWhisper-owned directory in the agent cache, never in the repository
+  /// (see [AcpLaunchCommand.workingDirectory]).
   Future<AcpLaunchCommand> launchCommandFor(
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
   }) async {
     await ensureLaunchApproved(agent);
 
-    final installedNpmCommand = _installedNpmLaunchCommand(agent);
-    if (installedNpmCommand != null) {
-      onStatus?.call('Using installed npm package ${agent.npxPackage}');
-      return installedNpmCommand;
+    final package = agent.npxPackage;
+    if (package != null && package.isNotEmpty) {
+      final installedNpmCommand = await _installedNpmLaunchCommand(agent);
+      if (installedNpmCommand != null) {
+        onStatus?.call('Using installed npm package $package');
+        return installedNpmCommand;
+      }
+
+      onStatus?.call('Using npx package $package');
+      return _npxLaunchCommand(agent);
     }
 
-    final npxCommand = _npxLaunchCommand(agent);
-    if (npxCommand != null) {
-      onStatus?.call('Using npx package ${agent.npxPackage}');
-      return npxCommand;
-    }
-
-    final binary = agent.binaryDistributions[_platformKey];
-    if (binary == null) {
-      final supported = agent.binaryDistributions.keys.join(', ');
-      throw AcpRegistryException(
-        'ACP agent "${agent.id}" does not publish an npx package or a binary '
-        'for $_platformKey. Supported binary platforms: $supported',
-      );
-    }
-
+    final binary = _binaryFor(agent);
     final installDirectory = _installDirectoryFor(agent);
     await _installBinaryIfNeeded(
       binary,
@@ -161,10 +158,8 @@ class AcpAgentLauncher {
       onStatus: onStatus,
     );
 
-    final executable = _resolveCommandPath(installDirectory, binary.command);
-
     return AcpLaunchCommand(
-      executable: executable,
+      executable: _resolveCommandPath(installDirectory, binary.command),
       arguments: binary.arguments,
       environment: binary.environment,
       workingDirectory: installDirectory.path,
@@ -173,7 +168,8 @@ class AcpAgentLauncher {
 
   /// Resolves the command for an agent's terminal login. The caller must show
   /// the result to the user and ask before running it. A fallback login
-  /// command can come from the agent's error text.
+  /// command can come from the agent's error text. Like the agent itself, it
+  /// runs in the agent's cache directory, never in the repository.
   Future<AcpLaunchCommand> authLaunchCommandFor(
     AcpAgentDefinition agent,
     AcpAuthMethod method, {
@@ -181,126 +177,73 @@ class AcpAgentLauncher {
   }) async {
     await ensureLaunchApproved(agent);
 
-    if (method.command.isNotEmpty) {
-      final package = agent.npxPackage;
-      if (package != null && package.isNotEmpty) {
-        final installedNpmCommand = _installedNpmLaunchCommand(
-          agent,
-          arguments: method.command.skip(1).toList(),
-          environment: <String, String>{
-            ...agent.npxEnv,
-            ...method.environment,
-          },
-        );
-        if (installedNpmCommand != null) {
-          onStatus?.call('Using installed npm package $package');
-          return installedNpmCommand;
-        }
-
-        return AcpLaunchCommand(
-          executable: 'npx',
-          arguments: <String>['-y', package, ...method.command.skip(1)],
-          environment: <String, String>{
-            ...agent.npxEnv,
-            ...method.environment,
-          },
-        );
-      }
-
-      final binary = agent.binaryDistributions[_platformKey];
-      if (binary != null) {
-        final installDirectory = _installDirectoryFor(agent);
-        await _installBinaryIfNeeded(
-          binary,
-          installDirectory,
-          onStatus: onStatus,
-        );
-        final executable =
-            _resolveCommandPath(installDirectory, binary.command);
-        final suggestedExecutable = method.command.first;
-        final executableName = path.basename(executable).toLowerCase();
-        final normalizedSuggestion = suggestedExecutable.toLowerCase();
-        if (executableName == normalizedSuggestion ||
-            executableName.startsWith(normalizedSuggestion) ||
-            executableName.endsWith('-$normalizedSuggestion')) {
-          return AcpLaunchCommand(
-            executable: executable,
-            arguments: method.command.skip(1).toList(),
-            environment: method.environment,
-            workingDirectory: installDirectory.path,
-          );
-        }
-      }
-
-      return AcpLaunchCommand(
-        executable: method.command.first,
-        arguments: method.command.skip(1).toList(),
-        environment: method.environment,
-      );
-    }
+    final usesFallbackCommand = method.command.isNotEmpty;
+    final arguments =
+        usesFallbackCommand ? method.command.skip(1).toList() : method.args;
 
     final package = agent.npxPackage;
     if (package != null && package.isNotEmpty) {
-      final installedNpmCommand = _installedNpmLaunchCommand(
+      final environment = <String, String>{
+        ...agent.npxEnv,
+        ...method.environment,
+      };
+      final installedNpmCommand = await _installedNpmLaunchCommand(
         agent,
-        arguments: method.args,
-        environment: <String, String>{
-          ...agent.npxEnv,
-          ...method.environment,
-        },
+        arguments: arguments,
+        environment: environment,
       );
       if (installedNpmCommand != null) {
         onStatus?.call('Using installed npm package $package');
         return installedNpmCommand;
       }
 
-      return AcpLaunchCommand(
-        executable: 'npx',
-        arguments: <String>['-y', package, ...method.args],
-        environment: <String, String>{
-          ...agent.npxEnv,
-          ...method.environment,
-        },
+      return _npxLaunchCommand(
+        agent,
+        arguments: arguments,
+        environment: environment,
       );
     }
 
-    final binary = agent.binaryDistributions[_platformKey];
-    if (binary == null) {
-      await launchCommandFor(agent, onStatus: onStatus);
-      throw AcpRegistryException(
-        'ACP agent "${agent.id}" cannot be launched for authentication on '
-        '$_platformKey.',
-      );
-    }
-
+    final binary = _binaryFor(agent);
     final installDirectory = _installDirectoryFor(agent);
     await _installBinaryIfNeeded(
       binary,
       installDirectory,
       onStatus: onStatus,
     );
+    final executable = _resolveCommandPath(installDirectory, binary.command);
+
+    var launchExecutable = executable;
+    if (usesFallbackCommand) {
+      final suggestedExecutable = method.command.first;
+      final executableName = path.basename(executable).toLowerCase();
+      final normalizedSuggestion = suggestedExecutable.toLowerCase();
+      final isAgentBinary = executableName == normalizedSuggestion ||
+          executableName.startsWith(normalizedSuggestion) ||
+          executableName.endsWith('-$normalizedSuggestion');
+      if (!isAgentBinary) launchExecutable = suggestedExecutable;
+    }
+
     return AcpLaunchCommand(
-      executable: _resolveCommandPath(installDirectory, binary.command),
-      arguments: method.args,
+      executable: launchExecutable,
+      arguments: arguments,
       environment: method.environment,
       workingDirectory: installDirectory.path,
     );
   }
 
   String describeLaunchSupport(AcpAgentDefinition agent) {
-    if (_installedNpmLaunchCommand(agent) != null) {
-      return 'npm package installed for $_platformKey';
-    }
-
-    if (_npxLaunchCommand(agent) != null) {
-      return 'npx -y ${agent.npxPackage}';
+    final package = agent.npxPackage;
+    if (package != null && package.isNotEmpty) {
+      if (_installedNpmExecutable(agent) != null) {
+        return 'npm package installed for $_platformKey';
+      }
+      return 'npx -y $package';
     }
 
     final binary = agent.binaryDistributions[_platformKey];
     if (binary != null) {
-      final installDirectory = _installDirectoryFor(agent);
-      final executable = _resolveCommandPath(installDirectory, binary.command);
-      if (File(executable).existsSync()) {
+      if (_hasVerifiedInstall(binary, _installDirectoryFor(agent))) {
         return 'binary installed for $_platformKey';
       }
       return 'binary available for $_platformKey';
@@ -328,7 +271,7 @@ class AcpAgentLauncher {
       return source;
     }
 
-    final binary = agent.binaryDistributions[_platformKey]!;
+    final binary = _binaryFor(agent);
     final installDirectory = _installDirectoryFor(agent);
     await _installBinaryIfNeeded(
       binary,
@@ -338,34 +281,73 @@ class AcpAgentLauncher {
     return source;
   }
 
-  AcpLaunchCommand? _npxLaunchCommand(AcpAgentDefinition agent) {
-    final package = agent.npxPackage;
-    if (package == null || package.isEmpty) return null;
+  AcpBinaryDistribution _binaryFor(AcpAgentDefinition agent) {
+    final binary = agent.binaryDistributions[_platformKey];
+    if (binary != null) return binary;
 
-    return AcpLaunchCommand(
-      executable: 'npx',
-      arguments: <String>['-y', package, ...agent.npxArgs],
-      environment: agent.npxEnv,
+    final supported = agent.binaryDistributions.keys.join(', ');
+    throw AcpRegistryException(
+      'ACP agent "${agent.id}" does not publish an npx package or a binary '
+      'for $_platformKey. Supported binary platforms: $supported',
     );
   }
 
-  AcpLaunchCommand? _installedNpmLaunchCommand(
+  /// Runs [agent]'s npm package through npx. `--prefix` and the working
+  /// directory both point at the agent's npm directory in the cache. With
+  /// the repository as its working directory, npx would read the
+  /// repository's `.npmrc` (which can set `node-options` or a registry) and
+  /// run a committed `node_modules` copy of the package instead of the
+  /// registry's.
+  Future<AcpLaunchCommand> _npxLaunchCommand(
     AcpAgentDefinition agent, {
     List<String>? arguments,
     Map<String, String>? environment,
-  }) {
-    final package = agent.npxPackage;
-    if (package == null || package.isEmpty) return null;
+  }) async {
+    final npmDirectory = _npmInstallDirectoryFor(agent);
+    await ensurePrivateDirectory(npmDirectory);
 
-    final installDirectory = _npmInstallDirectoryFor(agent);
-    final executable = _resolveInstalledNpmExecutable(agent, installDirectory);
+    return AcpLaunchCommand(
+      executable: 'npx',
+      arguments: <String>[
+        '--prefix',
+        npmDirectory.path,
+        '-y',
+        agent.npxPackage!,
+        ...arguments ?? agent.npxArgs,
+      ],
+      environment: environment ?? agent.npxEnv,
+      workingDirectory: npmDirectory.path,
+    );
+  }
+
+  /// Runs the package `gw acp install` installed, or returns null when it is
+  /// not installed.
+  Future<AcpLaunchCommand?> _installedNpmLaunchCommand(
+    AcpAgentDefinition agent, {
+    List<String>? arguments,
+    Map<String, String>? environment,
+  }) async {
+    final executable = _installedNpmExecutable(agent);
     if (executable == null) return null;
+
+    // Installs from GitWhisper 1.0.8 and earlier were not owner-only.
+    final npmDirectory = _npmInstallDirectoryFor(agent);
+    await ensurePrivateDirectory(npmDirectory);
 
     return AcpLaunchCommand(
       executable: executable,
       arguments: arguments ?? agent.npxArgs,
       environment: environment ?? agent.npxEnv,
-      workingDirectory: installDirectory.path,
+      workingDirectory: npmDirectory.path,
+    );
+  }
+
+  String? _installedNpmExecutable(AcpAgentDefinition agent) {
+    final package = agent.npxPackage;
+    if (package == null || package.isEmpty) return null;
+    return _resolveInstalledNpmExecutable(
+      agent,
+      _npmInstallDirectoryFor(agent),
     );
   }
 
@@ -382,6 +364,12 @@ class AcpAgentLauncher {
 
   Directory _npmInstallDirectoryFor(AcpAgentDefinition agent) {
     return Directory(path.join(_installDirectoryFor(agent).path, 'npm'));
+  }
+
+  /// Records which archive a binary install came from. It lives next to the
+  /// install directory, outside anything the archive can write.
+  File _installManifestFor(Directory installDirectory) {
+    return File('${installDirectory.path}.install.json');
   }
 
   /// Registry ids and versions become cache directory names, so they must be
@@ -452,7 +440,7 @@ class AcpAgentLauncher {
     if (installDirectory.existsSync()) {
       await installDirectory.delete(recursive: true);
     }
-    await installDirectory.create(recursive: true);
+    await ensurePrivateDirectory(installDirectory);
 
     onStatus?.call('Installing npm package $package');
     final installNpm = _installNpm ?? _installNpmPackage;
@@ -467,14 +455,50 @@ class AcpAgentLauncher {
     }
   }
 
+  /// Whether [installDirectory] holds [binary] as installed by this version
+  /// of GitWhisper: from the archive the registry lists now, verified against
+  /// its sha256. Installs from GitWhisper 1.0.8 and earlier never checked the
+  /// sha256 and have no manifest, so they are reinstalled.
+  bool _hasVerifiedInstall(
+    AcpBinaryDistribution binary,
+    Directory installDirectory,
+  ) {
+    final commandPath = _resolveCommandPath(installDirectory, binary.command);
+    if (!File(commandPath).existsSync()) return false;
+    try {
+      final manifest = jsonDecode(
+        _installManifestFor(installDirectory).readAsStringSync(),
+      );
+      return manifest is Map<String, dynamic> &&
+          manifest['archive'] == binary.archive &&
+          manifest['sha256'] == binary.sha256;
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _writeInstallManifest(
+    AcpBinaryDistribution binary,
+    Directory installDirectory,
+  ) {
+    return writePrivateFileAtomically(
+      _installManifestFor(installDirectory),
+      jsonEncode(<String, dynamic>{
+        'archive': binary.archive,
+        'sha256': binary.sha256,
+      }),
+    );
+  }
+
   Future<void> _installBinaryIfNeeded(
     AcpBinaryDistribution binary,
     Directory installDirectory, {
     AcpInstallStatusCallback? onStatus,
   }) async {
-    final commandPath = _resolveCommandPath(installDirectory, binary.command);
-    if (File(commandPath).existsSync()) {
+    if (_hasVerifiedInstall(binary, installDirectory)) {
       onStatus?.call('Binary already installed');
+      // Owner-only, like every directory an agent runs in.
+      await ensurePrivateDirectory(installDirectory);
       return;
     }
 
@@ -485,19 +509,23 @@ class AcpAgentLauncher {
       );
     }
 
-    final installBinary = _installBinary;
-    if (installBinary != null) {
-      onStatus?.call('Installing test binary');
-      await installDirectory.create(recursive: true);
-      await installBinary(binary, installDirectory);
-      return;
-    }
-
+    // The manifest goes first and comes back last, so an interrupted install
+    // is never trusted.
+    await _installManifestFor(installDirectory).deleteIfExists();
     if (installDirectory.existsSync()) {
       await installDirectory.delete(recursive: true);
     }
-    await installDirectory.create(recursive: true);
+    await ensurePrivateDirectory(installDirectory);
 
+    final installBinary = _installBinary;
+    if (installBinary != null) {
+      onStatus?.call('Installing test binary');
+      await installBinary(binary, installDirectory);
+      await _writeInstallManifest(binary, installDirectory);
+      return;
+    }
+
+    final commandPath = _resolveCommandPath(installDirectory, binary.command);
     final archiveFile = File(
       path.join(
         installDirectory.parent.path,
@@ -513,19 +541,23 @@ class AcpAgentLauncher {
       );
       onStatus?.call('Extracting archive');
       await _extractArchive(archiveFile, installDirectory);
+      // An archive entry for "." can change the directory's mode.
+      await ensurePrivateDirectory(installDirectory);
+
+      if (!Platform.isWindows && File(commandPath).existsSync()) {
+        onStatus?.call('Marking binary executable');
+        await Process.run('chmod', ['+x', commandPath]);
+      }
+      await _writeInstallManifest(binary, installDirectory);
     } on Object {
       // Never leave a partial install that a later launch would trust.
+      await _installManifestFor(installDirectory).deleteIfExists();
       if (installDirectory.existsSync()) {
         await installDirectory.delete(recursive: true);
       }
       rethrow;
     } finally {
       await archiveFile.deleteIfExists();
-    }
-
-    if (!Platform.isWindows && File(commandPath).existsSync()) {
-      onStatus?.call('Marking binary executable');
-      await Process.run('chmod', ['+x', commandPath]);
     }
   }
 
@@ -559,9 +591,8 @@ class AcpAgentLauncher {
       onStatus?.call(status);
     }
 
-    final response = await _dio.get<List<int>>(
+    final response = await _getOverHttps(
       url,
-      options: Options(responseType: ResponseType.bytes),
       onReceiveProgress: (received, total) {
         if (total <= 0) {
           updateDownloadStatus('Downloading ${_formatBytes(received)}');
@@ -580,14 +611,6 @@ class AcpAgentLauncher {
       throw AcpRegistryException('Failed to download ACP binary archive: $url');
     }
 
-    final finalUrl = response.realUri.toString();
-    if (!_isHttpsUrl(finalUrl)) {
-      throw AcpRegistryException(
-        'ACP binary archive download for $url was redirected to a non-HTTPS '
-        'URL ($finalUrl). The download was discarded.',
-      );
-    }
-
     final expected = binary.sha256;
     if (expected != null) {
       final actual = crypto.sha256.convert(bytes).toString();
@@ -603,10 +626,64 @@ class AcpAgentLauncher {
     await destination.writeAsBytes(bytes, flush: true);
   }
 
+  /// GETs [url], following up to [maxDownloadRedirects] redirects itself so
+  /// every hop, not just the last, must be HTTPS.
+  Future<Response<List<int>>> _getOverHttps(
+    String url, {
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    var current = Uri.parse(url);
+    for (var redirects = 0;; redirects++) {
+      final response = await _dio.getUri<List<int>>(
+        current,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+          validateStatus: (status) =>
+              status != null && status >= 200 && status < 400,
+        ),
+        onReceiveProgress: onReceiveProgress,
+      );
+      if (!_isRedirectStatus(response.statusCode)) return response;
+
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      if (location == null || location.isEmpty) {
+        throw AcpRegistryException(
+          'ACP binary archive download for $url was redirected without a '
+          'location. The download was discarded.',
+        );
+      }
+      final next = current.resolve(location);
+      if (!_isHttpsUrl(next.toString())) {
+        throw AcpRegistryException(
+          'ACP binary archive download for $url was redirected to a non-HTTPS '
+          'URL ($next). The download was discarded.',
+        );
+      }
+      if (redirects >= maxDownloadRedirects) {
+        throw AcpRegistryException(
+          'ACP binary archive download for $url was redirected more than '
+          '$maxDownloadRedirects times. The download was discarded.',
+        );
+      }
+      current = next;
+    }
+  }
+
+  static bool _isRedirectStatus(int? status) {
+    return status == 301 ||
+        status == 302 ||
+        status == 303 ||
+        status == 307 ||
+        status == 308;
+  }
+
   Future<void> _installNpmPackage(
     String packageSpec,
     Directory installDirectory,
   ) async {
+    // Run npm in the install directory too, never the user's current
+    // directory, which may be a repository with its own `.npmrc`.
     final result = await Process.run(
       'npm',
       <String>[
@@ -617,6 +694,7 @@ class AcpAgentLauncher {
         '--no-fund',
         packageSpec,
       ],
+      workingDirectory: installDirectory.path,
     );
 
     if (result.exitCode != 0) {
@@ -766,11 +844,13 @@ class AcpAgentLauncher {
     return '$os-$arch';
   }
 
+  /// Throws [UserHomeException] when the home directory is unknown, rather
+  /// than using agents, approvals or binaries the current repository could
+  /// supply.
   static Directory _defaultAgentCacheDirectory() {
-    final home = Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        Directory.current.path;
-    return Directory(path.join(home, '.gitwhisper', 'acp', 'agents'));
+    return Directory(
+      path.join(userHomeDirectory(), '.gitwhisper', 'acp', 'agents'),
+    );
   }
 }
 

@@ -31,6 +31,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        platformKey: 'darwin-aarch64',
         approvals: _autoApprove(temp),
         installBinary: (_, __) async => fail('npx should not install'),
       );
@@ -41,9 +42,16 @@ void main() {
         onStatus: statuses.add,
       );
 
+      final npmDirectory =
+          p.join(temp.path, 'codex-acp', '0.15.0', 'darwin-aarch64', 'npm');
       expect(command.executable, 'npx');
-      expect(command.arguments, ['-y', '@zed-industries/codex-acp@0.15.0']);
-      expect(command.workingDirectory, isNull);
+      expect(command.arguments, [
+        '--prefix',
+        npmDirectory,
+        '-y',
+        '@zed-industries/codex-acp@0.15.0',
+      ]);
+      expect(command.workingDirectory, npmDirectory);
       expect(statuses, ['Using npx package @zed-industries/codex-acp@0.15.0']);
     });
 
@@ -284,6 +292,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        platformKey: 'darwin-aarch64',
         approvals: _autoApprove(temp),
         installBinary: (_, __) async => fail('npx should not install'),
       );
@@ -299,9 +308,18 @@ void main() {
         ),
       );
 
+      final npmDirectory =
+          p.join(temp.path, 'auggie', '0.28.0', 'darwin-aarch64', 'npm');
       expect(command.executable, 'npx');
-      expect(command.arguments, ['-y', '@augmentcode/auggie@0.28.0', 'login']);
+      expect(command.arguments, [
+        '--prefix',
+        npmDirectory,
+        '-y',
+        '@augmentcode/auggie@0.28.0',
+        'login',
+      ]);
       expect(command.environment, containsPair('AUGMENT_ACP', '1'));
+      expect(command.workingDirectory, npmDirectory);
     });
 
     test('maps fallback auth commands through installed npm packages',
@@ -408,6 +426,162 @@ void main() {
         ),
       );
       expect(command.arguments, ['login']);
+    });
+  });
+
+  group('ACP agents never start in the repository', () {
+    late Directory temp;
+    late Directory cache;
+    late Directory repo;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('gitwhisper_acp_cwd_');
+      cache = Directory(p.join(temp.path, 'agents'));
+      // A cloned repository that tries to run code through npm: a .npmrc
+      // that preloads its own script, and a committed copy of the agent's
+      // package that npx would run instead of the registry's.
+      repo = await Directory(p.join(temp.path, 'repo')).create();
+      File(p.join(repo.path, '.npmrc'))
+          .writeAsStringSync('node-options=--require=./pwn.cjs\n');
+      File(p.join(repo.path, 'pwn.cjs'))
+          .writeAsStringSync('require("fs").writeFileSync("PWNED", "");\n');
+      await _writeFakeNpmPackage(
+        directory: repo,
+        packageName: '@zed-industries/codex-acp',
+        binName: 'codex-acp',
+      );
+    });
+
+    tearDown(() => temp.delete(recursive: true));
+
+    AcpAgentDefinition npxAgent() => const AcpAgentDefinition(
+          id: 'codex-acp',
+          name: 'Codex CLI',
+          version: '0.15.0',
+          npxPackage: '@zed-industries/codex-acp@0.15.0',
+        );
+
+    AcpAgentDefinition binaryAgent() => const AcpAgentDefinition(
+          id: 'cursor',
+          name: 'Cursor',
+          version: '2026.05.20',
+          binaryDistributions: <String, AcpBinaryDistribution>{
+            'darwin-aarch64': AcpBinaryDistribution(
+              archive: 'https://example.com/cursor.tar.gz',
+              command: './cursor-agent',
+              arguments: <String>['acp'],
+            ),
+          },
+        );
+
+    AcpAgentLauncher launcher() => AcpAgentLauncher(
+          cacheDirectory: cache,
+          platformKey: 'darwin-aarch64',
+          approvals: _autoApprove(cache),
+          installBinary: (_, directory) async {
+            await File(p.join(directory.path, 'cursor-agent'))
+                .writeAsString('fake');
+          },
+          installNpm: (_, directory) => _writeFakeNpmPackage(
+            directory: directory,
+            packageName: '@zed-industries/codex-acp',
+            binName: 'codex-acp',
+          ),
+        );
+
+    void expectAgentDirectory(AcpLaunchCommand command) {
+      final workingDirectory = command.workingDirectory;
+      expect(p.equals(workingDirectory, repo.path), isFalse);
+      expect(p.isWithin(repo.path, workingDirectory), isFalse);
+      expect(workingDirectory, isNot(contains(repo.path)));
+      expect(p.isWithin(cache.path, workingDirectory), isTrue);
+      expect(Directory(workingDirectory).existsSync(), isTrue);
+      if (!Platform.isWindows) {
+        expect(
+          Directory(workingDirectory).statSync().mode & 0x1FF,
+          0x1C0,
+          reason: '0700',
+        );
+      }
+    }
+
+    void expectNpxPrefix(AcpLaunchCommand command) {
+      expect(command.executable, 'npx');
+      expect(
+        command.arguments.take(2),
+        ['--prefix', command.workingDirectory],
+        reason: 'npx must not resolve .npmrc or node_modules from elsewhere',
+      );
+    }
+
+    test('npx runs from a private agent directory with --prefix', () async {
+      final command = await launcher().launchCommandFor(npxAgent());
+
+      expectAgentDirectory(command);
+      expectNpxPrefix(command);
+      expect(
+        command.arguments.skip(2),
+        ['-y', '@zed-industries/codex-acp@0.15.0'],
+      );
+    });
+
+    test('npx login commands run from the agent directory too', () async {
+      const method = AcpAuthMethod(
+        id: 'login',
+        name: 'Login',
+        description: 'Run `codex-acp login`.',
+        type: 'terminal',
+        args: <String>['login'],
+      );
+
+      final command = await launcher().authLaunchCommandFor(npxAgent(), method);
+
+      expectAgentDirectory(command);
+      expectNpxPrefix(command);
+    });
+
+    test('installed npm packages run from their install directory', () async {
+      final agentLauncher = launcher();
+      await agentLauncher.install(npxAgent());
+
+      final command = await agentLauncher.launchCommandFor(npxAgent());
+
+      expect(command.executable, isNot('npx'));
+      expectAgentDirectory(command);
+    });
+
+    test('binaries and every login command run from the agent directory',
+        () async {
+      final agentLauncher = launcher();
+
+      expectAgentDirectory(await agentLauncher.launchCommandFor(binaryAgent()));
+      expectAgentDirectory(
+        await agentLauncher.authLaunchCommandFor(
+          binaryAgent(),
+          const AcpAuthMethod(
+            id: 'login',
+            name: 'Login',
+            description: 'Log in.',
+            type: 'terminal',
+            args: <String>['login'],
+          ),
+        ),
+      );
+
+      // A login command taken from the agent's error text that is not the
+      // agent's own binary.
+      final fallback = await agentLauncher.authLaunchCommandFor(
+        binaryAgent(),
+        const AcpAuthMethod(
+          id: 'login',
+          name: 'Login',
+          description: 'Run `other-login now`.',
+          type: 'terminal',
+          command: <String>['other-login', 'now'],
+        ),
+      );
+      expect(fallback.executable, 'other-login');
+      expectAgentDirectory(fallback);
     });
   });
 
@@ -736,7 +910,194 @@ void main() {
       },
       skip: Platform.isWindows ? 'uses tar' : null,
     );
+
+    test(
+      'reinstalls a cached binary that has no install manifest',
+      () async {
+        // GitWhisper 1.0.8 and earlier cached binaries without checking the
+        // sha256 and wrote no manifest.
+        final agents = p.join(temp.path, 'agents');
+        final installDir = Directory(
+          p.join(agents, 'binary-agent', '1.0.0', 'darwin-aarch64'),
+        );
+        await installDir.create(recursive: true);
+        File(p.join(installDir.path, 'agent')).writeAsStringSync('STALE');
+
+        final archive = await _tarGzWith(temp, 'agent', '#!/bin/sh\n# NEW\n');
+        final agent = binaryAgent(
+          sha256: crypto.sha256.convert(archive).toString(),
+        );
+        final adapter = _ArchiveAdapter(archive);
+        final dio = Dio()..httpClientAdapter = adapter;
+
+        expect(
+          launcher(dio: dio).describeLaunchSupport(agent),
+          'binary available for darwin-aarch64',
+        );
+        final command = await launcher(dio: dio).launchCommandFor(agent);
+
+        expect(adapter.calls, 1);
+        expect(File(command.executable).readAsStringSync(), contains('NEW'));
+        final manifest = File('${installDir.path}.install.json');
+        expect(
+          jsonDecode(manifest.readAsStringSync()),
+          <String, dynamic>{
+            'archive': 'https://example.com/agent.tar.gz',
+            'sha256': agent.binaryDistributions['darwin-aarch64']!.sha256,
+          },
+        );
+
+        // A verified install is reused without downloading again.
+        await launcher(dio: dio).launchCommandFor(agent);
+        expect(adapter.calls, 1);
+        expect(
+          launcher(dio: dio).describeLaunchSupport(agent),
+          'binary installed for darwin-aarch64',
+        );
+      },
+      skip: Platform.isWindows ? 'uses tar' : null,
+    );
+
+    test(
+      'reinstalls when the registry publishes a different archive',
+      () async {
+        final first = await _tarGzWith(temp, 'agent', '#!/bin/sh\n# FIRST\n');
+        final firstAgent =
+            binaryAgent(sha256: crypto.sha256.convert(first).toString());
+        await launcher(dio: Dio()..httpClientAdapter = _ArchiveAdapter(first))
+            .launchCommandFor(firstAgent);
+
+        final second = await _tarGzWith(temp, 'agent', '#!/bin/sh\n# NEXT\n');
+        final secondAgent =
+            binaryAgent(sha256: crypto.sha256.convert(second).toString());
+        final adapter = _ArchiveAdapter(second);
+        final command = await launcher(
+          dio: Dio()..httpClientAdapter = adapter,
+        ).launchCommandFor(secondAgent);
+
+        expect(adapter.calls, 1);
+        expect(File(command.executable).readAsStringSync(), contains('NEXT'));
+      },
+      skip: Platform.isWindows ? 'uses tar' : null,
+    );
+
+    test(
+      'follows HTTPS redirects itself',
+      () async {
+        final archive = await _tarGzWith(temp, 'agent', '#!/bin/sh\n');
+        final adapter = _RoutingAdapter(<String, ResponseBody Function()>{
+          'https://example.com/agent.tar.gz': () =>
+              _redirectTo('https://cdn.example.com/agent.tar.gz'),
+          'https://cdn.example.com/agent.tar.gz': () =>
+              _redirectTo('/v1/agent.tar.gz', status: 307),
+          'https://cdn.example.com/v1/agent.tar.gz': () =>
+              ResponseBody.fromBytes(Uint8List.fromList(archive), 200),
+        });
+
+        final command = await launcher(
+          dio: Dio()..httpClientAdapter = adapter,
+        ).launchCommandFor(
+          binaryAgent(sha256: crypto.sha256.convert(archive).toString()),
+        );
+
+        expect(File(command.executable).existsSync(), isTrue);
+        expect(adapter.requested, [
+          'https://example.com/agent.tar.gz',
+          'https://cdn.example.com/agent.tar.gz',
+          'https://cdn.example.com/v1/agent.tar.gz',
+        ]);
+        expect(adapter.followRedirects, everyElement(isFalse));
+      },
+      skip: Platform.isWindows ? 'uses tar' : null,
+    );
+
+    test('rejects a redirect to HTTP at any hop, before requesting it',
+        () async {
+      final adapter = _RoutingAdapter(<String, ResponseBody Function()>{
+        'https://example.com/agent.tar.gz': () =>
+            _redirectTo('https://mirror.example.com/agent.tar.gz', status: 301),
+        'https://mirror.example.com/agent.tar.gz': () =>
+            _redirectTo('http://evil.example.com/agent.tar.gz'),
+      });
+      final agent = binaryAgent(sha256: 'a' * 64);
+
+      await expectLater(
+        launcher(dio: Dio()..httpClientAdapter = adapter)
+            .launchCommandFor(agent),
+        throwsA(
+          isA<AcpRegistryException>().having(
+            (error) => error.message,
+            'message',
+            contains('non-HTTPS URL (http://evil.example.com/agent.tar.gz)'),
+          ),
+        ),
+      );
+      expect(adapter.requested, hasLength(2));
+      expect(
+        launcher().describeLaunchSupport(agent),
+        'binary available for darwin-aarch64',
+      );
+    });
+
+    test('gives up after too many redirects', () async {
+      final adapter = _RoutingAdapter(<String, ResponseBody Function()>{
+        'https://example.com/agent.tar.gz': () =>
+            _redirectTo('https://example.com/agent.tar.gz'),
+      });
+
+      await expectLater(
+        launcher(dio: Dio()..httpClientAdapter = adapter)
+            .launchCommandFor(binaryAgent(sha256: 'a' * 64)),
+        throwsA(
+          isA<AcpRegistryException>().having(
+            (error) => error.message,
+            'message',
+            contains('redirected more than'),
+          ),
+        ),
+      );
+      expect(
+        adapter.requested,
+        hasLength(AcpAgentLauncher.maxDownloadRedirects + 1),
+      );
+    });
   });
+}
+
+ResponseBody _redirectTo(String location, {int status = 302}) {
+  return ResponseBody.fromBytes(
+    Uint8List(0),
+    status,
+    headers: <String, List<String>>{
+      HttpHeaders.locationHeader: <String>[location],
+    },
+  );
+}
+
+/// Serves fixed responses by URL and records every request.
+class _RoutingAdapter implements HttpClientAdapter {
+  _RoutingAdapter(this.routes);
+
+  final Map<String, ResponseBody Function()> routes;
+  final requested = <String>[];
+  final followRedirects = <bool>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final url = options.uri.toString();
+    requested.add(url);
+    followRedirects.add(options.followRedirects);
+    final route = routes[url];
+    if (route == null) return ResponseBody.fromString('not found', 404);
+    return route();
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// Approvals stored in [cacheDirectory] that approve every agent.

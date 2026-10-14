@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
+import '../user_home.dart';
+
 const acpRegistryUrl =
     'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json';
 const acpSupportIssueUrl = 'https://github.com/iamngoni/gitwhisper/issues/new';
@@ -75,23 +77,6 @@ class AcpAgentDefinition {
   bool get isSupportedCommitAgent {
     return !AcpRegistry.unsupportedCommitAgentIds.contains(id);
   }
-
-  AcpLaunchCommand toLaunchCommand() {
-    final package = npxPackage;
-    if (package == null || package.isEmpty) {
-      throw AcpRegistryException(
-        'ACP agent "$id" does not have an npx distribution GitWhisper can '
-        'launch yet. File an issue if you want this agent supported: '
-        '$acpSupportIssueUrl',
-      );
-    }
-
-    return AcpLaunchCommand(
-      executable: 'npx',
-      arguments: <String>['-y', package, ...npxArgs],
-      environment: npxEnv,
-    );
-  }
 }
 
 class AcpBinaryDistribution {
@@ -141,14 +126,20 @@ class AcpLaunchCommand {
   const AcpLaunchCommand({
     required this.executable,
     required this.arguments,
+    required this.workingDirectory,
     this.environment = const <String, String>{},
-    this.workingDirectory,
   });
 
   final String executable;
   final List<String> arguments;
   final Map<String, String> environment;
-  final String? workingDirectory;
+
+  /// Directory the agent process starts in: a GitWhisper-owned directory in
+  /// the agent cache, never the repository. npm and node load config and
+  /// packages from the process directory (`.npmrc`, `node_modules`), so a
+  /// repository there could run code. Agents receive the repository through
+  /// the ACP session instead.
+  final String workingDirectory;
 }
 
 class AcpRegistry {
@@ -334,10 +325,14 @@ class AcpRegistryLoader {
     this.registryUrl = acpRegistryUrl,
     this.cacheTtl = const Duration(hours: 6),
   })  : _dio = dio ?? Dio(),
-        _cacheFile = cacheFile ?? _defaultCacheFile();
+        _cacheFileOverride = cacheFile;
 
   final Dio _dio;
-  final File _cacheFile;
+  final File? _cacheFileOverride;
+
+  /// Resolved on first use, so creating a loader never needs a home
+  /// directory (`gw` builds one for `gw acp` at startup).
+  late final File _cacheFile = _cacheFileOverride ?? _defaultCacheFile();
   final String registryUrl;
 
   /// How long a cached registry is considered fresh before a network refresh
@@ -395,12 +390,11 @@ class AcpRegistryLoader {
     return AcpRegistry.fromJson(jsonDecode(body) as Map<String, dynamic>);
   }
 
+  /// Throws [UserHomeException] when the home directory is unknown, rather
+  /// than reading a registry the current repository could supply.
   static File _defaultCacheFile() {
-    final home = Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        Directory.current.path;
     return File(
-      path.join(home, '.gitwhisper', 'acp', 'registry.json'),
+      path.join(userHomeDirectory(), '.gitwhisper', 'acp', 'registry.json'),
     );
   }
 }

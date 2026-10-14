@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'package:gitwhisper/src/acp/acp_consent.dart';
 import 'package:gitwhisper/src/acp/acp_launcher.dart';
 import 'package:gitwhisper/src/acp/acp_registry.dart';
+import 'package:gitwhisper/src/acp/acp_repo_trust.dart';
 import 'package:gitwhisper/src/commands/acp_command.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
@@ -176,18 +177,131 @@ void main() {
 
     expect(exitCode, ExitCode.success.code);
   });
+
+  test('acp trust trusts the repository and acp untrust removes it', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+    final repo = Directory(
+      p.join(fixture.root.resolveSymbolicLinksSync(), 'repo'),
+    );
+    Directory(p.join(repo.path, '.git')).createSync(recursive: true);
+    Directory(p.join(repo.path, '.claude')).createSync();
+    final subdirectory = Directory(p.join(repo.path, 'src'))..createSync();
+    bool isTrusted() =>
+        AcpTrustedRepos(file: fixture.trustFile).isTrusted(repo.path);
+
+    expect(
+      await fixture.runner.run(<String>['acp', 'trust', subdirectory.path]),
+      ExitCode.success.code,
+    );
+    expect(isTrusted(), isTrue, reason: 'trust covers the whole repository');
+
+    expect(
+      await fixture.runner.run(<String>['acp', 'untrust', repo.path]),
+      ExitCode.success.code,
+    );
+    expect(isTrusted(), isFalse);
+  });
+
+  test('acp trust rejects a path that is not a directory', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'trust',
+      p.join(fixture.root.path, 'missing'),
+    ]);
+
+    expect(exitCode, ExitCode.usage.code);
+    expect(fixture.trustFile.existsSync(), isFalse);
+  });
+
+  test(
+    'reports a missing home directory instead of using the current one',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('gitwhisper_no_home_');
+      addTearDown(() => temp.delete(recursive: true));
+      final script = File(p.join(temp.path, 'no_home.dart'))
+        ..writeAsStringSync(_noHomeScript);
+      final cwd = await Directory(p.join(temp.path, 'repo')).create();
+      final packageConfig =
+          p.join(Directory.current.path, '.dart_tool', 'package_config.json');
+
+      final result = await Process.run(
+        Platform.resolvedExecutable,
+        <String>['--packages=$packageConfig', script.path],
+        workingDirectory: cwd.path,
+        environment: <String, String>{'HOME': '', 'USERPROFILE': ''},
+      );
+
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      expect(LineSplitter.split(result.stdout as String), <String>[
+        'acp cache path: ${ExitCode.config.code}',
+        'registry: no home',
+        'agents: no home',
+        'logs: no home',
+        'trust: no home',
+      ]);
+      expect(
+        result.stderr,
+        contains('Could not determine your home directory'),
+      );
+      expect(
+        cwd.listSync(),
+        isEmpty,
+        reason: 'nothing is read from or written to the current directory',
+      );
+    },
+    skip: Platform.isWindows ? 'POSIX HOME only' : null,
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
+
+/// Builds `gw acp` and every ACP default with no home directory, then runs
+/// `gw acp cache path`.
+const _noHomeScript = r'''
+import 'package:args/command_runner.dart';
+import 'package:gitwhisper/src/acp/acp_debug_log.dart';
+import 'package:gitwhisper/src/acp/acp_launcher.dart';
+import 'package:gitwhisper/src/acp/acp_registry.dart';
+import 'package:gitwhisper/src/acp/acp_repo_trust.dart';
+import 'package:gitwhisper/src/commands/acp_command.dart';
+import 'package:gitwhisper/src/user_home.dart';
+import 'package:mason_logger/mason_logger.dart';
+
+Future<void> main() async {
+  final runner = CommandRunner<int>('gw', 'test')
+    ..addCommand(AcpCommand(logger: Logger()));
+  print('acp cache path: ${await runner.run(['acp', 'cache', 'path'])}');
+
+  void check(String name, Object Function() resolve) {
+    try {
+      print('$name: ${resolve()}');
+    } on UserHomeException {
+      print('$name: no home');
+    }
+  }
+
+  check('registry', () => AcpRegistryLoader().cacheFile.path);
+  check('agents', () => AcpAgentLauncher().cacheDirectory.path);
+  check('logs', () => AcpDebugLogs().directory.path);
+  check('trust', () => AcpTrustedRepos().file.path);
+}
+''';
 
 class AcpCommandFixture {
   AcpCommandFixture._({
     required this.root,
     required this.agentCache,
+    required this.trustFile,
     required this.runner,
     required this.launcher,
   });
 
   final Directory root;
   final Directory agentCache;
+  final File trustFile;
   final CommandRunner<int> runner;
   final AcpAgentLauncher launcher;
 
@@ -253,6 +367,7 @@ class AcpCommandFixture {
       },
     );
 
+    final trustFile = File(p.join(temp.path, 'trusted-repos.json'));
     final runner = CommandRunner<int>('gitwhisper_test', 'test')
       ..addCommand(
         AcpCommand(
@@ -262,12 +377,14 @@ class AcpCommandFixture {
             cacheFile: registryFile,
           ),
           agentLauncher: launcher,
+          trustedRepos: AcpTrustedRepos(file: trustFile),
         ),
       );
 
     return AcpCommandFixture._(
       root: temp,
       agentCache: agentCache,
+      trustFile: trustFile,
       runner: runner,
       launcher: launcher,
     );
