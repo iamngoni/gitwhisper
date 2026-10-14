@@ -51,6 +51,75 @@ void main() {
     });
   });
 
+  group('GitUtils from a subdirectory', () {
+    late Directory repo;
+    late String subdirectory;
+
+    Future<void> git(List<String> args) async {
+      final result =
+          await Process.run('git', args, workingDirectory: repo.path);
+      if (result.exitCode != 0) {
+        throw StateError('git ${args.join(' ')} failed: ${result.stderr}');
+      }
+    }
+
+    setUp(() async {
+      repo = await Directory.systemTemp.createTemp('gitwhisper_subdir_');
+      await git(['init', '-q']);
+      subdirectory = path.join(repo.path, 'sub');
+      Directory(subdirectory).createSync();
+    });
+
+    tearDown(() async {
+      if (repo.existsSync()) await repo.delete(recursive: true);
+    });
+
+    String canonical(String p) => Directory(p).resolveSymbolicLinksSync();
+
+    test('getRepositoryRoot returns the top of the work tree', () async {
+      final root = await GitUtils.getRepositoryRoot(folderPath: subdirectory);
+      expect(canonical(root!), canonical(repo.path));
+    });
+
+    test('stageAllUnstagedFilesAndCount stages the whole repository', () async {
+      File(path.join(repo.path, 'root.txt')).writeAsStringSync('root\n');
+      File(path.join(subdirectory, 'sub.txt')).writeAsStringSync('sub\n');
+
+      final staged = await GitUtils.stageAllUnstagedFilesAndCount(
+        folderPath: subdirectory,
+      );
+
+      expect(staged, 2);
+    });
+
+    test('getLargeFiles resolves staged paths against the root', () async {
+      File(path.join(repo.path, 'big.bin')).writeAsStringSync('x' * 64);
+      File(path.join(repo.path, 'café.bin')).writeAsStringSync('y' * 64);
+      File(path.join(repo.path, 'small.txt')).writeAsStringSync('s');
+      await git(['add', '-A']);
+
+      final largeFiles = await GitUtils.getLargeFiles(
+        16,
+        folderPath: subdirectory,
+      );
+
+      expect(
+        largeFiles.map((file) => file.$1),
+        unorderedEquals(['big.bin', 'café.bin']),
+      );
+    });
+
+    test('addToGitignore writes the root .gitignore', () async {
+      await GitUtils.addToGitignore('assets/big.bin', folderPath: subdirectory);
+
+      expect(
+        File(path.join(repo.path, '.gitignore')).readAsStringSync(),
+        'assets/big.bin\n',
+      );
+      expect(File(path.join(subdirectory, '.gitignore')).existsSync(), isFalse);
+    });
+  });
+
   group('GitUtils.editorCommand', () {
     const tempFile = r'C:\Users\Jane Doe\AppData\Local\Temp\GITWHISPER_MSG';
 

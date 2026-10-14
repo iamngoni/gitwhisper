@@ -144,8 +144,17 @@ class CommitCommand extends Command<int> {
 
     List<String>? subGitRepos;
 
+    // The top of the work tree in single-repo mode. Every step runs there, so
+    // staging, file paths and .gitignore cover the whole repository even when
+    // gw is started from a subdirectory.
+    String? repoRoot;
+
     // Check if we're in a git repository
-    if (!await GitUtils.isGitRepository(folderPath: workingDirectory)) {
+    if (await GitUtils.isGitRepository(folderPath: workingDirectory)) {
+      repoRoot =
+          await GitUtils.getRepositoryRoot(folderPath: workingDirectory) ??
+              workingDirectory;
+    } else {
       _logger.warn('Not a git repository. Checking subfolders...');
 
       subGitRepos = await GitUtils.findGitReposInSubfolders(
@@ -179,7 +188,7 @@ class CommitCommand extends Command<int> {
     // staging would mark conflicted files resolved, markers and all.
     final List<String> conflictedRepos = [];
     if (!hasSubGitRepos) {
-      if (await _reportUnmergedFiles(workingDirectory)) {
+      if (await _reportUnmergedFiles(repoRoot)) {
         return ExitCode.usage.code;
       }
     } else {
@@ -194,7 +203,7 @@ class CommitCommand extends Command<int> {
     }
 
     final bool hasStagedChanges = !hasSubGitRepos
-        ? await GitUtils.hasStagedChanges(folderPath: workingDirectory)
+        ? await GitUtils.hasStagedChanges(folderPath: repoRoot)
         : (await GitUtils.foldersWithStagedChanges(subGitRepos)).isNotEmpty;
 
     // Check if there are staged changes
@@ -203,12 +212,12 @@ class CommitCommand extends Command<int> {
       if (configManager.shouldAlwaysAdd()) {
         // Check for unstaged changes or untracked files
         final hasUnstagedChanges = !hasSubGitRepos
-            ? await GitUtils.hasUnstagedChanges(folderPath: workingDirectory)
+            ? await GitUtils.hasUnstagedChanges(folderPath: repoRoot)
             : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
                 .isNotEmpty;
 
         final hasUntrackedFiles = !hasSubGitRepos
-            ? await GitUtils.hasUntrackedFiles(folderPath: workingDirectory)
+            ? await GitUtils.hasUntrackedFiles(folderPath: repoRoot)
             : (await GitUtils.foldersWithUntrackedFiles(subGitRepos))
                 .isNotEmpty;
 
@@ -220,7 +229,7 @@ class CommitCommand extends Command<int> {
           if (!hasSubGitRepos) {
             final int stagedFiles =
                 await GitUtils.stageAllUnstagedFilesAndCount(
-              folderPath: workingDirectory,
+              folderPath: repoRoot,
             );
             _logger.success('$stagedFiles files have been staged.');
           } else {
@@ -244,12 +253,12 @@ class CommitCommand extends Command<int> {
       } else {
         // Check for unstaged or untracked changes
         final hasUnstagedChanges = !hasSubGitRepos
-            ? await GitUtils.hasUnstagedChanges(folderPath: workingDirectory)
+            ? await GitUtils.hasUnstagedChanges(folderPath: repoRoot)
             : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
                 .isNotEmpty;
 
         final hasUntrackedFiles = !hasSubGitRepos
-            ? await GitUtils.hasUntrackedFiles(folderPath: workingDirectory)
+            ? await GitUtils.hasUntrackedFiles(folderPath: repoRoot)
             : (await GitUtils.foldersWithUntrackedFiles(subGitRepos))
                 .isNotEmpty;
 
@@ -265,7 +274,7 @@ class CommitCommand extends Command<int> {
             if (!hasSubGitRepos) {
               final int stagedFiles =
                   await GitUtils.stageAllUnstagedFilesAndCount(
-                folderPath: workingDirectory,
+                folderPath: repoRoot,
               );
               _logger.success('$stagedFiles files have been staged.');
             } else {
@@ -377,7 +386,7 @@ class CommitCommand extends Command<int> {
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
       final outcome = await _commitRepository(
-        folderPath: workingDirectory,
+        folderPath: repoRoot,
         model: model,
         options: options,
         configManager: configManager,

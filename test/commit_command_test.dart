@@ -325,7 +325,7 @@ void main() {
       });
 
       expect(exit, ExitCode.success.code);
-      expect(editedIn, repo.path);
+      expect(_canonical(editedIn!), _canonical(repo.path));
       expect(await _lastSubject(repo), 'feat: Edited by hand');
     });
 
@@ -500,6 +500,91 @@ void main() {
         logger.successes,
         contains('[one] Pushed to backup/main successfully! 🎉'),
       );
+    });
+  });
+
+  group('commit from a subdirectory', () {
+    late Directory repo;
+    late String subdirectory;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'root.txt', 'root\n');
+      await _stageFile(repo, 'sub/keep.txt', 'keep\n');
+      await _gitOk(['commit', '-q', '-m', 'files'], repo.path);
+      subdirectory = p.join(repo.path, 'sub');
+    });
+
+    test('stages changes outside the subdirectory', () async {
+      File(p.join(repo.path, 'root.txt')).writeAsStringSync('changed\n');
+      File(p.join(repo.path, 'new.txt')).writeAsStringSync('new\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Update root files'),
+        workingDirectory: subdirectory,
+        logger: _ScriptedLogger(answers: ['yes']),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(
+        await _gitOk(['show', '--name-only', '--pretty=', 'HEAD'], repo.path),
+        'new.txt\nroot.txt',
+      );
+    });
+
+    test('checks large files staged outside the subdirectory', () async {
+      await _stageFile(repo, 'big.bin', 'x' * 64);
+      final logger = _ScriptedLogger(answers: ['Cancel commit']);
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add big file'),
+        workingDirectory: subdirectory,
+        logger: logger,
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+
+      expect(exit, CommitCommand.cancelledExitCode.code);
+      expect(logger.warnings.join('\n'), contains('big.bin'));
+    });
+
+    test('adds large files to the top-level .gitignore', () async {
+      await _stageFile(repo, 'assets/big.bin', 'x' * 64);
+      await _stageFile(repo, 'small.txt', 'small\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add small file'),
+        workingDirectory: subdirectory,
+        logger: _ScriptedLogger(answers: ['Add to .gitignore and unstage']),
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(
+        File(p.join(repo.path, '.gitignore')).readAsStringSync(),
+        'assets/big.bin\n',
+      );
+      expect(File(p.join(subdirectory, '.gitignore')).existsSync(), isFalse);
+      expect(
+        await _gitOk(['show', '--name-only', '--pretty=', 'HEAD'], repo.path),
+        'small.txt',
+      );
+    });
+
+    test('gives agent tools the repository root', () async {
+      final fake = _FakeGenerator('feat: Add a');
+      await _stageFile(repo, 'a.txt', 'a\n');
+
+      await _runCommit(
+        ['--model', 'codex', '--dry-run'],
+        fake,
+        workingDirectory: subdirectory,
+      );
+
+      final toolsFolder = fake.agentRequests.single.tools.folderPath;
+      expect(_canonical(toolsFolder!), _canonical(repo.path));
     });
   });
 
@@ -797,6 +882,10 @@ Future<void> _stageFile(Directory repo, String name, String content) async {
   file.writeAsStringSync(content);
   await _gitOk(['add', '--', name], repo.path);
 }
+
+/// [path] with symlinks resolved; git reports /private/var on macOS where
+/// Directory.systemTemp says /var.
+String _canonical(String path) => Directory(path).resolveSymbolicLinksSync();
 
 /// Creates an empty bare repository in the sandbox to push to.
 Future<Directory> _createBareRemote(Directory parent, String name) async {

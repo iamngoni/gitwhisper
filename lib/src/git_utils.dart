@@ -191,6 +191,23 @@ class GitUtils {
     return result;
   }
 
+  /// Returns the top-level directory of the work tree containing [folderPath]
+  /// (or the current directory), or null outside a work tree.
+  static Future<String?> getRepositoryRoot({String? folderPath}) {
+    return _gitValue(
+      ['rev-parse', '--show-toplevel'],
+      folderPath: folderPath,
+    );
+  }
+
+  /// The work tree root for [folderPath], falling back to [folderPath] (or
+  /// the current directory) when git cannot tell.
+  static Future<String> _workTreeRoot(String? folderPath) async {
+    return await getRepositoryRoot(folderPath: folderPath) ??
+        folderPath ??
+        Directory.current.path;
+  }
+
   /// Check if the current directory (or [folderPath]) is a Git repository
   static Future<bool> isGitRepository({String? folderPath}) async {
     final result = await Process.run(
@@ -386,10 +403,11 @@ class GitUtils {
         .where((f) => f.isNotEmpty)
         .toSet();
 
-    // Stage all changes (including new files)
+    // Stage all changes (including new files and deletions) in the whole
+    // repository. `git add .` would only cover the current subdirectory.
     final addResult = await Process.run(
       'git',
-      ['add', '.'],
+      ['add', '-A'],
       workingDirectory: folderPath,
     );
     if (addResult.exitCode != 0) {
@@ -760,11 +778,13 @@ class GitUtils {
     int thresholdBytes, {
     String? folderPath,
   }) async {
-    // Get list of staged files
+    // Staged paths are relative to the repository root, not to folderPath,
+    // and -z keeps git from quoting non-ASCII names.
+    final root = await _workTreeRoot(folderPath);
     final result = await Process.run(
       'git',
-      ['diff', '--cached', '--name-only'],
-      workingDirectory: folderPath,
+      ['diff', '--cached', '--name-only', '-z'],
+      workingDirectory: root,
     );
 
     if (result.exitCode != 0) {
@@ -772,16 +792,14 @@ class GitUtils {
     }
 
     final files = (result.stdout as String)
-        .trim()
-        .split('\n')
+        .split('\x00')
         .where((f) => f.isNotEmpty)
         .toList();
 
     final largeFiles = <(String, int)>[];
-    final workDir = folderPath ?? Directory.current.path;
 
     for (final filePath in files) {
-      final fullPath = path.join(workDir, filePath);
+      final fullPath = path.join(root, filePath);
       final file = File(fullPath);
 
       if (await file.exists()) {
@@ -797,6 +815,9 @@ class GitUtils {
 
   /// Checks if a file exists in the remote repository history
   /// Returns true if the file has been pushed before
+  ///
+  /// [filePath] is relative to the repository root, as [getLargeFiles]
+  /// returns it.
   static Future<bool> isFileInRemoteHistory(
     String filePath, {
     String? folderPath,
@@ -804,8 +825,8 @@ class GitUtils {
     // Check if file exists in any remote tracking branch
     final result = await Process.run(
       'git',
-      ['log', '--oneline', '--remotes', '--', filePath],
-      workingDirectory: folderPath,
+      ['--literal-pathspecs', 'log', '--oneline', '--remotes', '--', filePath],
+      workingDirectory: await _workTreeRoot(folderPath),
     );
 
     if (result.exitCode != 0) {
@@ -816,13 +837,16 @@ class GitUtils {
     return (result.stdout as String).trim().isNotEmpty;
   }
 
-  /// Appends a path to .gitignore
+  /// Appends a path to the repository's top-level .gitignore
+  ///
+  /// [filePath] is relative to the repository root, so it is written to the
+  /// root .gitignore even when [folderPath] is a subdirectory.
   static Future<void> addToGitignore(
     String filePath, {
     String? folderPath,
   }) async {
-    final workDir = folderPath ?? Directory.current.path;
-    final gitignorePath = path.join(workDir, '.gitignore');
+    final root = await _workTreeRoot(folderPath);
+    final gitignorePath = path.join(root, '.gitignore');
     final gitignoreFile = File(gitignorePath);
 
     String content = '';
@@ -838,7 +862,7 @@ class GitUtils {
 
     // Append to gitignore
     final newContent = content.isEmpty
-        ? filePath
+        ? '$filePath\n'
         : content.endsWith('\n')
             ? '$content$filePath\n'
             : '$content\n$filePath\n';
@@ -846,12 +870,12 @@ class GitUtils {
     await gitignoreFile.writeAsString(newContent);
   }
 
-  /// Unstages a specific file
+  /// Unstages a specific file, given relative to the repository root
   static Future<void> unstageFile(String filePath, {String? folderPath}) async {
     final result = await Process.run(
       'git',
-      ['reset', 'HEAD', filePath],
-      workingDirectory: folderPath,
+      ['--literal-pathspecs', 'reset', 'HEAD', '--', filePath],
+      workingDirectory: await _workTreeRoot(folderPath),
     );
 
     if (result.exitCode != 0) {
