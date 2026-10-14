@@ -1,3 +1,12 @@
+## 1.0.10
+
+### Security
+- On Linux, GitWhisper's private files (the config file with your API keys, refreshed Claude Code and Codex credentials, and ACP trust and consent records) are staged in a directory that is made owner-only (0700) before anything is written in it. 1.0.9 left that directory at the umask default (usually 0755), so another local user could open a new file in the moment before it was restricted to 0600 and read what was written to it afterwards. Private directories for ACP agents are also restricted before they are moved into place.
+- The commit message editor's temp directory is owner-only on Linux too.
+
+### Fixed
+- The version-verify test allows up to 5 minutes, since build_runner's first compile can take longer than 30 seconds on a fresh CI runner.
+
 ## 1.0.9
 
 ### Security
