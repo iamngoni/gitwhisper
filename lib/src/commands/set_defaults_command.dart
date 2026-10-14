@@ -87,7 +87,6 @@ class SetDefaultsCommand extends Command<int> {
         'grok',
         'llama',
         'deepseek',
-        'github',
         'ollama',
       ],
       defaultValue: 'openai',

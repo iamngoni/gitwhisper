@@ -130,7 +130,6 @@ class CommitCommand extends Command<int> {
     'grok',
     'llama',
     'deepseek',
-    'github',
     'ollama',
   ];
 
@@ -529,7 +528,7 @@ class CommitCommand extends Command<int> {
               ? '${label}Error: Agent did not return a valid commit message.'
               : '${label}Error: Generated commit message is empty!',
         );
-        _logAcpDebugPath();
+        _logAcpDebugPath(model);
         return _RepoOutcome.failed;
       }
 
@@ -766,7 +765,7 @@ class CommitCommand extends Command<int> {
       'codex' => 'Codex',
       'gemini' => 'Gemini',
       'grok' => 'Grok',
-      'llama' => 'Llama',
+      'llama' => 'Meta Model API',
       'deepseek' => 'DeepSeek',
       'github' => 'GitHub Models',
       'ollama' => 'Ollama',
@@ -930,10 +929,15 @@ class CommitCommand extends Command<int> {
     _logger.info(_agentToolFormatter.format(toolUse));
   }
 
-  void _logAcpDebugPath() {
+  void _logAcpDebugPath(_ModelChoice model) {
     final logPath = AcpDebugLog.lastLogPath;
-    if (logPath == null || logPath.isEmpty) return;
-    _logger.info('ACP debug log: $logPath');
+    if (logPath != null && logPath.isNotEmpty) {
+      _logger.info('ACP debug log: $logPath');
+    } else if (model.generator is AcpLocalAgentGenerator) {
+      _logger.info(
+        'Set GITWHISPER_ACP_DEBUG=1 to write a redacted ACP debug log.',
+      );
+    }
   }
 
   /// Handles the confirmation workflow for commit messages

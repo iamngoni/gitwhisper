@@ -29,7 +29,6 @@ class SaveKeyCommand extends Command<int> {
           'grok',
           'llama',
           'deepseek',
-          'github',
           'ollama',
         ],
         allowedHelp: {
@@ -37,9 +36,8 @@ class SaveKeyCommand extends Command<int> {
           'openai': 'OpenAI GPT models',
           'gemini': 'Google Gemini',
           'grok': 'xAI Grok',
-          'llama': 'Meta Llama',
+          'llama': 'Meta Model API',
           'deepseek': 'DeepSeek, Inc.',
-          'github': 'Github',
           'ollama': 'Ollama',
         },
       )
@@ -74,7 +72,6 @@ class SaveKeyCommand extends Command<int> {
         'grok',
         'llama',
         'deepseek',
-        'github',
         'ollama',
       ],
       defaultValue: 'openai',
