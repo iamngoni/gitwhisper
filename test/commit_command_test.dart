@@ -281,6 +281,115 @@ void main() {
     });
   });
 
+  group('commit file-by-file summaries', () {
+    late Directory repo;
+
+    setUpAll(() {
+      // See 'commit API errors'.
+      expect($logger.level, isNotNull);
+    });
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+      await _stageFile(repo, 'b.txt', 'b\nb\n');
+      await _stageFile(repo, 'c.txt', 'c\nc\nc\n');
+    });
+
+    Future<(int, String)> summarise(_FakeGenerator fake) {
+      return _captureOutput(
+        () => _runCommit(
+          ['--model', 'codex', '--no-agent'],
+          fake,
+          workingDirectory: repo.path,
+          config: _TestConfigManager(maxDiffSize: 10),
+        ),
+      );
+    }
+
+    for (final error in <Exception>[
+      const AuthenticationException(message: 'invalid key'),
+      const PermissionException(message: 'no access'),
+      const InsufficientBalanceException(message: 'no credit'),
+      const RateLimitException(message: 'slow down'),
+      const ProviderRetiredException(message: 'retired'),
+      const ServerException(message: 'unreachable', statusCode: 503),
+      const ResourceNotFoundException(message: 'no such model'),
+    ]) {
+      test('stops at the first file on ${error.runtimeType}', () async {
+        final fake = _FakeGenerator('feat: Add files', directErrors: [error]);
+
+        final (exit, _) = await summarise(fake);
+
+        expect(exit, ExitCode.software.code);
+        expect(fake.directInputs, hasLength(1), reason: 'one request only');
+        expect(await _commitCount(repo), 1, reason: 'no commit expected');
+      });
+    }
+
+    for (final error in <Exception>[
+      const RequestTooLargeException(message: 'too large'),
+      const InvalidResponseException(message: 'empty response'),
+      const ApiTimeoutException(message: 'timed out'),
+      const InvalidRequestException(
+        message: "This model's maximum context length is 128000 tokens.",
+      ),
+    ]) {
+      test('falls back to line counts for one file on ${error.runtimeType}',
+          () async {
+        final fake = _FakeGenerator(
+          'unused',
+          responses: ['Adds b', 'Adds c', 'feat: Add files'],
+          directErrors: [error],
+        );
+
+        final (exit, output) = await summarise(fake);
+
+        expect(exit, ExitCode.success.code, reason: output);
+        expect(fake.directInputs, hasLength(4));
+        expect(
+          fake.directInputs.last,
+          allOf(
+            contains('- a.txt: Modified (1 added, 0 removed)'),
+            contains('- b.txt: Adds b'),
+            contains('- c.txt: Adds c'),
+          ),
+        );
+        expect(await _lastSubject(repo), 'feat: Add files');
+      });
+    }
+
+    test('summarises only the files with the most changes', () async {
+      const max = CommitCommand.maxFileSummaries;
+      for (var i = 0; i < max; i++) {
+        File(p.join(repo.path, 'big_$i.txt')).writeAsStringSync('x\n' * 10);
+      }
+      await _gitOk(['add', '-A'], repo.path);
+      final fake = _FakeGenerator(
+        'unused',
+        responses: [...List.filled(max, 'Adds lines'), 'feat: Add files'],
+      );
+
+      final (exit, output) = await summarise(fake);
+
+      expect(exit, ExitCode.success.code, reason: output);
+      expect(fake.directInputs, hasLength(max + 1));
+      expect(
+        fake.directInputs.take(max),
+        everyElement(contains('File: big_')),
+      );
+      expect(
+        fake.directInputs.last,
+        allOf(
+          contains('- a.txt: Modified (1 added, 0 removed)'),
+          contains('- b.txt: Modified (2 added, 0 removed)'),
+          contains('- c.txt: Modified (3 added, 0 removed)'),
+          contains('- big_0.txt: Adds lines'),
+        ),
+      );
+    });
+  });
+
   group('commit --prefix', () {
     test('keeps a non-JIRA prefix on the committed message', () async {
       final repo = await _createRepo(sandbox, 'repo');
@@ -1578,15 +1687,20 @@ Future<(int, String)> _captureOutput(Future<int> Function() body) async {
 ///
 /// `responses` are returned in order and the last one repeats. [agentError] is
 /// thrown from agent mode only, to simulate providers that reject tool use.
+/// `directErrors` are consumed one per direct-mode call; a non-null entry is
+/// thrown instead of returning a response.
 class _FakeGenerator extends CommitGenerator implements AgentCommitGenerator {
   _FakeGenerator(
     String message, {
     List<String>? responses,
     this.agentError,
+    List<Exception?> directErrors = const [],
   })  : _responses = responses ?? [message],
+        _directErrors = [...directErrors],
         super(null);
 
   final List<String> _responses;
+  final List<Exception?> _directErrors;
   final Exception? agentError;
   int calls = 0;
   final List<AgentCommitRequest> agentRequests = [];
@@ -1610,6 +1724,8 @@ class _FakeGenerator extends CommitGenerator implements AgentCommitGenerator {
   }) async {
     calls++;
     directInputs.add(diff);
+    final error = _directErrors.isEmpty ? null : _directErrors.removeAt(0);
+    if (error != null) throw error;
     return _nextResponse();
   }
 

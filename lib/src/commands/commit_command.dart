@@ -6,6 +6,7 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -1196,8 +1197,18 @@ class CommitCommand extends Command<int> {
     return true; // Continue with commit
   }
 
+  /// Most files that get their own model summary when a diff is summarised
+  /// file by file. The others are described by their line counts, so a huge
+  /// commit costs a bounded number of requests.
+  static const maxFileSummaries = 30;
+
   /// Summarises a large [diff] file by file, then asks the model for a commit
   /// message based on those summaries. Returns the unsanitized message.
+  ///
+  /// Only the [maxFileSummaries] files with the most changed lines are sent
+  /// to the model. A summary that fails for a reason specific to that file
+  /// (see [_isPerFileError]) falls back to line counts; any other error
+  /// would fail for every file, so it ends the run.
   Future<String> _generateFromFileSummaries({
     required CommitGenerator generator,
     required String diff,
@@ -1209,14 +1220,41 @@ class CommitCommand extends Command<int> {
     final fileGroups = GitUtils.groupHunksByFile(hunks);
     final fileSummaries = <String, String>{};
 
+    // Rank by changed lines, keeping diff order for ties.
+    final fileNames = fileGroups.keys.toList();
+    final changedLines = fileNames.map((name) {
+      final (added, removed) = _lineCounts(fileGroups[name]!);
+      return added + removed;
+    }).toList();
+    final ranked = List<int>.generate(fileNames.length, (i) => i)
+      ..sort((a, b) {
+        final byLines = changedLines[b].compareTo(changedLines[a]);
+        return byLines != 0 ? byLines : a.compareTo(b);
+      });
+    final summarised =
+        ranked.take(maxFileSummaries).map((i) => fileNames[i]).toSet();
+
+    if (summarised.length < fileNames.length) {
+      _logger.info(
+        'Summarising the ${summarised.length} files with the most changes; '
+        'the other ${fileNames.length - summarised.length} are described by '
+        'their line counts.',
+      );
+    }
+
     var index = 0;
-    final total = fileGroups.length;
+    final total = summarised.length;
 
     for (final entry in fileGroups.entries) {
-      index++;
       final fileName = entry.key;
       final fileHunks = entry.value;
 
+      if (!summarised.contains(fileName)) {
+        fileSummaries[fileName] = _lineCountSummary(fileHunks);
+        continue;
+      }
+
+      index++;
       _logger.info('Processing $fileName ($index/$total)...');
 
       final fileDiff = GitUtils.reconstructFileDiff(fileHunks);
@@ -1232,18 +1270,9 @@ class CommitCommand extends Command<int> {
 
         fileSummaries[fileName] = summary.trim();
       } on Object catch (e) {
+        if (!_isPerFileError(e)) rethrow;
         _logger.warn('Failed to summarize $fileName: $e');
-        // Use a simple fallback summary
-        final addedLines = fileHunks
-            .expand((h) => h.lines)
-            .where((l) => l.startsWith('+'))
-            .length;
-        final removedLines = fileHunks
-            .expand((h) => h.lines)
-            .where((l) => l.startsWith('-'))
-            .length;
-        fileSummaries[fileName] =
-            'Modified ($addedLines added, $removedLines removed)';
+        fileSummaries[fileName] = _lineCountSummary(fileHunks);
       }
     }
 
@@ -1264,6 +1293,54 @@ class CommitCommand extends Command<int> {
       prefix: options.prefix,
       withEmoji: options.withEmoji,
     );
+  }
+
+  /// The added and removed line counts of one file's [hunks].
+  static (int, int) _lineCounts(List<DiffHunk> hunks) {
+    final lines = hunks.expand((hunk) => hunk.lines);
+    return (
+      lines.where((line) => line.startsWith('+')).length,
+      lines.where((line) => line.startsWith('-')).length,
+    );
+  }
+
+  /// Describes a file by its line counts instead of a model summary.
+  static String _lineCountSummary(List<DiffHunk> hunks) {
+    final (added, removed) = _lineCounts(hunks);
+    return 'Modified ($added added, $removed removed)';
+  }
+
+  /// Whether [error] from a file summary request concerns only that file:
+  /// its diff is too large for the model, the response was empty or cut
+  /// off, or the request timed out. Errors such as a rejected key, missing
+  /// credit, a rate limit, a retired provider or an unreachable server would
+  /// repeat for every file.
+  static bool _isPerFileError(Object error) {
+    return switch (error) {
+      RequestTooLargeException() ||
+      InvalidResponseException() ||
+      ApiTimeoutException() ||
+      TimeoutException() =>
+        true,
+      InvalidRequestException() => _exceedsContext(error),
+      _ => false,
+    };
+  }
+
+  /// Whether a rejected request was too long for the model's context, which
+  /// most providers report as a 400 rather than a 413.
+  static bool _exceedsContext(InvalidRequestException error) {
+    final text = '${error.errorCode} ${error.message}'.toLowerCase();
+    const markers = [
+      'context length',
+      'context_length',
+      'context window',
+      'prompt length',
+      'prompt is too long',
+      'too many tokens',
+      'maximum number of tokens',
+    ];
+    return markers.any(text.contains);
   }
 }
 
