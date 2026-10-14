@@ -55,6 +55,8 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     String? variant,
     String? baseUrl,
     String? claudeConfigDir,
+    String? projectDirectory,
+    String? managedSettingsPath,
     Map<String, String>? environment,
     ClaudeCodeLoginRunner? runLogin,
     ClaudeCodeMessagesStreamer? streamMessages,
@@ -68,6 +70,8 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     this.useMacOsKeychain = true,
   })  : _explicitApiKey = apiKey,
         _claudeConfigDir = claudeConfigDir,
+        _projectDirectory = projectDirectory,
+        _managedSettingsPathOverride = managedSettingsPath,
         _environment = environment,
         _runLogin = runLogin ?? _defaultRunLogin,
         _streamMessages = streamMessages,
@@ -111,6 +115,14 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   final String? _explicitApiKey;
   final String? _claudeConfigDir;
+
+  /// Directory whose `.claude/settings*.json` are the project settings.
+  /// Defaults to the current working directory.
+  final String? _projectDirectory;
+
+  /// Directory holding `managed-settings.json` and `managed-settings.d`.
+  /// Defaults to the platform's Claude Code managed settings location.
+  final String? _managedSettingsPathOverride;
   final Map<String, String>? _environment;
   final ClaudeCodeLoginRunner _runLogin;
   final ClaudeCodeMessagesStreamer? _streamMessages;
@@ -763,13 +775,17 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _isEnvTruthy(_env['CLAUDE_CODE_USE_COWORK_PLUGINS'])
             ? 'cowork_settings.json'
             : 'settings.json';
+    final projectDirectory = _resolvedProjectDirectory;
     return <File>[
       File(path.join(_resolvedClaudeConfigDir, userSettingsFileName)),
-      File(path.join(Directory.current.path, '.claude', 'settings.json')),
-      File(path.join(Directory.current.path, '.claude', 'settings.local.json')),
+      File(path.join(projectDirectory, '.claude', 'settings.json')),
+      File(path.join(projectDirectory, '.claude', 'settings.local.json')),
       ..._managedSettingsFiles,
     ];
   }
+
+  String get _resolvedProjectDirectory =>
+      _nonBlank(_projectDirectory) ?? Directory.current.path;
 
   List<File> get _managedSettingsFiles {
     final managedPath = _managedSettingsPath;
@@ -798,6 +814,9 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   String get _managedSettingsPath {
+    final explicit = _nonBlank(_managedSettingsPathOverride);
+    if (explicit != null) return explicit;
+
     if (_env['USER_TYPE'] == 'ant') {
       final override = _nonBlank(_env['CLAUDE_CODE_MANAGED_SETTINGS_PATH']);
       if (override != null) return override;

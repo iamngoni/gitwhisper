@@ -25,10 +25,9 @@ void main() {
     test('reads Claude Code OAuth credentials from config directory', () async {
       await _writeCredentials(tempDir, 'oauth-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
       );
 
       final headers = await generator.resolveHeaders();
@@ -44,9 +43,9 @@ void main() {
     test('prefers macOS keychain OAuth credentials over config file', () async {
       await _writeCredentials(tempDir, 'file-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
         readMacOsKeychainService: (service) async {
           expect(service, 'Claude Code-credentials');
           return _credentialsJson('keychain-token');
@@ -61,9 +60,9 @@ void main() {
     test('decodes hex macOS keychain OAuth credentials', () async {
       await _writeCredentials(tempDir, 'file-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
         readMacOsKeychainService: (service) async {
           expect(service, 'Claude Code-credentials');
           return _hex(_credentialsJson('keychain-token'));
@@ -80,7 +79,8 @@ void main() {
       final expectedService =
           'Claude Code-credentials-${_configDirHash(tempDir.path)}';
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: <String, String>{
           'CLAUDE_CONFIG_DIR': tempDir.path,
         },
@@ -102,7 +102,8 @@ void main() {
         }),
       );
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: <String, String>{
           'HOME': tempDir.path,
         },
@@ -122,13 +123,13 @@ void main() {
         () async {
       await _writeCredentials(tempDir, 'stored-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'ANTHROPIC_API_KEY': 'env-api-key',
           'ANTHROPIC_AUTH_TOKEN': 'env-auth-token',
         },
-        useMacOsKeychain: false,
       );
 
       final headers = await generator.resolveHeaders();
@@ -148,10 +149,9 @@ void main() {
       );
 
       var helperCalls = 0;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         runApiKeyHelper: (command, timeout) async {
           helperCalls += 1;
           expect(command, 'print-helper-token');
@@ -188,21 +188,19 @@ void main() {
         }),
       );
 
-      await _withCurrentDirectory(projectDir, () async {
-        final generator = ClaudeCodeDirectGenerator(
-          claudeConfigDir: userDir.path,
-          environment: const <String, String>{},
-          useMacOsKeychain: false,
-          runApiKeyHelper: (command, timeout) async {
-            expect(command, 'local-helper');
-            return 'local-helper-token';
-          },
-        );
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: userDir.path,
+        projectDirectory: projectDir.path,
+        runApiKeyHelper: (command, timeout) async {
+          expect(command, 'local-helper');
+          return 'local-helper-token';
+        },
+      );
 
-        final headers = await generator.resolveHeaders();
+      final headers = await generator.resolveHeaders();
 
-        expect(headers['Authorization'], 'Bearer local-helper-token');
-      });
+      expect(headers['Authorization'], 'Bearer local-helper-token');
     });
 
     test('uses managed apiKeyHelper drop-in over local settings', () async {
@@ -228,24 +226,47 @@ void main() {
         }),
       );
 
-      await _withCurrentDirectory(projectDir, () async {
-        final generator = ClaudeCodeDirectGenerator(
-          claudeConfigDir: userDir.path,
-          environment: <String, String>{
-            'USER_TYPE': 'ant',
-            'CLAUDE_CODE_MANAGED_SETTINGS_PATH': managedDir.path,
-          },
-          useMacOsKeychain: false,
-          runApiKeyHelper: (command, timeout) async {
-            expect(command, 'managed-drop-in-helper');
-            return 'managed-helper-token';
-          },
-        );
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: userDir.path,
+        projectDirectory: projectDir.path,
+        managedSettingsPath: managedDir.path,
+        runApiKeyHelper: (command, timeout) async {
+          expect(command, 'managed-drop-in-helper');
+          return 'managed-helper-token';
+        },
+      );
 
-        final headers = await generator.resolveHeaders();
+      final headers = await generator.resolveHeaders();
 
-        expect(headers['Authorization'], 'Bearer managed-helper-token');
-      });
+      expect(headers['Authorization'], 'Bearer managed-helper-token');
+    });
+
+    test('reads managed settings path override for internal users', () async {
+      final managedDir = Directory(pathFor(tempDir, 'ant-managed'))
+        ..createSync();
+      await File(pathFor(managedDir, 'managed-settings.json')).writeAsString(
+        jsonEncode(<String, dynamic>{
+          'apiKeyHelper': 'managed-env-helper',
+        }),
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        useEnvironmentManagedSettingsPath: true,
+        environment: <String, String>{
+          'USER_TYPE': 'ant',
+          'CLAUDE_CODE_MANAGED_SETTINGS_PATH': managedDir.path,
+        },
+        runApiKeyHelper: (command, timeout) async {
+          expect(command, 'managed-env-helper');
+          return 'managed-env-token';
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer managed-env-token');
     });
 
     test('prefers Anthropic auth token over apiKeyHelper', () async {
@@ -256,12 +277,12 @@ void main() {
       );
 
       var helperCalls = 0;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'ANTHROPIC_AUTH_TOKEN': 'external-auth-token',
         },
-        useMacOsKeychain: false,
         runApiKeyHelper: (command, timeout) async {
           helperCalls += 1;
           return 'helper-token';
@@ -283,10 +304,9 @@ void main() {
         }),
       );
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         runApiKeyHelper: (command, timeout) async {
           throw StateError('exited 1');
         },
@@ -301,14 +321,14 @@ void main() {
     test('matches Claude Code external env auth precedence', () async {
       await _writeCredentials(tempDir, 'stored-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'ANTHROPIC_API_KEY': 'env-api-key',
           'ANTHROPIC_AUTH_TOKEN': 'external-auth-token',
           'CLAUDE_CODE_OAUTH_TOKEN': 'claude-code-oauth-token',
         },
-        useMacOsKeychain: false,
       );
 
       final headers = await generator.resolveHeaders();
@@ -319,11 +339,11 @@ void main() {
     });
 
     test('uses Claude Code OAuth file descriptor token', () async {
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: const <String, String>{
           'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR': '3',
         },
-        useMacOsKeychain: false,
         readFileDescriptorCredential: (envVar, wellKnownPath) {
           if (envVar == 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR') return null;
           expect(envVar, 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR');
@@ -343,12 +363,12 @@ void main() {
     });
 
     test('uses Claude Code API key file descriptor before OAuth', () async {
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: const <String, String>{
           'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR': '4',
           'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
         },
-        useMacOsKeychain: false,
         readFileDescriptorCredential: (envVar, wellKnownPath) {
           if (envVar == 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR') {
             expect(wellKnownPath, '/home/claude/.claude/remote/.api_key');
@@ -373,7 +393,8 @@ void main() {
         }),
       );
       var helperCalls = 0;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'CLAUDE_CODE_REMOTE': '1',
@@ -381,7 +402,6 @@ void main() {
           'ANTHROPIC_AUTH_TOKEN': 'external-auth-token',
           'CLAUDE_CODE_OAUTH_TOKEN': 'claude-code-oauth-token',
         },
-        useMacOsKeychain: false,
         runApiKeyHelper: (command, timeout) async {
           helperCalls += 1;
           return 'helper-token';
@@ -402,12 +422,12 @@ void main() {
     test('bare Claude Code mode ignores stored OAuth credentials', () async {
       await _writeCredentials(tempDir, 'stored-token');
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'CLAUDE_CODE_SIMPLE': '1',
         },
-        useMacOsKeychain: false,
       );
 
       await expectLater(
@@ -417,13 +437,13 @@ void main() {
     });
 
     test('bare Claude Code mode ignores file descriptor credentials', () async {
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: const <String, String>{
           'CLAUDE_CODE_SIMPLE': '1',
           'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR': '4',
           'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR': '5',
         },
-        useMacOsKeychain: false,
         readFileDescriptorCredential: (envVar, wellKnownPath) {
           fail('bare mode should not read $envVar');
         },
@@ -437,11 +457,11 @@ void main() {
 
     test('uses Claude Code OAuth env token when no external auth is set',
         () async {
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: const <String, String>{
           'CLAUDE_CODE_OAUTH_TOKEN': 'claude-code-oauth-token',
         },
-        useMacOsKeychain: false,
       );
 
       final headers = await generator.resolveHeaders();
@@ -456,10 +476,9 @@ void main() {
 
     test('runs Claude Code token setup when credentials are missing', () async {
       var loginCount = 0;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         runLogin: (executable, arguments) async {
           loginCount += 1;
           expect(executable, 'claude');
@@ -480,11 +499,11 @@ void main() {
       Map<String, String>? headers;
       Map<String, dynamic>? body;
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         environment: const <String, String>{
           'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
         },
-        useMacOsKeychain: false,
         streamMessages: (requestEndpoint, requestHeaders, requestBody) async {
           endpoint = requestEndpoint;
           headers = requestHeaders;
@@ -521,10 +540,9 @@ void main() {
       );
 
       Map<String, String>? headers;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         refreshToken: (endpoint, body) async {
           expect(
             endpoint.toString(),
@@ -577,13 +595,13 @@ void main() {
         expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
       );
 
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
         environment: const <String, String>{
           'USER_TYPE': 'ant',
           'USE_STAGING_OAUTH': '1',
         },
-        useMacOsKeychain: false,
         refreshToken: (endpoint, body) async {
           expect(
             endpoint.toString(),
@@ -614,10 +632,9 @@ void main() {
 
       var refreshCount = 0;
       Map<String, String>? headers;
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         refreshToken: (endpoint, body) async {
           refreshCount += 1;
           throw const AuthenticationException(
@@ -655,10 +672,9 @@ void main() {
 
       var callCount = 0;
       final seenAuthorizations = <String?>[];
-      final generator = ClaudeCodeDirectGenerator(
+      final generator = _sandboxedGenerator(
+        tempDir,
         claudeConfigDir: tempDir.path,
-        environment: const <String, String>{},
-        useMacOsKeychain: false,
         refreshToken: (endpoint, body) async {
           expect(
             endpoint.toString(),
@@ -758,17 +774,65 @@ Future<Map<String, dynamic>> _readStoredOauth(Directory directory) async {
   return decoded['claudeAiOauth'] as Map<String, dynamic>;
 }
 
-Future<void> _withCurrentDirectory(
-  Directory directory,
-  Future<void> Function() callback,
-) async {
-  final previous = Directory.current;
-  Directory.current = directory;
-  try {
-    await callback();
-  } finally {
-    Directory.current = previous;
-  }
+/// Creates a generator that cannot touch the developer's real environment.
+///
+/// HOME points inside [sandbox], project and managed settings are read from
+/// [sandbox], and the keychain, apiKeyHelper, login, token refresh, file
+/// descriptor and network hooks are fakes unless a test passes its own. The
+/// default fakes throw, so an unexpected call fails loudly instead of running
+/// `security`, a shell command, or a real request.
+ClaudeCodeDirectGenerator _sandboxedGenerator(
+  Directory sandbox, {
+  String? claudeConfigDir,
+  String? projectDirectory,
+  String? managedSettingsPath,
+  bool useEnvironmentManagedSettingsPath = false,
+  Map<String, String> environment = const <String, String>{},
+  bool? useMacOsKeychain,
+  ClaudeCodeKeychainReader? readMacOsKeychainService,
+  ClaudeCodeKeychainWriter? writeMacOsKeychainService,
+  ClaudeCodeFileDescriptorCredentialReader? readFileDescriptorCredential,
+  ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
+  ClaudeCodeLoginRunner? runLogin,
+  ClaudeCodeMessagesStreamer? streamMessages,
+  ClaudeCodeTokenRefresher? refreshToken,
+}) {
+  return ClaudeCodeDirectGenerator(
+    claudeConfigDir: claudeConfigDir,
+    projectDirectory: projectDirectory ?? pathFor(sandbox, 'project'),
+    managedSettingsPath: useEnvironmentManagedSettingsPath
+        ? null
+        : managedSettingsPath ?? pathFor(sandbox, 'managed'),
+    environment: <String, String>{
+      'HOME': pathFor(sandbox, 'home'),
+      ...environment,
+    },
+    useMacOsKeychain: useMacOsKeychain ?? readMacOsKeychainService != null,
+    readMacOsKeychainService:
+        readMacOsKeychainService ?? (service) async => null,
+    writeMacOsKeychainService: writeMacOsKeychainService ??
+        (service, value) async {
+          throw StateError('Keychain writes are disabled in tests.');
+        },
+    readFileDescriptorCredential:
+        readFileDescriptorCredential ?? (envVar, wellKnownPath) => null,
+    runApiKeyHelper: runApiKeyHelper ??
+        (command, timeout) async {
+          throw StateError('apiKeyHelper processes are disabled in tests.');
+        },
+    runLogin: runLogin ??
+        (executable, arguments) async {
+          throw StateError('Login processes are disabled in tests.');
+        },
+    streamMessages: streamMessages ??
+        (endpoint, headers, body) async {
+          throw StateError('Network requests are disabled in tests.');
+        },
+    refreshToken: refreshToken ??
+        (endpoint, body) async {
+          throw StateError('Token refresh requests are disabled in tests.');
+        },
+  );
 }
 
 DioException _unauthorized(Uri endpoint) {
