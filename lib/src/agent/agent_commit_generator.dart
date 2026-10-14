@@ -8,6 +8,7 @@ class AgentCommitRequest {
     this.prefix,
     this.withEmoji = true,
     this.maxToolCalls = 32,
+    this.additionalContext,
   });
 
   final GitAgentTools tools;
@@ -15,6 +16,10 @@ class AgentCommitRequest {
   final String? prefix;
   final bool withEmoji;
   final int maxToolCalls;
+
+  /// Extra guidance from the user, e.g. entered via "add context" when
+  /// regenerating a message.
+  final String? additionalContext;
 }
 
 // This marker keeps provider capability checks explicit at the command layer.

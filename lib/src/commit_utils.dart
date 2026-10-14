@@ -296,7 +296,15 @@ String getAgentCommitPrompt(
   Language language, {
   String? prefix,
   bool withEmoji = true,
+  String? additionalContext,
 }) {
+  final context = additionalContext?.trim() ?? '';
+  final contextNote = context.isNotEmpty
+      ? '''
+ADDITIONAL CONTEXT FROM THE USER:
+$context
+'''
+      : '';
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
@@ -396,7 +404,7 @@ MANDATORY FORMAT RULES:
 5. Only generate multiple commit messages if changes are truly unrelated
 $languageInstruction
 $prefixNote
-$typeList
+$contextNote$typeList
 ⚠️ Output must only be properly formatted commit message(s). Nothing else. Violation is not acceptable.
 ''';
 }

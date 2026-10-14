@@ -23,7 +23,7 @@ class ErrorParser {
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.sendTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
-      return TimeoutException(
+      return ApiTimeoutException(
         message: 'Request timed out: ${error.message}',
         requestId: requestId,
       );
@@ -164,7 +164,7 @@ class ErrorParser {
           requestId: requestId,
         );
       case 504:
-        return TimeoutException(
+        return ApiTimeoutException(
           message: message,
           errorType: errorType,
           errorCode: errorCode,

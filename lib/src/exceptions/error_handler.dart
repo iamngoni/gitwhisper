@@ -117,7 +117,7 @@ class ErrorHandler {
         return 'Service overloaded - please try again later';
       case InsufficientBalanceException:
         return 'Insufficient balance - add funds to your account';
-      case TimeoutException:
+      case ApiTimeoutException:
         return 'Request timeout - reduce request size or try again';
       default:
         return 'API error occurred';
@@ -129,7 +129,7 @@ class ErrorHandler {
     return error.isServerError ||
         error is ServiceOverloadedException ||
         error is RequestTooLargeException ||
-        error is TimeoutException;
+        error is ApiTimeoutException;
   }
 
   /// Get model switch suggestions based on error type
@@ -142,7 +142,7 @@ class ErrorHandler {
         ..add('Use a different model variant if available');
     }
 
-    if (error is RequestTooLargeException || error is TimeoutException) {
+    if (error is RequestTooLargeException || error is ApiTimeoutException) {
       suggestions
         ..add('Switch to a model with a larger context window')
         ..add('Use a faster model for quicker processing');

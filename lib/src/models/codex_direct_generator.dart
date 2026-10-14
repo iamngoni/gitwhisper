@@ -103,6 +103,7 @@ class CodexDirectGenerator extends CommitGenerator
         request.language,
         prefix: request.prefix,
         withEmoji: request.withEmoji,
+        additionalContext: request.additionalContext,
       ),
       tools: request.tools,
       maxToolCalls: request.maxToolCalls,

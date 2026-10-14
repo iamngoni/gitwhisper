@@ -59,8 +59,9 @@ class ShowConfigCommand extends Command<int> {
           continue;
         }
 
-        _logger..info('$pad$key:')
-        ..info('$pad  ${lightCyan.wrap('$value')}');
+        _logger
+          ..info('$pad$key:')
+          ..info('$pad  ${lightCyan.wrap('$value')}');
       }
     }
 

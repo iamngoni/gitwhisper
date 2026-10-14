@@ -189,8 +189,8 @@ class InsufficientBalanceException extends ApiException {
 }
 
 /// Exception for timeout errors
-class TimeoutException extends ApiException {
-  const TimeoutException({
+class ApiTimeoutException extends ApiException {
+  const ApiTimeoutException({
     required super.message,
     super.statusCode = 504,
     super.errorType,

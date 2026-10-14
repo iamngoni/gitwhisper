@@ -121,6 +121,7 @@ class GeminiGenerator extends CommitGenerator implements AgentCommitGenerator {
               request.language,
               prefix: request.prefix,
               withEmoji: request.withEmoji,
+              additionalContext: request.additionalContext,
             ),
           },
         ],

@@ -6,7 +6,6 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
-
 extension StringExtension on String {
   String get heading {
     final s = trim();
