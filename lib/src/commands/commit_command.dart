@@ -321,8 +321,6 @@ class CommitCommand extends Command<int> {
       }
     }
 
-    final agentMode = _supportsAgentMode(modelName);
-
     // Get API key (from args, config, or environment)
     var apiKey = argResults?['key'] as String?;
     if (apiKey != null && apiKey.isNotEmpty) {
@@ -343,370 +341,235 @@ class CommitCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Get prefix if available for things like ticket numbers
-    final prefix = argResults?['prefix'] as String?;
-
-    // Get tag if provided
-    final tag = argResults?['tag'] as String?;
-
-    // Handle --auto-push, fallback to false if not provided
-    final autoPush = (argResults?['auto-push'] as bool?) ?? false;
-
-    // Handle --dry-run: generate the message but never commit/push/tag.
-    final dryRun = (argResults?['dry-run'] as bool?) ?? false;
-
     // Handle --confirm, fallback to global config, then false
     // Check if --confirm or --no-confirm was explicitly provided
     final confirm = argResults?.wasParsed('confirm') ?? false
         ? (argResults?['confirm'] as bool)
         : configManager.shouldConfirmCommits();
 
-    // Get ollamaBaseUrl from configs
-    final String? ollamaBaseUrl = configManager.getOllamaBaseURL();
-
-    // Create the appropriate AI generator based on model name
-    final generator = _generatorBuilder(
-      modelName,
-      apiKey,
-      variant: modelVariant,
-      baseUrl: ollamaBaseUrl ?? 'http://localhost:11434',
+    final options = _CommitOptions(
+      language: configManager.getWhisperLanguage(),
+      withEmoji: configManager.shouldAllowEmojis(),
+      maxDiffSize: configManager.getMaxDiffSize(),
+      // Prefix for things like ticket numbers
+      prefix: argResults?['prefix'] as String?,
+      tag: argResults?['tag'] as String?,
+      autoPush: (argResults?['auto-push'] as bool?) ?? false,
+      confirm: confirm,
+      // --dry-run generates the message but never commits, pushes or tags.
+      dryRun: (argResults?['dry-run'] as bool?) ?? false,
+      ollamaBaseUrl: configManager.getOllamaBaseURL(),
     );
 
-    // Get the language to use for commit messages
-    final language = configManager.getWhisperLanguage();
-
-    // Get emoji setting
-    final withEmoji = configManager.shouldAllowEmojis();
+    // Create the appropriate AI generator based on model name
+    final model = _ModelChoice(
+      generator: _generatorBuilder(
+        modelName,
+        apiKey,
+        variant: modelVariant,
+        baseUrl: options.baseUrl,
+      ),
+      name: modelName,
+      variant: modelVariant,
+      agentMode: _supportsAgentMode(modelName),
+    );
 
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
-      // Check for large files before proceeding
-      final largeFileResult = await _checkForLargeFiles(
-        configManager,
+      final outcome = await _commitRepository(
         folderPath: workingDirectory,
+        model: model,
+        options: options,
+        configManager: configManager,
       );
-      if (largeFileResult != null) {
-        return largeFileResult;
+      return switch (outcome) {
+        _RepoOutcome.succeeded => ExitCode.success.code,
+        _RepoOutcome.cancelled => cancelledExitCode.code,
+        _RepoOutcome.skipped => ExitCode.usage.code,
+        _RepoOutcome.failed => ExitCode.software.code,
+      };
+    }
+
+    // --- Multi-repo flow ---
+    final foldersWithStagedChanges =
+        await GitUtils.foldersWithStagedChanges(subGitRepos);
+    _logger.info('Working in ${foldersWithStagedChanges.length} git repos');
+
+    int successCount = 0;
+    final List<String> failedRepos = [...conflictedRepos];
+    final List<String> cancelledRepos = [];
+
+    for (final f in foldersWithStagedChanges) {
+      final folderName = path.basename(f);
+      final outcome = await _commitRepository(
+        folderPath: f,
+        repoName: folderName,
+        model: model,
+        options: options,
+        configManager: configManager,
+      );
+      switch (outcome) {
+        case _RepoOutcome.succeeded:
+          successCount++;
+        case _RepoOutcome.cancelled:
+          cancelledRepos.add(folderName);
+        case _RepoOutcome.failed:
+          failedRepos.add(folderName);
+        case _RepoOutcome.skipped:
+          break;
+      }
+    }
+
+    if (failedRepos.isNotEmpty) {
+      _logger.err('Failed in: ${failedRepos.join(', ')}');
+    }
+
+    if (cancelledRepos.isNotEmpty) {
+      _logger.warn('Cancelled in: ${cancelledRepos.join(', ')}');
+    }
+
+    if (successCount == 1) {
+      _logger.success('Processed 1 git repository.');
+    } else {
+      _logger.success('Processed $successCount git repositories.');
+    }
+
+    if (failedRepos.isNotEmpty) return ExitCode.software.code;
+    if (cancelledRepos.isNotEmpty) return cancelledExitCode.code;
+    return ExitCode.success.code;
+  }
+
+  /// Generates a message for the staged changes in [folderPath], lets the
+  /// user review it when confirmation is on, and commits it.
+  ///
+  /// [repoName] is set in multi-repo runs, where log lines are labelled with
+  /// it and errors are summarised so the remaining repositories can continue.
+  Future<_RepoOutcome> _commitRepository({
+    required String? folderPath,
+    required _ModelChoice model,
+    required _CommitOptions options,
+    required ConfigManager configManager,
+    String? repoName,
+  }) async {
+    final multiRepo = repoName != null;
+    final label = multiRepo ? '[$repoName] ' : '';
+
+    // Check for large files before proceeding
+    if (!await _checkForLargeFiles(configManager, folderPath: folderPath)) {
+      return _RepoOutcome.cancelled;
+    }
+
+    if (!await GitUtils.hasStagedChanges(folderPath: folderPath)) {
+      if (multiRepo) {
+        _logger.warn(
+          '${label}No staged changes remaining after handling large files, '
+          'skipping.',
+        );
+      } else {
+        _logger.err('No changes detected in staged files.');
+      }
+      return _RepoOutcome.skipped;
+    }
+
+    try {
+      _logger.info(
+        '$label${_analysisMessage(
+          modelName: model.name,
+          modelVariant: model.variant,
+          prefix: options.prefix,
+          agentMode: model.agentMode,
+        )}',
+      );
+
+      // Generate commit message with AI
+      String commitMessage = await _generateMessage(
+        model: model,
+        options: options,
+        folderPath: folderPath,
+        label: label,
+      );
+
+      if (commitMessage.trim().isEmpty) {
+        _logger.err(
+          model.agentMode
+              ? '${label}Error: Agent did not return a valid commit message.'
+              : '${label}Error: Generated commit message is empty!',
+        );
+        _logAcpDebugPath();
+        return _RepoOutcome.failed;
       }
 
-      var updatedDiff = '';
-      if (agentMode) {
-        if (!await GitUtils.hasStagedChanges(folderPath: workingDirectory)) {
-          _logger.err('No changes detected in staged files.');
-          return ExitCode.usage.code;
-        }
-      } else {
-        // Get the diff after large-file handling in case files were unstaged.
-        updatedDiff = await GitUtils.getStagedDiff(
-          folderPath: workingDirectory,
+      // Handle confirmation workflow if enabled (skipped for dry runs).
+      if (options.confirm && !options.dryRun) {
+        if (multiRepo) _logger.info('${label}Review commit message:');
+        final finalMessage = await _confirmCommitMessage(
+          commitMessage: commitMessage,
+          model: model,
+          options: options,
+          configManager: configManager,
+          folderPath: folderPath,
+          label: label,
         );
-        if (updatedDiff.isEmpty) {
-          _logger.err('No changes detected in staged files.');
-          return ExitCode.usage.code;
+
+        if (finalMessage == null) {
+          // User cancelled
+          if (multiRepo) _logger.warn('${label}Commit cancelled by user.');
+          return _RepoOutcome.cancelled;
         }
 
-        // Check if diff is too large - auto process file-by-file.
-        if (GitUtils.isDiffTooLarge(
-          updatedDiff,
-          maxSize: configManager.getMaxDiffSize(),
-        )) {
-          _logger.info(
-            '\nDiff exceeds max size '
-            '(${GitUtils.estimateDiffSize(updatedDiff)} chars), processing '
-            'file-by-file...\n',
-          );
+        commitMessage = finalMessage;
+      } else if (multiRepo) {
+        // Show message without confirmation
+        _logger
+          ..info('\n----------- $repoName -----------\n')
+          ..info(commitMessage)
+          ..info('\n-----------------------------------\n');
+      } else {
+        _logger
+          ..info('\n---------------------------------\n')
+          ..info(commitMessage)
+          ..info('\n---------------------------------\n');
+      }
 
-          return _processFileByFileSummaries(
-            diff: updatedDiff,
-            generator: generator,
-            language: language,
-            prefix: prefix,
-            withEmoji: withEmoji,
-            autoPush: autoPush,
-            tag: tag,
-            confirm: confirm,
-            dryRun: dryRun,
-            modelName: modelName,
-            modelVariant: modelVariant,
-            configManager: configManager,
-            folderPath: workingDirectory,
-          );
-        }
+      if (options.dryRun) {
+        _logger.info('${label}Dry run: no commit was created.');
+        return _RepoOutcome.succeeded;
       }
 
       try {
-        _logger.info(
-          _analysisMessage(
-            modelName: modelName,
-            modelVariant: modelVariant,
-            prefix: prefix,
-            agentMode: agentMode,
-          ),
+        await GitUtils.runGitCommit(
+          message: commitMessage,
+          autoPush: options.autoPush,
+          folderPath: folderPath,
+          tag: options.tag,
         );
+      } on Object catch (e) {
+        _logger.err('${label}Error setting commit message: $e');
+        return _RepoOutcome.failed;
+      }
 
-        // Generate commit message with AI
-        String commitMessage = await _generateCommitMessage(
-          generator: generator,
-          diff: updatedDiff,
-          language: language,
-          prefix: prefix,
-          withEmoji: withEmoji,
-          agentMode: agentMode,
-          folderPath: workingDirectory,
-        );
-
-        try {
-          commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
-            commitMessage,
-            requireConventionalCommit: agentMode,
-            prefix: prefix,
-          );
-        } catch (_) {
-          // Silent prayer that it works
-        }
-
-        if (commitMessage.trim().isEmpty) {
-          _logger.err(
-            agentMode
-                ? 'Error: Agent did not return a valid commit message.'
-                : 'Error: Generated commit message is empty!',
-          );
-          _logAcpDebugPath();
-          return ExitCode.software.code;
-        }
-
-        // Handle confirmation workflow if enabled (skipped for dry runs).
-        if (confirm && !dryRun) {
-          final finalMessage = await _handleCommitConfirmation(
-            commitMessage: commitMessage,
-            generator: generator,
-            diff: updatedDiff,
-            language: language,
-            prefix: prefix,
-            modelName: modelName,
-            modelVariant: modelVariant,
-            ollamaBaseUrl: ollamaBaseUrl,
-            configManager: configManager,
-            withEmoji: withEmoji,
-            agentMode: agentMode,
-            folderPath: workingDirectory,
-          );
-
-          if (finalMessage == null) {
-            // User cancelled
-            return cancelledExitCode.code;
-          }
-
-          commitMessage = finalMessage;
-        } else {
-          // Show message without confirmation
-          _logger
-            ..info('\n---------------------------------\n')
-            ..info(commitMessage)
-            ..info('\n---------------------------------\n');
-        }
-
-        if (dryRun) {
-          _logger.info('Dry run: no commit was created.');
-          return ExitCode.success.code;
-        }
-
-        try {
-          await GitUtils.runGitCommit(
-            message: commitMessage,
-            autoPush: autoPush,
-            folderPath: workingDirectory,
-            tag: tag,
-          );
-        } catch (e) {
-          _logger.err('Error setting commit message: $e');
-          return ExitCode.software.code;
-        }
-
-        return ExitCode.success.code;
-      } on ApiException catch (e) {
+      return _RepoOutcome.succeeded;
+    } on ApiException catch (e) {
+      if (multiRepo) {
+        _logger.err('$label${ErrorHandler.getErrorSummary(e)}');
+      } else {
         ErrorHandler.handleErrorWithRetry(
           e,
           context: 'generating commit message',
         );
         _logModelSwitchSuggestions(e);
-
-        return ExitCode.software.code;
-      } catch (e) {
+      }
+      return _RepoOutcome.failed;
+    } on Object catch (e) {
+      if (multiRepo) {
+        _logger.err('${label}Error generating commit message: $e');
+      } else {
         ErrorHandler.handleGeneralError(
           e,
           context: 'generating commit message',
         );
-        return ExitCode.software.code;
       }
-    } else {
-      // --- Multi-repo flow ---
-      final foldersWithStagedChanges =
-          await GitUtils.foldersWithStagedChanges(subGitRepos);
-      _logger.info('Working in ${foldersWithStagedChanges.length} git repos');
-
-      int successCount = 0;
-      final List<String> failedRepos = [...conflictedRepos];
-      final List<String> cancelledRepos = [];
-
-      for (final f in foldersWithStagedChanges) {
-        final folderName = path.basename(f);
-
-        // Check for large files in this repo
-        final largeFileResult = await _checkForLargeFiles(
-          configManager,
-          folderPath: f,
-        );
-        if (largeFileResult != null) {
-          // User cancelled for this repo, but continue with others
-          cancelledRepos.add(folderName);
-          continue;
-        }
-
-        var diff = '';
-        if (agentMode) {
-          final hasStagedAfterLargeFileHandling =
-              await GitUtils.hasStagedChanges(folderPath: f);
-          if (!hasStagedAfterLargeFileHandling) {
-            _logger.warn(
-              '[$folderName] No staged changes remaining after handling large '
-              'files, skipping.',
-            );
-            continue;
-          }
-        } else {
-          // Re-get diff in case files were unstaged
-          diff = await GitUtils.getStagedDiff(folderPath: f);
-          if (diff.isEmpty) {
-            _logger.warn(
-              '[$folderName] No staged changes remaining after handling large '
-              'files, skipping.',
-            );
-            continue;
-          }
-        }
-
-        try {
-          _logger.info('[$folderName] ${_analysisMessage(
-            modelName: modelName,
-            modelVariant: modelVariant,
-            prefix: prefix,
-            agentMode: agentMode,
-          )}');
-
-          // Generate commit message with AI
-          String commitMessage = await _generateCommitMessage(
-            generator: generator,
-            diff: diff,
-            language: language,
-            prefix: prefix,
-            withEmoji: withEmoji,
-            agentMode: agentMode,
-            folderPath: f,
-          );
-
-          try {
-            commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
-              commitMessage,
-              requireConventionalCommit: agentMode,
-              prefix: prefix,
-            );
-          } catch (_) {
-            // Silent prayer that it works
-          }
-
-          if (commitMessage.trim().isEmpty) {
-            _logger.err(
-              agentMode
-                  ? '[$folderName] Error: Agent did not return a valid commit message.'
-                  : '[$folderName] Error: Generated commit message is empty',
-            );
-            _logAcpDebugPath();
-            failedRepos.add(folderName);
-            continue;
-          }
-
-          // Handle confirmation workflow if enabled (skipped for dry runs).
-          if (confirm && !dryRun) {
-            _logger.info('[$folderName] Review commit message:');
-            final finalMessage = await _handleCommitConfirmation(
-              commitMessage: commitMessage,
-              generator: generator,
-              diff: diff,
-              language: language,
-              prefix: prefix,
-              modelName: modelName,
-              modelVariant: modelVariant,
-              ollamaBaseUrl: ollamaBaseUrl,
-              configManager: configManager,
-              withEmoji: withEmoji,
-              agentMode: agentMode,
-              folderPath: f,
-            );
-
-            if (finalMessage == null) {
-              // User cancelled this repo
-              _logger.warn('[$folderName] Commit cancelled by user.');
-              cancelledRepos.add(folderName);
-              continue;
-            }
-
-            commitMessage = finalMessage;
-          } else {
-            // Show message without confirmation
-            _logger
-              ..info('\n----------- $folderName -----------\n')
-              ..info(commitMessage)
-              ..info('\n-----------------------------------\n');
-          }
-
-          if (dryRun) {
-            _logger.info('[$folderName] Dry run: no commit was created.');
-            successCount++;
-            continue;
-          }
-
-          try {
-            await GitUtils.runGitCommit(
-              message: commitMessage,
-              autoPush: autoPush,
-              folderPath: f,
-              tag: tag,
-            );
-            successCount++;
-          } catch (e) {
-            _logger.err('[$folderName] Error setting commit message: $e');
-            failedRepos.add(folderName);
-            continue;
-          }
-        } on ApiException catch (e) {
-          _logger.err('[$folderName] ${ErrorHandler.getErrorSummary(e)}');
-          failedRepos.add(folderName);
-          continue;
-        } catch (e) {
-          _logger.err('[$folderName] Error generating commit message: $e');
-          failedRepos.add(folderName);
-          continue;
-        }
-      }
-
-      if (failedRepos.isNotEmpty) {
-        _logger.err('Failed in: ${failedRepos.join(', ')}');
-      }
-
-      if (cancelledRepos.isNotEmpty) {
-        _logger.warn('Cancelled in: ${cancelledRepos.join(', ')}');
-      }
-
-      if (successCount == 1) {
-        _logger.success('Processed 1 git repository.');
-      } else {
-        _logger.success('Processed $successCount git repositories.');
-      }
-
-      if (failedRepos.isNotEmpty) return ExitCode.software.code;
-      if (cancelledRepos.isNotEmpty) return cancelledExitCode.code;
-      return ExitCode.success.code;
+      return _RepoOutcome.failed;
     }
   }
 
@@ -783,24 +646,41 @@ class CommitCommand extends Command<int> {
     };
   }
 
-  Future<String> _generateCommitMessage({
-    required CommitGenerator generator,
-    required String diff,
-    required Language language,
-    required bool withEmoji,
-    required bool agentMode,
-    String? prefix,
-    String? folderPath,
-  }) {
-    if (!agentMode) {
-      return generator.generateCommitMessage(
-        diff,
-        language,
-        prefix: prefix,
-        withEmoji: withEmoji,
-      );
-    }
+  /// Generates a commit message for the staged changes in [folderPath] and
+  /// sanitizes it. Returns an empty string when the model produced no usable
+  /// message.
+  Future<String> _generateMessage({
+    required _ModelChoice model,
+    required _CommitOptions options,
+    required String? folderPath,
+    required String label,
+  }) async {
+    final rawMessage = model.agentMode
+        ? await _generateAgentMessage(
+            generator: model.generator,
+            options: options,
+            folderPath: folderPath,
+          )
+        : await _generateDirectMessage(
+            generator: model.generator,
+            options: options,
+            folderPath: folderPath,
+            label: label,
+          );
 
+    return GitUtils.sanitizeGeneratedCommitMessage(
+      rawMessage,
+      requireConventionalCommit: model.agentMode,
+      prefix: options.prefix,
+    );
+  }
+
+  /// Lets the model inspect the staged changes through read-only git tools.
+  Future<String> _generateAgentMessage({
+    required CommitGenerator generator,
+    required _CommitOptions options,
+    required String? folderPath,
+  }) {
     if (generator is! AgentCommitGenerator) {
       throw UnsupportedError(
         'Agent mode currently supports only openai and claude.',
@@ -814,10 +694,43 @@ class CommitCommand extends Command<int> {
           folderPath: folderPath,
           onToolUse: _logAgentToolUse,
         ),
-        language: language,
-        prefix: prefix,
-        withEmoji: withEmoji,
+        language: options.language,
+        prefix: options.prefix,
+        withEmoji: options.withEmoji,
       ),
+    );
+  }
+
+  /// Sends the staged diff in the prompt. Diffs larger than the configured
+  /// max diff size are summarised file by file first.
+  Future<String> _generateDirectMessage({
+    required CommitGenerator generator,
+    required _CommitOptions options,
+    required String? folderPath,
+    required String label,
+  }) async {
+    final diff = await GitUtils.getStagedDiff(folderPath: folderPath);
+    if (diff.isEmpty) return '';
+
+    // Check if diff is too large - auto process file-by-file.
+    if (GitUtils.isDiffTooLarge(diff, maxSize: options.maxDiffSize)) {
+      _logger.info(
+        '\n${label}Diff exceeds max size '
+        '(${GitUtils.estimateDiffSize(diff)} chars), processing '
+        'file-by-file...\n',
+      );
+      return _generateFromFileSummaries(
+        generator: generator,
+        diff: diff,
+        options: options,
+      );
+    }
+
+    return generator.generateCommitMessage(
+      diff,
+      options.language,
+      prefix: options.prefix,
+      withEmoji: options.withEmoji,
     );
   }
 
@@ -867,19 +780,13 @@ class CommitCommand extends Command<int> {
 
   /// Handles the confirmation workflow for commit messages
   /// Returns the final commit message to use, or null if user cancelled
-  Future<String?> _handleCommitConfirmation({
+  Future<String?> _confirmCommitMessage({
     required String commitMessage,
-    required CommitGenerator generator,
-    required String diff,
-    required Language language,
-    required String? prefix,
-    required String modelName,
-    required String modelVariant,
-    required String? ollamaBaseUrl,
+    required _ModelChoice model,
+    required _CommitOptions options,
     required ConfigManager configManager,
-    required bool withEmoji,
-    bool agentMode = false,
-    String? folderPath,
+    required String? folderPath,
+    required String label,
   }) async {
     String currentMessage = commitMessage;
 
@@ -931,23 +838,15 @@ class CommitCommand extends Command<int> {
 
           switch (retryOption) {
             case 'same model':
-              _logger.info('Regenerating with $modelName...');
+              _logger.info('Regenerating with ${model.name}...');
               try {
-                currentMessage = await _generateCommitMessage(
-                  generator: generator,
-                  diff: diff,
-                  language: language,
-                  prefix: prefix,
-                  withEmoji: withEmoji,
-                  agentMode: agentMode,
+                currentMessage = await _generateMessage(
+                  model: model,
+                  options: options,
                   folderPath: folderPath,
+                  label: label,
                 );
-                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
-                  currentMessage,
-                  requireConventionalCommit: agentMode,
-                  prefix: prefix,
-                );
-              } catch (e) {
+              } on Object catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
               }
@@ -955,7 +854,7 @@ class CommitCommand extends Command<int> {
             case 'different model':
               final newModelName = _logger.chooseOne(
                 'Select a different model:',
-                choices: agentMode
+                choices: model.agentMode
                     ? [
                         'claude',
                         'openai',
@@ -972,7 +871,7 @@ class CommitCommand extends Command<int> {
                         'github',
                         'ollama',
                       ],
-                defaultValue: modelName == 'openai' ? 'claude' : 'openai',
+                defaultValue: model.name == 'openai' ? 'claude' : 'openai',
               );
 
               // Get API key for new model
@@ -988,29 +887,26 @@ class CommitCommand extends Command<int> {
               }
 
               // Create new generator
-              final newGenerator = CommitGeneratorFactory.create(
-                newModelName,
-                newApiKey,
-                baseUrl: ollamaBaseUrl ?? 'http://localhost:11434',
+              final newModel = _ModelChoice(
+                generator: CommitGeneratorFactory.create(
+                  newModelName,
+                  newApiKey,
+                  baseUrl: options.baseUrl,
+                ),
+                name: newModelName,
+                variant: '',
+                agentMode: model.agentMode,
               );
 
               _logger.info('Regenerating with $newModelName...');
               try {
-                currentMessage = await _generateCommitMessage(
-                  generator: newGenerator,
-                  diff: diff,
-                  language: language,
-                  prefix: prefix,
-                  withEmoji: withEmoji,
-                  agentMode: agentMode,
+                currentMessage = await _generateMessage(
+                  model: newModel,
+                  options: options,
                   folderPath: folderPath,
+                  label: label,
                 );
-                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
-                  currentMessage,
-                  requireConventionalCommit: agentMode,
-                  prefix: prefix,
-                );
-              } catch (e) {
+              } on Object catch (e) {
                 _logger.err(
                   'Failed to generate commit message with $newModelName: $e',
                 );
@@ -1029,21 +925,13 @@ class CommitCommand extends Command<int> {
               _logger.info('Regenerating with additional context...');
               try {
                 // For now, we'll just regenerate - in the future, we could modify the prompt
-                currentMessage = await _generateCommitMessage(
-                  generator: generator,
-                  diff: diff,
-                  language: language,
-                  prefix: prefix,
-                  withEmoji: withEmoji,
-                  agentMode: agentMode,
+                currentMessage = await _generateMessage(
+                  model: model,
+                  options: options,
                   folderPath: folderPath,
+                  label: label,
                 );
-                currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
-                  currentMessage,
-                  requireConventionalCommit: agentMode,
-                  prefix: prefix,
-                );
-              } catch (e) {
+              } on Object catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
                 continue;
               }
@@ -1057,9 +945,11 @@ class CommitCommand extends Command<int> {
     }
   }
 
-  /// Checks for large files in staged changes and handles user prompts
-  /// Returns an exit code if commit should be cancelled, null to continue
-  Future<int?> _checkForLargeFiles(
+  /// Checks for large files in staged changes and handles user prompts.
+  ///
+  /// Returns false when the user cancelled or nothing is left staged after
+  /// unstaging large files, true to continue with the commit.
+  Future<bool> _checkForLargeFiles(
     ConfigManager configManager, {
     String? folderPath,
   }) async {
@@ -1069,7 +959,7 @@ class CommitCommand extends Command<int> {
       folderPath: folderPath,
     );
 
-    if (largeFiles.isEmpty) return null; // Continue normally
+    if (largeFiles.isEmpty) return true; // Continue normally
 
     for (final (filePath, sizeBytes) in largeFiles) {
       final sizeInMB = (sizeBytes / 1024 / 1024).toStringAsFixed(1);
@@ -1100,10 +990,9 @@ class CommitCommand extends Command<int> {
             await GitUtils.addToGitignore(filePath, folderPath: folderPath);
             await GitUtils.unstageFile(filePath, folderPath: folderPath);
             _logger.success('Added $filePath to .gitignore and unstaged it');
-            break;
           case 'Cancel commit':
             _logger.info('Commit cancelled.');
-            return cancelledExitCode.code;
+            return false;
           // 'Proceed anyway' continues
         }
       }
@@ -1113,29 +1002,20 @@ class CommitCommand extends Command<int> {
     final hasStaged = await GitUtils.hasStagedChanges(folderPath: folderPath);
     if (!hasStaged) {
       _logger.info('No staged changes remaining after handling large files.');
-      return cancelledExitCode.code;
+      return false;
     }
 
-    return null; // Continue with commit
+    return true; // Continue with commit
   }
 
-  /// Processes large diffs by generating summaries for each file
-  /// and then combining them into a final commit message
-  Future<int> _processFileByFileSummaries({
-    required String diff,
+  /// Summarises a large [diff] file by file, then asks the model for a commit
+  /// message based on those summaries. Returns the unsanitized message.
+  Future<String> _generateFromFileSummaries({
     required CommitGenerator generator,
-    required Language language,
-    String? prefix,
-    required bool withEmoji,
-    required bool autoPush,
-    String? tag,
-    required bool confirm,
-    bool dryRun = false,
-    required String modelName,
-    required String modelVariant,
-    required ConfigManager configManager,
-    String? folderPath,
+    required String diff,
+    required _CommitOptions options,
   }) async {
+    final language = options.language;
     final hunks = GitUtils.splitDiffIntoHunks(diff);
     final fileGroups = GitUtils.groupHunksByFile(hunks);
     final fileSummaries = <String, String>{};
@@ -1158,12 +1038,11 @@ class CommitCommand extends Command<int> {
         final summary = await generator.generateCommitMessage(
           summaryPrompt,
           language,
-          prefix: null,
           withEmoji: false,
         );
 
         fileSummaries[fileName] = summary.trim();
-      } catch (e) {
+      } on Object catch (e) {
         _logger.warn('Failed to summarize $fileName: $e');
         // Use a simple fallback summary
         final addedLines = fileHunks
@@ -1185,79 +1064,75 @@ class CommitCommand extends Command<int> {
     final finalPrompt = getCommitFromSummariesPrompt(
       fileSummaries,
       language,
-      prefix: prefix,
-      withEmoji: withEmoji,
+      prefix: options.prefix,
+      withEmoji: options.withEmoji,
     );
 
-    try {
-      String commitMessage = await generator.generateCommitMessage(
-        finalPrompt,
-        language,
-        prefix: prefix,
-        withEmoji: withEmoji,
-      );
-
-      commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
-        commitMessage,
-        prefix: prefix,
-      );
-
-      if (commitMessage.trim().isEmpty) {
-        _logger.err('Error: Generated commit message is empty!');
-        _logAcpDebugPath();
-        return ExitCode.software.code;
-      }
-
-      // Handle confirmation workflow if enabled
-      if (confirm && !dryRun) {
-        final finalMessage = await _handleCommitConfirmation(
-          commitMessage: commitMessage,
-          generator: generator,
-          diff: diff,
-          language: language,
-          prefix: prefix,
-          modelName: modelName,
-          modelVariant: modelVariant,
-          ollamaBaseUrl: null,
-          configManager: configManager,
-          withEmoji: withEmoji,
-          folderPath: folderPath,
-        );
-
-        if (finalMessage == null) {
-          return cancelledExitCode.code;
-        }
-
-        commitMessage = finalMessage;
-      } else {
-        // Show message without confirmation
-        _logger
-          ..info('\n---------------------------------\n')
-          ..info(commitMessage)
-          ..info('\n---------------------------------\n');
-      }
-
-      if (dryRun) {
-        _logger.info('Dry run: no commit was created.');
-        return ExitCode.success.code;
-      }
-
-      try {
-        await GitUtils.runGitCommit(
-          message: commitMessage,
-          autoPush: autoPush,
-          folderPath: folderPath,
-          tag: tag,
-        );
-      } catch (e) {
-        _logger.err('Error setting commit message: $e');
-        return ExitCode.software.code;
-      }
-
-      return ExitCode.success.code;
-    } catch (e) {
-      _logger.err('Failed to generate commit message: $e');
-      return ExitCode.software.code;
-    }
+    return generator.generateCommitMessage(
+      finalPrompt,
+      language,
+      prefix: options.prefix,
+      withEmoji: options.withEmoji,
+    );
   }
+}
+
+/// What happened to one repository during a commit run.
+enum _RepoOutcome {
+  /// Committed, or the message was generated for a dry run.
+  succeeded,
+
+  /// The user cancelled, declined or discarded the commit.
+  cancelled,
+
+  /// There was nothing to commit.
+  skipped,
+
+  /// Generating the message or creating the commit failed.
+  failed,
+}
+
+/// Settings shared by every repository in one commit run.
+class _CommitOptions {
+  const _CommitOptions({
+    required this.language,
+    required this.withEmoji,
+    required this.maxDiffSize,
+    required this.autoPush,
+    required this.confirm,
+    required this.dryRun,
+    this.prefix,
+    this.tag,
+    this.ollamaBaseUrl,
+  });
+
+  final Language language;
+  final bool withEmoji;
+
+  /// Direct-diff mode summarises diffs larger than this file by file.
+  final int maxDiffSize;
+  final bool autoPush;
+  final bool confirm;
+  final bool dryRun;
+  final String? prefix;
+  final String? tag;
+  final String? ollamaBaseUrl;
+
+  /// Base URL passed to generator builders (only Ollama uses it).
+  String get baseUrl => ollamaBaseUrl ?? 'http://localhost:11434';
+}
+
+/// The generator that writes commit messages, and how it is driven.
+class _ModelChoice {
+  const _ModelChoice({
+    required this.generator,
+    required this.name,
+    required this.variant,
+    required this.agentMode,
+  });
+
+  final CommitGenerator generator;
+  final String name;
+  final String variant;
+  final bool agentMode;
 }
