@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../private_files.dart';
+import 'acp_permission_policy.dart';
+
 typedef AcpProcessStarter = Future<Process> Function(
   String executable,
   List<String> arguments, {
@@ -79,6 +82,10 @@ class _ToolCallActivityState {
   String? path;
   int? hunkIndex;
   bool emitted = false;
+
+  /// Agent-assigned facts about the call, kept for permission decisions.
+  final kinds = <String>{};
+  final toolNames = <String>{};
 }
 
 class _AcpTimedStatus {
@@ -323,14 +330,20 @@ class AcpClient {
     this.onActivity,
     this.onStatus,
     AcpProcessStarter? startProcess,
+    AcpToolPermissionPolicy? permissionPolicy,
   })  : initializeTimeout = initializeTimeout ?? const Duration(minutes: 2),
-        _startProcess = startProcess ?? Process.start;
+        _startProcess = startProcess ?? Process.start,
+        _permissionPolicy =
+            permissionPolicy ?? AcpToolPermissionPolicy.gitWhisper();
 
   final String executable;
   final List<String> arguments;
   final Map<String, String>? environment;
   final String? workingDirectory;
   final List<Map<String, dynamic>> mcpServers;
+
+  /// Optional debug log. It records the shape of the JSON-RPC traffic
+  /// (methods, ids, sizes), never prompt or tool content.
   final File? logFile;
   final Duration timeout;
 
@@ -346,6 +359,16 @@ class AcpClient {
   final AcpStatusCallback? onStatus;
 
   final AcpProcessStarter _startProcess;
+  final AcpToolPermissionPolicy _permissionPolicy;
+
+  /// Session mode ids agents use for a read-only session (codex-acp uses
+  /// `read-only`). GitWhisper switches to one when the agent offers it, so
+  /// the agent cannot edit files even if it tries.
+  static const _readOnlyModeIds = <String>[
+    'read-only',
+    'readonly',
+    'read_only',
+  ];
 
   Process? _process;
   StreamSubscription<String>? _stdoutSubscription;
@@ -388,6 +411,8 @@ class AcpClient {
         throw const AcpException('ACP agent did not return a sessionId.');
       }
 
+      await _preferReadOnlyMode(sessionId, result as Map<String, dynamic>);
+
       final prompts = <String>[text, ...retryPrompts];
       for (var index = 0; index < prompts.length; index++) {
         _agentText.clear();
@@ -418,7 +443,7 @@ class AcpClient {
         }
 
         final agentText = _agentText.toString().trim();
-        _log('final_agent_text', agentText);
+        _log('final_agent_text', '${agentText.length} characters');
         if (shouldRetry == null || !shouldRetry(agentText, index)) {
           return agentText;
         }
@@ -461,6 +486,9 @@ class AcpClient {
       try {
         await process.exitCode.timeout(const Duration(seconds: 2));
       } on TimeoutException {
+        // dart:async's TimeoutException, thrown by Future.timeout. This file
+        // does not import GitWhisper's API exceptions (whose timeout type is
+        // ApiTimeoutException), so the name cannot be shadowed here.
         process.kill();
       }
     }
@@ -476,11 +504,11 @@ class AcpClient {
     await _openLog();
     _log(
       'start',
-      jsonEncode(<String, dynamic>{
+      <String, dynamic>{
         'executable': executable,
         'arguments': arguments,
         'workingDirectory': workingDirectory,
-      }),
+      },
     );
     try {
       final process = await _startProcess(
@@ -491,7 +519,10 @@ class AcpClient {
       );
       _process = process;
       _stderrFuture = utf8.decodeStream(process.stderr).then((stderr) {
-        if (stderr.trim().isNotEmpty) _log('stderr', stderr);
+        // Agents can echo prompts or file content to stderr; log its size.
+        if (stderr.trim().isNotEmpty) {
+          _log('stderr', '${stderr.length} characters');
+        }
         return stderr;
       });
       _stdoutSubscription = process.stdout
@@ -542,6 +573,46 @@ class AcpClient {
     );
   }
 
+  /// Switches the session to a read-only mode when the agent advertises one.
+  ///
+  /// Best effort: agents without modes, or that reject the switch, keep their
+  /// default mode, and GitWhisper's permission policy still rejects any edit
+  /// or command the agent asks to run.
+  Future<void> _preferReadOnlyMode(
+    String sessionId,
+    Map<String, dynamic> session,
+  ) async {
+    final modes = session['modes'];
+    if (modes is! Map<String, dynamic>) return;
+    final availableModes = modes['availableModes'];
+    if (availableModes is! List<dynamic>) return;
+
+    final availableIds = availableModes
+        .whereType<Map<String, dynamic>>()
+        .map((mode) => mode['id']?.toString())
+        .whereType<String>()
+        .toSet();
+    String? modeId;
+    for (final candidate in _readOnlyModeIds) {
+      if (availableIds.contains(candidate)) {
+        modeId = candidate;
+        break;
+      }
+    }
+    if (modeId == null || modes['currentModeId'] == modeId) return;
+
+    try {
+      await _request(
+        'session/set_mode',
+        <String, dynamic>{'sessionId': sessionId, 'modeId': modeId},
+        timeoutOverride: initializeTimeout,
+      );
+      _log('session_mode', modeId);
+    } on AcpException catch (error) {
+      _log('session_mode_failed', '$modeId: ${error.runtimeType}');
+    }
+  }
+
   Future<void> _initialize() {
     return _request(
       'initialize',
@@ -570,16 +641,23 @@ class AcpClient {
       throw const AcpException('ACP process is not running.');
     }
     final encoded = jsonEncode(message);
-    _log('send', encoded);
+    _logMessage('send', message, encoded.length);
     process.stdin.writeln(encoded);
   }
 
   void _handleLine(String line) {
     if (line.trim().isEmpty) return;
-    _log('receive', line);
 
-    final decoded = jsonDecode(line);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(line);
+    } on FormatException {
+      // Some agents print plain log lines on stdout; they are not ACP.
+      _log('receive_unparsed', '${line.length} characters');
+      return;
+    }
     if (decoded is! Map<String, dynamic>) return;
+    _logMessage('receive', decoded, line.length);
 
     if (decoded.containsKey('id') && !decoded.containsKey('method')) {
       final id = decoded['id'];
@@ -634,27 +712,46 @@ class AcpClient {
 
   bool _isInitializeResponse(int id) => id == 0;
 
+  /// Answers `session/request_permission`.
+  ///
+  /// Only GitWhisper's own read-only MCP tools are approved, and only for
+  /// this one call (`allow_once`, never `allow_always`, which some agents
+  /// persist). Everything else (shell commands, edits, fetches, other MCP
+  /// servers) is rejected with `reject_once`.
   void _handlePermissionRequest(Object? id, Object? params) {
     final paramsMap = params is Map<String, dynamic> ? params : null;
     final toolCall = paramsMap?['toolCall'];
     final toolCallMap = toolCall is Map<String, dynamic> ? toolCall : null;
-    final title = toolCallMap?['title']?.toString() ?? '';
-    final kind = toolCallMap?['kind']?.toString() ?? '';
-    final content = toolCallMap?['content']?.toString() ?? '';
-    final isGitWhisperTool = title.contains('gitwhisper') ||
-        kind.contains('gitwhisper') ||
-        content.contains('gitwhisper');
+    final toolCallId = toolCallMap?['toolCallId']?.toString();
+    final tracked = toolCallId == null ? null : _toolCalls[toolCallId];
+
+    final title = toolCallMap?['title'];
+    final kind = toolCallMap?['kind'];
+    final metaToolName = _metaToolName(toolCallMap);
+    final subject = AcpPermissionSubject(
+      titles: <String>[if (title is String) title],
+      toolNames: <String>{
+        if (metaToolName != null) metaToolName,
+        ...?tracked?.toolNames,
+      }.toList(),
+      kinds: <String>{
+        if (kind is String && kind.isNotEmpty) kind,
+        ...?tracked?.kinds,
+      }.toList(),
+    );
+    final approvedTool = _permissionPolicy.approvedToolName(subject);
+
     final options = paramsMap?['options'];
     final optionMaps = options is List<dynamic>
         ? options.whereType<Map<String, dynamic>>().toList()
         : const <Map<String, dynamic>>[];
-
-    final selectedOption = isGitWhisperTool
-        ? _permissionOption(optionMaps, 'allow_once') ??
-            _permissionOptionById(optionMaps, 'allow-once') ??
-            _permissionOption(optionMaps, 'allow_always')
-        : _permissionOption(optionMaps, 'reject_once') ??
-            _permissionOptionById(optionMaps, 'reject-once');
+    final rejectOption =
+        _permissionOption(optionMaps, kind: 'reject_once', id: 'reject-once');
+    // Without an allow-once option, reject rather than pick allow_always.
+    final selectedOption = approvedTool != null
+        ? _permissionOption(optionMaps, kind: 'allow_once', id: 'allow-once') ??
+            rejectOption
+        : rejectOption;
 
     final optionId = selectedOption?['optionId']?.toString();
     final outcome = optionId == null || optionId.isEmpty
@@ -663,12 +760,12 @@ class AcpClient {
 
     _log(
       'permission_request',
-      jsonEncode(<String, dynamic>{
-        'title': title,
-        'kind': kind,
-        'isGitWhisperTool': isGitWhisperTool,
+      <String, dynamic>{
+        'toolCallId': toolCallId,
+        'kinds': subject.kinds,
+        'approvedTool': approvedTool,
         'outcome': outcome,
-      }),
+      },
     );
     _send(<String, dynamic>{
       'jsonrpc': '2.0',
@@ -677,24 +774,32 @@ class AcpClient {
     });
   }
 
+  /// Finds the permission option with [kind], or, for agents that omit
+  /// option kinds, the conventional option [id].
   Map<String, dynamic>? _permissionOption(
-    List<Map<String, dynamic>> options,
-    String kind,
-  ) {
+    List<Map<String, dynamic>> options, {
+    required String kind,
+    required String id,
+  }) {
     for (final option in options) {
       if (option['kind']?.toString() == kind) return option;
+    }
+    for (final option in options) {
+      if (option['kind'] == null && option['optionId']?.toString() == id) {
+        return option;
+      }
     }
     return null;
   }
 
-  Map<String, dynamic>? _permissionOptionById(
-    List<Map<String, dynamic>> options,
-    String optionId,
-  ) {
-    for (final option in options) {
-      if (option['optionId']?.toString() == optionId) return option;
-    }
-    return null;
+  /// Tool name Claude Code adapters attach as `_meta.claudeCode.toolName`.
+  static String? _metaToolName(Map<String, dynamic>? toolCall) {
+    final meta = toolCall?['_meta'];
+    if (meta is! Map<String, dynamic>) return null;
+    final claudeCode = meta['claudeCode'];
+    if (claudeCode is! Map<String, dynamic>) return null;
+    final toolName = claudeCode['toolName'];
+    return toolName is String && toolName.isNotEmpty ? toolName : null;
   }
 
   bool _looksLikeAuthError(Object? error) {
@@ -739,6 +844,10 @@ class AcpClient {
     // update. Accumulate fields and emit exactly once — as soon as a path is
     // known, or when the call finishes if it never carries one.
     final state = _toolCalls.putIfAbsent(id, _ToolCallActivityState.new);
+    final kind = update['kind'];
+    if (kind is String && kind.isNotEmpty) state.kinds.add(kind);
+    final metaToolName = _metaToolName(update);
+    if (metaToolName != null) state.toolNames.add(metaToolName);
     if (state.emitted) return;
 
     final title = update['title']?.toString();
@@ -797,10 +906,7 @@ class AcpClient {
   void _appendText(Object? content) {
     if (content is Map<String, dynamic>) {
       final text = content['text'];
-      if (text is String) {
-        _log('agent_message_chunk', text);
-        _agentText.write(text);
-      }
+      if (text is String) _agentText.write(text);
       final nested = content['content'];
       if (nested != null) _appendText(nested);
     } else if (content is List<dynamic>) {
@@ -861,11 +967,12 @@ class AcpClient {
   void _reportStatus(AcpStatusEvent status) {
     final callback = onStatus;
     if (callback != null) callback(status);
-    _log('status', jsonEncode(status.toJson()));
+    _log('status', status.toJson());
   }
 
   void _failPending(Object error) {
-    _log('pending_error', error.toString());
+    // Error text (for example a FormatException) can quote agent output.
+    _log('pending_error', error.runtimeType.toString());
     for (final completer in _pending.values) {
       if (!completer.isCompleted) completer.completeError(error);
     }
@@ -875,11 +982,48 @@ class AcpClient {
   Future<void> _openLog() async {
     final file = logFile;
     if (file == null || _logSink != null) return;
-    await file.parent.create(recursive: true);
+    // Logs live in an owner-only directory as owner-only files.
+    await ensurePrivateDirectory(file.parent);
+    if (!file.existsSync()) await createPrivateFile(file);
     _logSink = file.openWrite(mode: FileMode.append);
   }
 
-  void _log(String event, String message) {
+  /// Logs one JSON-RPC message by its shape only: direction, method, id,
+  /// size, and a few protocol fields. Prompts carry staged diffs and tool
+  /// results carry file content, so message bodies are never written.
+  void _logMessage(String event, Map<String, dynamic> message, int bytes) {
+    if (_logSink == null) return;
+    final summary = <String, dynamic>{'bytes': bytes};
+    final method = message['method'];
+    if (method is String) summary['method'] = method;
+    if (message.containsKey('id')) summary['id'] = message['id'];
+
+    final error = message['error'];
+    if (error is Map<String, dynamic>) summary['errorCode'] = error['code'];
+
+    final result = message['result'];
+    if (result is Map<String, dynamic> && result['stopReason'] is String) {
+      summary['stopReason'] = result['stopReason'];
+    }
+
+    final params = message['params'];
+    final update = params is Map<String, dynamic> ? params['update'] : null;
+    if (method == 'session/update' && update is Map<String, dynamic>) {
+      for (final key in const <String>[
+        'sessionUpdate',
+        'toolCallId',
+        'kind',
+        'status',
+      ]) {
+        final value = update[key];
+        if (value is String) summary[key] = value;
+      }
+    }
+
+    _log(event, summary);
+  }
+
+  void _log(String event, Object message) {
     final sink = _logSink;
     if (sink == null) return;
     sink.writeln(

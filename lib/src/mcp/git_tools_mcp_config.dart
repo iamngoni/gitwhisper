@@ -5,6 +5,10 @@ import 'package:path/path.dart' as path;
 class GitToolsMcpConfig {
   const GitToolsMcpConfig._();
 
+  /// Name GitWhisper registers its MCP server under. Agents derive tool
+  /// identities from it (for example `mcp__gitwhisper__get_file_diff`).
+  static const serverName = 'gitwhisper';
+
   static Map<String, dynamic> forCwd(String cwd) {
     final command = Platform.resolvedExecutable;
     final args = <String>[];
@@ -18,7 +22,7 @@ class GitToolsMcpConfig {
     args.addAll(<String>['mcp', 'git-tools', '--cwd', cwd]);
 
     return <String, dynamic>{
-      'name': 'gitwhisper',
+      'name': serverName,
       'command': command,
       'args': args,
       'env': <Map<String, String>>[],

@@ -470,7 +470,7 @@ for line in sys.stdin:
         response_text = responses[prompt_count] if prompt_count < len(responses) else responses[-1]
         prompt_count += 1
         if os.environ.get("GITWHISPER_FAKE_ACP_REQUEST_PERMISSION") == "true":
-            print(json.dumps({"jsonrpc": "2.0", "id": 900, "method": "session/request_permission", "params": {"sessionId": "sess_fake", "toolCall": {"toolCallId": "call_001", "title": "mcp:fake__agent__gitwhisper:list_staged_files", "kind": "read", "status": "pending"}, "options": [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}, {"optionId": "reject-once", "name": "Reject", "kind": "reject_once"}]}}), flush=True)
+            print(json.dumps({"jsonrpc": "2.0", "id": 900, "method": "session/request_permission", "params": {"sessionId": "sess_fake", "toolCall": {"toolCallId": "call_001", "title": "mcp__gitwhisper__list_staged_files", "kind": "other", "status": "pending"}, "options": [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}, {"optionId": "reject-once", "name": "Reject", "kind": "reject_once"}]}}), flush=True)
             permission_response = json.loads(sys.stdin.readline())
         print(json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "sess_fake", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": response_text}}}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"stopReason": "end_turn"}}), flush=True)
