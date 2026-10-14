@@ -31,20 +31,21 @@ class AcpPermissionSubject {
 /// exact identity match. Substring matching is unsafe because the model
 /// controls tool titles and content, and every path in a repository named
 /// gitwhisper contains "gitwhisper". Everything else is rejected.
+///
+/// Bare forms such as `gitwhisper/get_file_diff` are never approved: that is
+/// also a relative executable path, so an agent that titles shell calls with
+/// the raw command could have a prompt-injected command approved.
 class AcpToolPermissionPolicy {
   AcpToolPermissionPolicy({
     required String serverName,
     required Iterable<String> toolNames,
-  }) : _identities = <String, String>{
-          for (final tool in toolNames) ...<String, String>{
-            // Claude Code (claude-agent-acp) tool names and titles.
-            'mcp__${serverName}__$tool': tool,
-            // codex-acp tool call titles.
-            'Tool: $serverName/$tool': tool,
-            // Other agents' fully qualified forms.
-            '$serverName/$tool': tool,
-            '${serverName}__$tool': tool,
-          },
+  })  : _identities = <String, String>{
+          // Claude Code (claude-agent-acp) tool names and titles.
+          for (final tool in toolNames) 'mcp__${serverName}__$tool': tool,
+        },
+        _titleOnlyIdentities = <String, String>{
+          // codex-acp tool call titles.
+          for (final tool in toolNames) 'Tool: $serverName/$tool': tool,
         };
 
   /// The policy for GitWhisper's own git tools MCP server.
@@ -63,11 +64,13 @@ class AcpToolPermissionPolicy {
   /// rejected.
   static const approvableKinds = <String>{'read', 'search', 'other'};
 
+  /// Identities that name a GitWhisper tool in agent metadata or a title.
   final Map<String, String> _identities;
 
-  /// Returns the GitWhisper tool name for an exact identity such as
-  /// `mcp__gitwhisper__get_file_diff`, or null.
-  String? toolNameFor(String identity) => _identities[identity];
+  /// Identities that only ever appear as a title, with nothing else to check
+  /// them against. They count only when the request has no kind and no tool
+  /// name metadata, as codex-acp sends them.
+  final Map<String, String> _titleOnlyIdentities;
 
   /// Returns the GitWhisper tool [subject] refers to when the request may be
   /// approved, or null when it must be rejected.
@@ -81,9 +84,11 @@ class AcpToolPermissionPolicy {
       if (!approvableKinds.contains(kind)) return null;
     }
 
+    final titleOnly = subject.toolNames.isEmpty && subject.kinds.isEmpty;
     String? matched;
     for (final identity in <String>[...subject.toolNames, ...subject.titles]) {
-      final tool = _identities[identity];
+      final tool = _identities[identity] ??
+          (titleOnly ? _titleOnlyIdentities[identity] : null);
       if (tool == null) continue;
       if (matched != null && matched != tool) return null;
       matched = tool;

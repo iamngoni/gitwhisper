@@ -249,6 +249,52 @@ void main() {
       expect(decide(titles: ['list_staged_files']), isNull);
     });
 
+    test('never approves bare gitwhisper/<tool> or gitwhisper__<tool>', () {
+      // `gitwhisper/get_file_diff` is also a relative executable path, so a
+      // shell call titled with its raw command could look like a tool.
+      for (final title in [
+        'gitwhisper/get_file_diff',
+        'gitwhisper__get_file_diff',
+      ]) {
+        expect(decide(titles: [title]), isNull, reason: title);
+        expect(decide(titles: [title], kinds: ['other']), isNull);
+        expect(decide(toolNames: [title], kinds: ['read']), isNull);
+      }
+    });
+
+    test('approves codex "Tool: gitwhisper/<tool>" titles only on their own',
+        () {
+      expect(decide(titles: ['Tool: gitwhisper/get_blame']), 'get_blame');
+      for (final kind in ['read', 'other', 'execute']) {
+        expect(
+          decide(titles: ['Tool: gitwhisper/get_blame'], kinds: [kind]),
+          isNull,
+          reason: kind,
+        );
+      }
+      expect(
+        decide(
+          titles: ['Tool: gitwhisper/get_blame'],
+          toolNames: ['Bash'],
+        ),
+        isNull,
+      );
+      expect(
+        decide(toolNames: ['Tool: gitwhisper/get_blame']),
+        isNull,
+        reason: 'not a tool name any agent reports in metadata',
+      );
+      // Metadata decides; the codex-style title is not consulted.
+      expect(
+        decide(
+          titles: ['Tool: gitwhisper/get_blame'],
+          toolNames: ['mcp__gitwhisper__list_staged_files'],
+          kinds: ['other'],
+        ),
+        'list_staged_files',
+      );
+    });
+
     test('rejects exact titles on calls with side-effect kinds', () {
       for (final kind in [
         'execute',
@@ -313,6 +359,8 @@ void main() {
         expect(outcomeOf('tracked-execute'), _selected('reject'));
         expect(outcomeOf('meta-bash'), _selected('reject'));
         expect(outcomeOf('other-server'), _selected('reject'));
+        expect(outcomeOf('bare-path'), _selected('reject'));
+        expect(outcomeOf('codex-title-with-kind'), _selected('reject'));
         expect(
           outcomeOf('only-always'),
           _selected('reject'),
@@ -434,6 +482,8 @@ for line in sys.stdin:
         ask("tracked-execute", {"toolCallId": "c4", "title": "mcp__gitwhisper__list_staged_files"})
         ask("meta-bash", {"toolCallId": "c5", "title": "mcp__gitwhisper__list_staged_files", "kind": "other", "_meta": {"claudeCode": {"toolName": "Bash"}}})
         ask("other-server", {"toolCallId": "c6", "title": "mcp__other__list_staged_files", "kind": "other"})
+        ask("bare-path", {"toolCallId": "c8", "title": "gitwhisper/get_file_diff"})
+        ask("codex-title-with-kind", {"toolCallId": "c9", "title": "Tool: gitwhisper/get_blame", "kind": "read"})
         ask("only-always", {"toolCallId": "c7", "title": "mcp__gitwhisper__get_diff_stat", "kind": "other"}, [OPTIONS[0], OPTIONS[2]])
         update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "feat: add permission checks"}})
         send({"jsonrpc": "2.0", "id": msg["id"], "result": {"stopReason": "end_turn"}})
