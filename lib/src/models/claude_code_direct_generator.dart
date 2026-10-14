@@ -105,6 +105,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   static const Duration _apiKeyHelperDefaultTtl = Duration(minutes: 5);
   static const Duration _defaultApiKeyHelperTimeout = Duration(minutes: 10);
   static const int _helperStderrNoteLength = 80;
+  static const Duration _credentialLockTimeout = Duration(seconds: 30);
+  static const String _credentialLockFileName =
+      '.gitwhisper-oauth-refresh.lock';
+  static const String _credentialRecoverySuffix = '.gitwhisper-recovery';
   static const String _claudeAiInferenceScope = 'user:inference';
   static const String _ccrOAuthTokenPath =
       '/home/claude/.claude/remote/.oauth_token';
@@ -148,6 +152,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       <String, String?>{};
   _ClaudeCodeApiKeyHelperCache? _apiKeyHelperCache;
   bool _warnedAboutUntrustedProjectSettings = false;
+  ({
+    String? replacedRefreshToken,
+    _ClaudeCodeOAuthCredentials credentials,
+  })? _unsavedOAuthCredentials;
 
   Map<String, String> get _env => _environment ?? Platform.environment;
 
@@ -666,11 +674,19 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   Future<_ClaudeCodeOAuthCredentials?> _readStoredOAuthCredentials() async {
-    final keychainCredentials =
-        await _readClaudeAiOauthCredentialsFromMacOsKeychain();
-    if (keychainCredentials != null) return keychainCredentials;
+    final stored = await _readClaudeAiOauthCredentialsFromMacOsKeychain() ??
+        await _readClaudeAiOauthCredentialsFromFile();
 
-    return _readClaudeAiOauthCredentialsFromFile();
+    // Refreshed tokens that could not be saved stay in use for this run while
+    // the store still holds the refresh token they replaced.
+    final unsaved = _unsavedOAuthCredentials;
+    if (unsaved == null) return stored;
+    if (stored == null || stored.refreshToken == unsaved.replacedRefreshToken) {
+      return unsaved.credentials;
+    }
+
+    _unsavedOAuthCredentials = null;
+    return stored;
   }
 
   Future<_ClaudeCodeOAuthCredentials?>
@@ -1168,10 +1184,79 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final refreshToken = credentials?.refreshToken;
     if (credentials == null || refreshToken == null) return auth;
 
-    $logger.info('Refreshing Claude Code authentication...');
-    final refreshed = await _refreshClaudeCodeOAuthCredentials(credentials);
-    await _saveClaudeAiOauthCredentials(refreshed);
-    return _ClaudeCodeAuth(oauthCredentials: refreshed);
+    return _withCredentialRefreshLock(() async {
+      // Another gitwhisper process may have refreshed while this one waited
+      // for the lock, which spends the refresh token read earlier.
+      final changedAuth = await _readChangedStoredOAuth(auth);
+      if (changedAuth != null) return changedAuth;
+
+      $logger.info('Refreshing Claude Code authentication...');
+      final refreshed = await _refreshClaudeCodeOAuthCredentials(credentials);
+      final saved = await _saveRefreshedClaudeAiOauthCredentials(
+        previous: credentials,
+        refreshed: refreshed,
+      );
+      return _ClaudeCodeAuth(oauthCredentials: saved);
+    });
+  }
+
+  /// Runs [action] while holding an exclusive lock shared by gitwhisper
+  /// processes, so only one of them refreshes and saves at a time. Locking is
+  /// best effort: saving still re-reads the store before writing.
+  Future<T> _withCredentialRefreshLock<T>(Future<T> Function() action) async {
+    final configDir = _resolvedClaudeConfigDir;
+    if (configDir == null || !Directory(configDir).existsSync()) {
+      return action();
+    }
+
+    final lockFile = File(path.join(configDir, _credentialLockFileName));
+    RandomAccessFile? handle;
+    try {
+      handle = await lockFile.open(mode: FileMode.append);
+      await _acquireExclusiveLock(handle);
+    } on FileSystemException catch (error) {
+      $logger.detail(
+        'Refreshing Claude Code credentials without a lock: ${error.message}',
+      );
+      await _closeQuietly(handle);
+      handle = null;
+    }
+
+    try {
+      return await action();
+    } finally {
+      if (handle != null) {
+        try {
+          await handle.unlock();
+        } on FileSystemException {
+          // Closing the file releases the lock as well.
+        }
+        await _closeQuietly(handle);
+      }
+    }
+  }
+
+  static Future<void> _acquireExclusiveLock(RandomAccessFile handle) async {
+    final deadline = DateTime.now().add(_credentialLockTimeout);
+    while (true) {
+      try {
+        // The default is a non-blocking exclusive lock; poll so a stuck
+        // holder cannot hang this process forever.
+        await handle.lock();
+        return;
+      } on FileSystemException {
+        if (DateTime.now().isAfter(deadline)) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
+
+  static Future<void> _closeQuietly(RandomAccessFile? handle) async {
+    try {
+      await handle?.close();
+    } on FileSystemException {
+      // Nothing useful to do; the OS releases the handle on exit.
+    }
   }
 
   Future<_ClaudeCodeOAuthCredentials> _refreshClaudeCodeOAuthCredentials(
@@ -1261,14 +1346,60 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _nonBlank(data['message']?.toString());
   }
 
-  Future<void> _saveClaudeAiOauthCredentials(
+  /// Saves [refreshed] without clobbering changes made to the store since
+  /// [previous] was read, and returns the credentials to use from now on.
+  Future<_ClaudeCodeOAuthCredentials> _saveRefreshedClaudeAiOauthCredentials({
+    required _ClaudeCodeOAuthCredentials previous,
+    required _ClaudeCodeOAuthCredentials refreshed,
+  }) async {
+    final store = refreshed.store;
+
+    // Re-read right before writing. The refresh (and, after a 401, the
+    // request before it) can take minutes, and Claude Code may have saved
+    // new tokens or other entries in the meantime.
+    final latestRoot = await _readOAuthStoreRoot(store);
+    if (latestRoot != null) {
+      final latest = _readClaudeAiOauthCredentials(
+        latestRoot,
+        store.withRoot(latestRoot),
+      );
+      final latestRefreshToken = latest?.refreshToken;
+      if (latest != null &&
+          latestRefreshToken != null &&
+          latestRefreshToken != previous.refreshToken) {
+        // Claude Code refreshed or the user logged in again; keep its tokens.
+        return latest;
+      }
+    }
+
+    final root = Map<String, dynamic>.from(latestRoot ?? store.root);
+    root['claudeAiOauth'] = _mergeClaudeAiOauth(
+      root['claudeAiOauth'],
+      refreshed,
+    );
+    final saved = refreshed.withStore(store.withRoot(root));
+
+    try {
+      await _writeOAuthStoreRoot(store, root);
+      _unsavedOAuthCredentials = null;
+    } on Object catch (error) {
+      // The refresh already spent the old refresh token, so going back to it
+      // would sign the user out. Keep the new tokens for the rest of this run.
+      _unsavedOAuthCredentials = (
+        replacedRefreshToken: previous.refreshToken,
+        credentials: saved,
+      );
+      await _reportCredentialSaveFailure(store, root, error);
+    }
+    return saved;
+  }
+
+  static Map<String, dynamic> _mergeClaudeAiOauth(
+    Object? existing,
     _ClaudeCodeOAuthCredentials credentials,
-  ) async {
-    final store = credentials.store;
-    final oauth = store.root['claudeAiOauth'] is Map<dynamic, dynamic>
-        ? Map<String, dynamic>.from(
-            store.root['claudeAiOauth'] as Map<dynamic, dynamic>,
-          )
+  ) {
+    final oauth = existing is Map<dynamic, dynamic>
+        ? Map<String, dynamic>.from(existing)
         : <String, dynamic>{};
 
     oauth['accessToken'] = credentials.accessToken;
@@ -1285,21 +1416,146 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     if (credentials.rateLimitTier != null) {
       oauth['rateLimitTier'] = credentials.rateLimitTier;
     }
-    store.root['claudeAiOauth'] = oauth;
+    return oauth;
+  }
 
+  Future<Map<String, dynamic>?> _readOAuthStoreRoot(
+    _ClaudeCodeOAuthStore store,
+  ) async {
+    final file = store.file;
+    if (file != null) return _readJsonObject(file);
+
+    final value = await _readMacOsKeychainService(
+      _macOsKeychainServiceName(credentials: true),
+    );
+    if (value == null) return null;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map<dynamic, dynamic>) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  Future<void> _writeOAuthStoreRoot(
+    _ClaudeCodeOAuthStore store,
+    Map<String, dynamic> root,
+  ) async {
     final file = store.file;
     if (file != null) {
-      const encoder = JsonEncoder.withIndent('  ');
-      final value = '${encoder.convert(store.root)}\n';
-      await file.writeAsString(value);
+      await _writePrivateFileAtomically(file, _encodeCredentialsFile(root));
       return;
     }
 
-    final value = jsonEncode(store.root);
     await _writeMacOsKeychainService(
       _macOsKeychainServiceName(credentials: true),
-      value,
+      jsonEncode(root),
     );
+  }
+
+  Future<void> _reportCredentialSaveFailure(
+    _ClaudeCodeOAuthStore store,
+    Map<String, dynamic> root,
+    Object error,
+  ) async {
+    final reason = _describeCredentialSaveError(error);
+    final file = store.file;
+    if (file == null) {
+      $logger.warn(
+        'Could not save refreshed Claude Code credentials to the macOS '
+        'keychain ($reason). They will be used for this run only, so Claude '
+        'Code may ask you to log in again.',
+      );
+      return;
+    }
+
+    final recoveryFile = File('${file.path}$_credentialRecoverySuffix');
+    try {
+      await _writePrivateFileAtomically(
+        recoveryFile,
+        _encodeCredentialsFile(root),
+      );
+      $logger.warn(
+        'Could not save refreshed Claude Code credentials to ${file.path} '
+        '($reason). They will be used for this run only. A copy readable '
+        'only by you was saved to ${recoveryFile.path}; move it to '
+        '${file.path} to keep Claude Code signed in.',
+      );
+    } on Object {
+      $logger.warn(
+        'Could not save refreshed Claude Code credentials to ${file.path} '
+        '($reason). They will be used for this run only, so Claude Code may '
+        'ask you to log in again.',
+      );
+    }
+  }
+
+  static String _describeCredentialSaveError(Object error) {
+    if (error is FileSystemException) {
+      return error.osError?.message ?? error.message;
+    }
+    if (error is ApiException) return error.message;
+    if (error is StateError) return error.message;
+    return 'unexpected error';
+  }
+
+  static String _encodeCredentialsFile(Map<String, dynamic> root) {
+    const encoder = JsonEncoder.withIndent('  ');
+    return '${encoder.convert(root)}\n';
+  }
+
+  /// Replaces [target] atomically with [contents], readable only by the
+  /// owner: a temp file in the same directory is restricted to 0600,
+  /// written, flushed and then renamed over the target. A symlinked target
+  /// is followed so the link itself is preserved.
+  static Future<void> _writePrivateFileAtomically(
+    File target,
+    String contents,
+  ) async {
+    final destination = FileSystemEntity.isLinkSync(target.path)
+        ? File(target.resolveSymbolicLinksSync())
+        : target;
+    final temp = File(
+      path.join(
+        destination.parent.path,
+        '.${path.basename(destination.path)}.gitwhisper-$pid-'
+        '${DateTime.now().microsecondsSinceEpoch}.tmp',
+      ),
+    );
+
+    try {
+      await temp.create(exclusive: true);
+      await _restrictToOwner(temp);
+      final handle = await temp.open(mode: FileMode.writeOnly);
+      try {
+        await handle.writeString(contents);
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+      await temp.rename(destination.path);
+    } on Object {
+      try {
+        if (temp.existsSync()) temp.deleteSync();
+      } on FileSystemException {
+        // Leave the temp file; it holds nothing the target did not.
+      }
+      rethrow;
+    }
+  }
+
+  static Future<void> _restrictToOwner(File file) async {
+    if (Platform.isWindows) return;
+    final result = await Process.run('chmod', <String>['600', file.path]);
+    if (result.exitCode != 0) {
+      throw FileSystemException(
+        'Could not restrict permissions to the owner',
+        file.path,
+      );
+    }
   }
 
   Future<void> _writeMacOsKeychainService(
@@ -1750,6 +2006,18 @@ class _ClaudeCodeOAuthCredentials {
       store: store,
     );
   }
+
+  _ClaudeCodeOAuthCredentials withStore(_ClaudeCodeOAuthStore store) {
+    return _ClaudeCodeOAuthCredentials(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      expiresAt: expiresAt,
+      scopes: scopes,
+      subscriptionType: subscriptionType,
+      rateLimitTier: rateLimitTier,
+      store: store,
+    );
+  }
 }
 
 class _ClaudeCodeOAuthStore {
@@ -1757,6 +2025,12 @@ class _ClaudeCodeOAuthStore {
 
   const _ClaudeCodeOAuthStore.keychain(this.root) : file = null;
 
+  const _ClaudeCodeOAuthStore._(this.file, this.root);
+
   final File? file;
   final Map<String, dynamic> root;
+
+  _ClaudeCodeOAuthStore withRoot(Map<String, dynamic> root) {
+    return _ClaudeCodeOAuthStore._(file, root);
+  }
 }

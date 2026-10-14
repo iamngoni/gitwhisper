@@ -881,6 +881,232 @@ void main() {
         'Bearer fresh-token',
       ]);
     });
+
+    test(
+      'saves refreshed credentials atomically with owner-only permissions',
+      () async {
+        await _writeCredentials(
+          tempDir,
+          'expired-token',
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        );
+
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: tempDir.path,
+          refreshToken: (endpoint, body) async => _refreshResponse(),
+        );
+
+        await generator.resolveHeaders();
+
+        final credentialsFile = File(pathFor(tempDir, '.credentials.json'));
+        expect(_permissionBits(credentialsFile), 0x180);
+        expect(
+          tempDir
+              .listSync()
+              .map((entity) => entity.path)
+              .where((name) => name.endsWith('.tmp')),
+          isEmpty,
+        );
+        expect((await _readStoredOauth(tempDir))['accessToken'], 'fresh-token');
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only.' : false,
+    );
+
+    test('merges refreshed tokens into the latest stored credentials',
+        () async {
+      await File(pathFor(tempDir, '.credentials.json')).writeAsString(
+        jsonEncode(<String, dynamic>{
+          'claudeAiOauth': <String, dynamic>{
+            'accessToken': 'expired-token',
+            'refreshToken': 'refresh-token',
+            'expiresAt': DateTime.now()
+                .subtract(const Duration(minutes: 1))
+                .millisecondsSinceEpoch,
+            'scopes': <String>['user:inference'],
+            'organizationUuid': 'org-1',
+          },
+          'mcpOAuth': <String, dynamic>{'server': 'snapshot'},
+        }),
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          // Claude Code updates another entry while the refresh is running.
+          final file = File(pathFor(tempDir, '.credentials.json'));
+          final root = jsonDecode(file.readAsStringSync()) as Map;
+          root['mcpOAuth'] = <String, dynamic>{'server': 'updated'};
+          file.writeAsStringSync(jsonEncode(root));
+          return _refreshResponse();
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer fresh-token');
+      final root = jsonDecode(
+        File(pathFor(tempDir, '.credentials.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(root['mcpOAuth'], <String, dynamic>{'server': 'updated'});
+      final oauth = root['claudeAiOauth'] as Map<String, dynamic>;
+      expect(oauth['accessToken'], 'fresh-token');
+      expect(oauth['refreshToken'], 'fresh-refresh-token');
+      expect(oauth['organizationUuid'], 'org-1');
+    });
+
+    test('keeps tokens Claude Code saved while a refresh was running',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          await _writeCredentials(
+            tempDir,
+            'claude-code-token',
+            refreshToken: 'claude-code-refresh-token',
+          );
+          return _refreshResponse();
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer claude-code-token');
+      final stored = await _readStoredOauth(tempDir);
+      expect(stored['accessToken'], 'claude-code-token');
+      expect(stored['refreshToken'], 'claude-code-refresh-token');
+    });
+
+    test('waits for another gitwhisper refresh and adopts its tokens',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+      final lockHolder = await _startLockHolder(
+        tempDir,
+        File(pathFor(tempDir, '.gitwhisper-oauth-refresh.lock')),
+      );
+      addTearDown(lockHolder.kill);
+
+      var refreshCalls = 0;
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          refreshCalls += 1;
+          return _refreshResponse();
+        },
+      );
+
+      final headersFuture = generator.resolveHeaders();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(refreshCalls, 0, reason: 'refresh must wait for the lock');
+
+      // The other process finishes its refresh, saves, and unlocks.
+      await _writeCredentials(
+        tempDir,
+        'other-process-token',
+        refreshToken: 'other-process-refresh-token',
+      );
+      await lockHolder.stdin.close();
+      await lockHolder.exitCode;
+
+      final headers = await headersFuture;
+
+      expect(headers['Authorization'], 'Bearer other-process-token');
+      expect(refreshCalls, 0);
+    });
+
+    test('keeps refreshed tokens in memory when the keychain save fails',
+        () async {
+      var refreshCalls = 0;
+      final generator = _sandboxedGenerator(
+        tempDir,
+        readMacOsKeychainService: (service) async => _credentialsJson(
+          'expired-token',
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+        writeMacOsKeychainService: (service, value) async {
+          throw StateError('keychain is locked');
+        },
+        refreshToken: (endpoint, body) async {
+          refreshCalls += 1;
+          return _refreshResponse();
+        },
+      );
+
+      final first = await generator.resolveHeaders();
+      final second = await generator.resolveHeaders();
+
+      expect(first['Authorization'], 'Bearer fresh-token');
+      expect(second['Authorization'], 'Bearer fresh-token');
+      expect(refreshCalls, 1);
+    });
+
+    test(
+      'writes a private recovery copy when saving the credentials file fails',
+      () async {
+        final lockedDir = Directory(pathFor(tempDir, 'locked'))..createSync();
+        final target = File(pathFor(lockedDir, 'credentials.json'))
+          ..writeAsStringSync(
+            _credentialsJson(
+              'expired-token',
+              expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+            ),
+          );
+        Link(pathFor(tempDir, '.credentials.json')).createSync(target.path);
+        Process.runSync('chmod', <String>['555', lockedDir.path]);
+        addTearDown(
+          () => Process.runSync('chmod', <String>['755', lockedDir.path]),
+        );
+        try {
+          File(pathFor(lockedDir, 'probe')).createSync();
+          markTestSkipped('Directory permissions are not enforced (root?).');
+          return;
+        } on FileSystemException {
+          // Expected: the credentials directory is read-only.
+        }
+
+        var refreshCalls = 0;
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: tempDir.path,
+          refreshToken: (endpoint, body) async {
+            refreshCalls += 1;
+            return _refreshResponse();
+          },
+        );
+
+        final first = await generator.resolveHeaders();
+        final second = await generator.resolveHeaders();
+
+        expect(first['Authorization'], 'Bearer fresh-token');
+        expect(second['Authorization'], 'Bearer fresh-token');
+        expect(refreshCalls, 1);
+        expect(target.readAsStringSync(), contains('expired-token'));
+
+        final recovery = File(
+          pathFor(tempDir, '.credentials.json.gitwhisper-recovery'),
+        );
+        expect(_permissionBits(recovery), 0x180);
+        final recovered = jsonDecode(recovery.readAsStringSync()) as Map;
+        expect(
+          (recovered['claudeAiOauth'] as Map)['refreshToken'],
+          'fresh-refresh-token',
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only.' : false,
+    );
   });
 
   group(
@@ -966,6 +1192,44 @@ void main() {
     },
     skip: Platform.isWindows ? 'Uses /bin/sh helpers.' : false,
   );
+}
+
+Map<String, dynamic> _refreshResponse() {
+  return <String, dynamic>{
+    'access_token': 'fresh-token',
+    'refresh_token': 'fresh-refresh-token',
+    'expires_in': 3600,
+    'scope': 'user:profile user:inference',
+  };
+}
+
+int _permissionBits(File file) => file.statSync().mode & 0x1FF;
+
+/// Starts a separate Dart process that holds [lockFile] until its stdin is
+/// closed, standing in for another gitwhisper process mid-refresh.
+Future<Process> _startLockHolder(Directory sandbox, File lockFile) async {
+  final script = File(pathFor(sandbox, 'hold_lock.dart'))..writeAsStringSync('''
+import 'dart:io';
+
+Future<void> main(List<String> args) async {
+  final handle = await File(args.single).open(mode: FileMode.append);
+  await handle.lock();
+  stdout.writeln('locked');
+  await stdin.drain<void>();
+  await handle.unlock();
+  await handle.close();
+}
+''');
+  final process = await Process.start(
+    Platform.resolvedExecutable,
+    <String>[script.path, lockFile.path],
+  );
+  await process.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .firstWhere((line) => line == 'locked')
+      .timeout(const Duration(seconds: 60));
+  return process;
 }
 
 /// Polls until [pid] no longer accepts signals. SIGCONT is harmless to a
