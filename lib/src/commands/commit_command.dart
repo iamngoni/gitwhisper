@@ -430,6 +430,7 @@ class CommitCommand extends Command<int> {
           commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
             commitMessage,
             requireConventionalCommit: agentMode,
+            prefix: prefix,
           );
         } catch (_) {
           // Silent prayer that it works
@@ -579,6 +580,7 @@ class CommitCommand extends Command<int> {
             commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
               commitMessage,
               requireConventionalCommit: agentMode,
+              prefix: prefix,
             );
           } catch (_) {
             // Silent prayer that it works
@@ -887,6 +889,7 @@ class CommitCommand extends Command<int> {
                 currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
                   currentMessage,
                   requireConventionalCommit: agentMode,
+                  prefix: prefix,
                 );
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
@@ -949,6 +952,7 @@ class CommitCommand extends Command<int> {
                 currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
                   currentMessage,
                   requireConventionalCommit: agentMode,
+                  prefix: prefix,
                 );
               } catch (e) {
                 _logger.err(
@@ -981,6 +985,7 @@ class CommitCommand extends Command<int> {
                 currentMessage = GitUtils.sanitizeGeneratedCommitMessage(
                   currentMessage,
                   requireConventionalCommit: agentMode,
+                  prefix: prefix,
                 );
               } catch (e) {
                 _logger.err('Failed to regenerate commit message: $e');
@@ -1136,7 +1141,10 @@ class CommitCommand extends Command<int> {
         withEmoji: withEmoji,
       );
 
-      commitMessage = GitUtils.sanitizeGeneratedCommitMessage(commitMessage);
+      commitMessage = GitUtils.sanitizeGeneratedCommitMessage(
+        commitMessage,
+        prefix: prefix,
+      );
 
       if (commitMessage.trim().isEmpty) {
         _logger.err('Error: Generated commit message is empty!');

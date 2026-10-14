@@ -281,6 +281,22 @@ void main() {
     });
   });
 
+  group('commit --prefix', () {
+    test('keeps a non-JIRA prefix on the committed message', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--prefix', '#42'],
+        _FakeGenerator('Feat: Add dark mode'),
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(await _lastSubject(repo), '#42 -> feat: Add dark mode');
+    });
+  });
+
   group('commit always_add', () {
     test('stages a repo whose only changes are untracked files', () async {
       final repo = await _createRepo(sandbox, 'repo');

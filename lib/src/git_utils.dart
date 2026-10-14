@@ -414,37 +414,96 @@ class GitUtils {
     return input.replaceAll(codeBlockPattern, '').trim();
   }
 
+  static const _commitTypes =
+      'feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert';
+
+  /// A whole line that is a commit message, optionally after a list marker
+  /// and a `<prefix> ->` written by the model. Types match case-insensitively
+  /// and the full-width colon used in Chinese, Japanese and Korean output is
+  /// accepted; both are normalised by [_normalizeCommitLine].
+  static final _commitLinePattern = RegExp(
+    r'^(?:[-*•]\s+|\d+[.)]\s+)?'
+    r'(?:(?<prefix>.+?)\s*->\s*)?'
+    '(?<type>$_commitTypes)'
+    r'(?<scope>\([^)]+\))?(?<breaking>!)?(?::\s+|：\s*)(?<description>\S.*)$',
+    caseSensitive: false,
+  );
+
+  /// A commit message preceded by other text on the same line, e.g. an agent
+  /// preface such as "I'll inspect the changes.docs: Add note". Only lowercase
+  /// types count here, and the type must start a word so prose such as
+  /// "the default prefix: now reads" does not yield "fix: now reads".
+  static final _commitSubstringPattern = RegExp(
+    '\\b(?<type>$_commitTypes)'
+    r'(?<scope>\([^)]+\))?(?<breaking>!)?(?::\s+|：\s*)(?<description>\S.*)$',
+  );
+
   /// Removes Markdown fences and extracts valid commit lines from noisy output.
+  ///
+  /// Commit types are lowercased and a full-width colon becomes `: `. When
+  /// [prefix] is set, any `<something> ->` the model put before the type is
+  /// dropped and `$prefix -> ` is applied to every line, so the configured
+  /// prefix always survives regardless of its format.
   static String sanitizeGeneratedCommitMessage(
     String input, {
     bool requireConventionalCommit = false,
+    String? prefix,
   }) {
     final cleaned = stripMarkdownCodeBlocks(input);
-    final commitLinePattern = RegExp(
-      r'^(?:[A-Z][A-Z0-9]+-\d+\s*->\s*)?'
-      '(?:feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'
-      r'(?:\([^)]+\))?!?:\s+\S.*$',
-    );
-    final commitSubstringPattern = RegExp(
-      r'(?:[A-Z][A-Z0-9]+-\d+\s*->\s*)?'
-      r'(?:feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'
-      r'(?:\([^)]+\))?!?:\s+\S.*$',
-    );
+    final ticket = prefix?.trim() ?? '';
     final commitLines = cleaned
         .split('\n')
-        .map((line) => line.trim())
-        .map((line) {
-          if (commitLinePattern.hasMatch(line)) return line;
-          return commitSubstringPattern.firstMatch(line)?.group(0)?.trim();
-        })
+        .map((line) => _normalizeCommitLine(line.trim(), ticket))
         .whereType<String>()
         .fold<List<String>>(<String>[], (lines, line) {
-          if (!lines.contains(line)) lines.add(line);
-          return lines;
-        });
+      if (!lines.contains(line)) lines.add(line);
+      return lines;
+    });
 
     if (commitLines.isNotEmpty) return commitLines.join('\n').trim();
-    return requireConventionalCommit ? '' : cleaned.trim();
+    if (requireConventionalCommit) return '';
+    if (ticket.isEmpty) return cleaned.trim();
+
+    // Not a conventional commit, but still apply the configured prefix.
+    final existingPrefix = RegExp('^${RegExp.escape(ticket)}\\s*->\\s*');
+    return cleaned
+        .trim()
+        .split('\n')
+        .map((line) => line.trim())
+        .map(
+          (line) => line.isEmpty
+              ? line
+              : '$ticket -> ${line.replaceFirst(existingPrefix, '')}',
+        )
+        .join('\n');
+  }
+
+  /// Returns [line] as a normalised commit line, or null if it has none.
+  static String? _normalizeCommitLine(String line, String ticket) {
+    var match = _commitLinePattern.firstMatch(line);
+    String? modelPrefix;
+    if (match != null) {
+      modelPrefix = match.namedGroup('prefix')?.trim();
+    } else {
+      match = _commitSubstringPattern.firstMatch(line);
+      if (match == null) return null;
+    }
+
+    final type = match.namedGroup('type')!.toLowerCase();
+    final scope = match.namedGroup('scope') ?? '';
+    final breaking = match.namedGroup('breaking') ?? '';
+    final description = match.namedGroup('description')!.trim();
+    final header = '$type$scope$breaking: $description';
+
+    if (ticket.isNotEmpty) return '$ticket -> $header';
+    // Without a configured prefix, keep a ticket-like token the model wrote
+    // (e.g. "PAY-123 ->") but not prose that happened to precede an arrow.
+    if (modelPrefix != null &&
+        modelPrefix.isNotEmpty &&
+        !modelPrefix.contains(RegExp(r'\s'))) {
+      return '$modelPrefix -> $header';
+    }
+    return header;
   }
 
   /// Estimates the size of a diff in characters for API limitations

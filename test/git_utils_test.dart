@@ -124,5 +124,137 @@ fix: Add German date formatting for payment emails
         isEmpty,
       );
     });
+
+    group('with a configured prefix', () {
+      for (final prefix in ['#42', 'proj-12', 'A-1', 'ENG_99', 'PAY-123']) {
+        test('applies "$prefix" when the model left it out', () {
+          expect(
+            GitUtils.sanitizeGeneratedCommitMessage(
+              'feat: Add dark mode toggle',
+              requireConventionalCommit: true,
+              prefix: prefix,
+            ),
+            '$prefix -> feat: Add dark mode toggle',
+          );
+        });
+
+        test('keeps "$prefix" once when the model already wrote it', () {
+          expect(
+            GitUtils.sanitizeGeneratedCommitMessage(
+              '$prefix -> feat: Add dark mode toggle',
+              prefix: prefix,
+            ),
+            '$prefix -> feat: Add dark mode toggle',
+          );
+        });
+      }
+
+      test('replaces a prefix the model wrote in another form', () {
+        expect(
+          GitUtils.sanitizeGeneratedCommitMessage(
+            'PROJ-12 -> fix: Handle empty input\n[proj 12] -> feat: Add toggle',
+            prefix: 'proj-12',
+          ),
+          'proj-12 -> fix: Handle empty input\n'
+          'proj-12 -> feat: Add toggle',
+        );
+      });
+
+      test('applies the prefix to every commit line', () {
+        expect(
+          GitUtils.sanitizeGeneratedCommitMessage(
+            'Here are the commits:\n\n'
+            'feat: Add dark mode toggle\n'
+            'fix: Handle empty input',
+            requireConventionalCommit: true,
+            prefix: '#42',
+          ),
+          '#42 -> feat: Add dark mode toggle\n'
+          '#42 -> fix: Handle empty input',
+        );
+      });
+
+      test('prefixes non-conventional output in lenient mode', () {
+        expect(
+          GitUtils.sanitizeGeneratedCommitMessage(
+            'Add dark mode toggle',
+            prefix: '#42',
+          ),
+          '#42 -> Add dark mode toggle',
+        );
+        expect(
+          GitUtils.sanitizeGeneratedCommitMessage(
+            '#42 -> Add dark mode toggle',
+            prefix: '#42',
+          ),
+          '#42 -> Add dark mode toggle',
+        );
+      });
+    });
+
+    test('drops prose before an arrow when no prefix is configured', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'The commit message is -> feat: Add dark mode toggle',
+        ),
+        'feat: Add dark mode toggle',
+      );
+    });
+
+    test('requires a word boundary before the commit type', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'Updated the default prefix: now reads from config',
+          requireConventionalCommit: true,
+        ),
+        isEmpty,
+      );
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'Updated the default prefix: now reads from config\n'
+          'feat: Read the prefix from config',
+          requireConventionalCommit: true,
+        ),
+        'feat: Read the prefix from config',
+      );
+    });
+
+    test('normalises capitalised commit types to lowercase', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'Feat: Add dark mode\nFIX(api)!: Handle null bodies',
+          requireConventionalCommit: true,
+        ),
+        'feat: Add dark mode\nfix(api)!: Handle null bodies',
+      );
+    });
+
+    test('accepts list markers before a commit line', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          '- Feat: Add dark mode\n1. fix: Handle empty input',
+          requireConventionalCommit: true,
+        ),
+        'feat: Add dark mode\nfix: Handle empty input',
+      );
+    });
+
+    test('accepts and normalises the full-width colon', () {
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          'feat：添加深色模式\nFix：修复登录验证',
+          requireConventionalCommit: true,
+        ),
+        'feat: 添加深色模式\nfix: 修复登录验证',
+      );
+      expect(
+        GitUtils.sanitizeGeneratedCommitMessage(
+          '提交信息如下：docs：更新说明',
+          requireConventionalCommit: true,
+          prefix: 'ENG_99',
+        ),
+        'ENG_99 -> docs: 更新说明',
+      );
+    });
   });
 }
