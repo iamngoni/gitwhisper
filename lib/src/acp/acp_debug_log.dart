@@ -58,6 +58,10 @@ class AcpDebugLogs {
   /// [directory] are touched.
   Future<int> prune() async {
     if (!directory.existsSync()) return 0;
+    // Older GitWhisper versions wrote full prompts and diffs to 0644 files in
+    // a 0755 directory. Make the directory owner-only so logs that have not
+    // aged out yet are private too.
+    await restrictToOwner(directory.path, directory: true);
     final cutoff = _clock().subtract(retention);
     var removed = 0;
     await for (final entity in directory.list(followLinks: false)) {

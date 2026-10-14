@@ -71,6 +71,13 @@ void main() {
       tools.map((tool) => (tool as Map<String, dynamic>)['name']),
       contains('get_file_diff'),
     );
+    for (final tool in tools.cast<Map<String, dynamic>>()) {
+      expect(
+        (tool['annotations'] as Map<String, dynamic>)['readOnlyHint'],
+        isTrue,
+        reason: '${tool['name']} is advertised as read-only',
+      );
+    }
 
     final callResult = responses[2]['result'] as Map<String, dynamic>;
     final content = callResult['content'] as List<dynamic>;

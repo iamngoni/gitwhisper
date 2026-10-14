@@ -365,6 +365,13 @@ void main() {
       expect(recentLog.existsSync(), isTrue);
       expect(notes.existsSync(), isTrue);
       expect(otherJsonl.existsSync(), isTrue);
+      if (!Platform.isWindows) {
+        expect(
+          logsDir.statSync().mode & 0x1FF,
+          0x1C0,
+          reason: 'existing log directory is tightened to 0700',
+        );
+      }
     });
   });
 
