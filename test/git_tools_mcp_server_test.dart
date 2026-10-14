@@ -84,6 +84,65 @@ void main() {
     final text = (content.single as Map<String, dynamic>)['text'] as String;
     expect(text, contains('README.md'));
   });
+
+  test('a listed non-ASCII path can be read over MCP', () async {
+    final root = await Directory.systemTemp.createTemp('gitwhisper_mcp_');
+    addTearDown(() => root.delete(recursive: true));
+    final repo = await Directory(p.join(root.path, 'repo')).create();
+    final hooks = await Directory(p.join(root.path, 'hooks')).create();
+
+    await _runGit(repo, <String>['init']);
+    await _runGit(repo, <String>['config', 'user.email', 'test@example.com']);
+    await _runGit(repo, <String>['config', 'user.name', 'Test User']);
+    await _runGit(repo, <String>['config', 'commit.gpgsign', 'false']);
+    await _runGit(repo, <String>['config', 'core.hooksPath', hooks.path]);
+    await File(p.join(repo.path, 'café.txt')).writeAsString('Bonjour\n');
+    await _runGit(repo, <String>['add', 'café.txt']);
+
+    Future<Map<String, dynamic>> call(
+      String name, [
+      Map<String, dynamic> arguments = const <String, dynamic>{},
+    ]) async {
+      final output = StringBuffer();
+      await GitToolsMcpServer(
+        cwd: repo.path,
+        input: Stream<List<int>>.value(
+          utf8.encode(
+            jsonEncode(<String, dynamic>{
+              'jsonrpc': '2.0',
+              'id': 1,
+              'method': 'tools/call',
+              'params': <String, dynamic>{
+                'name': name,
+                'arguments': arguments,
+              },
+            }),
+          ),
+        ),
+        output: output,
+      ).serve();
+      final response = jsonDecode(output.toString()) as Map<String, dynamic>;
+      return response['result'] as Map<String, dynamic>;
+    }
+
+    String text(Map<String, dynamic> result) =>
+        ((result['content'] as List<dynamic>).single
+            as Map<String, dynamic>)['text'] as String;
+
+    final listed = jsonDecode(text(await call('list_staged_files')))
+        as Map<String, dynamic>;
+    final file =
+        (listed['files'] as List<dynamic>).single as Map<String, dynamic>;
+    final diff = await call(
+      'get_file_diff',
+      <String, dynamic>{'path': file['path']},
+    );
+
+    expect(file['path'], 'café.txt');
+    expect(file['additions'], 1);
+    expect(diff['isError'], isFalse, reason: text(diff));
+    expect(text(diff), contains('+Bonjour'));
+  });
 }
 
 Future<void> _runGit(Directory repo, List<String> args) async {

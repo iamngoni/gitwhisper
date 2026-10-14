@@ -16,6 +16,8 @@ void main() {
     await _git(repo, <String>['config', 'user.email', 'test@example.com']);
     await _git(repo, <String>['config', 'user.name', 'Test User']);
     await _git(repo, <String>['config', 'commit.gpgsign', 'false']);
+    final hooks = await Directory(p.join(root.path, 'hooks')).create();
+    await _git(repo, <String>['config', 'core.hooksPath', hooks.path]);
   });
 
   tearDown(() => root.delete(recursive: true));
@@ -139,6 +141,120 @@ void main() {
         ),
         contains('no staged content'),
       );
+    });
+  });
+
+  group('paths git would quote', () {
+    // Tabs and double quotes cannot appear in Windows file names.
+    final names = <String>[
+      'café.txt',
+      'with space.txt',
+      if (!Platform.isWindows) ...<String>['tab\there.txt', 'qu"ote.txt'],
+    ];
+
+    Future<Map<String, Map<String, dynamic>>> stagedFiles() async {
+      final payload = jsonDecode(
+        await tools().execute('list_staged_files', <String, dynamic>{}),
+      ) as Map<String, dynamic>;
+      return <String, Map<String, dynamic>>{
+        for (final file
+            in (payload['files'] as List<dynamic>).cast<Map<String, dynamic>>())
+          file['path'] as String: file,
+      };
+    }
+
+    setUp(() async {
+      // Rename detection is on by default; pin it against global config.
+      await _git(repo, <String>['config', 'diff.renames', 'true']);
+      File(p.join(repo.path, 'old.txt'))
+          .writeAsStringSync('one\ntwo\nthree\nfour\n');
+      await _git(repo, <String>['add', 'old.txt']);
+      await _git(repo, <String>['commit', '-q', '-m', 'init']);
+      await _git(repo, <String>['mv', 'old.txt', 'new name.txt']);
+      File(p.join(repo.path, 'new name.txt'))
+          .writeAsStringSync('one\ntwo\nthree\nfour\nfive\n');
+      for (final name in names) {
+        File(p.join(repo.path, name)).writeAsStringSync('content of $name\n');
+      }
+      await _git(repo, <String>['add', '-A']);
+    });
+
+    test('list_staged_files returns exact paths with their stats', () async {
+      final files = await stagedFiles();
+
+      expect(files.keys, unorderedEquals(<String>[...names, 'new name.txt']));
+      for (final name in names) {
+        expect(files[name]!['status'], 'A', reason: name);
+        expect(files[name]!['additions'], 1, reason: name);
+      }
+      final renamed = files['new name.txt']!;
+      expect(renamed['status'], startsWith('R'));
+      expect(renamed['oldPath'], 'old.txt');
+      expect(renamed['additions'], 1);
+    });
+
+    test('every listed path can be opened by the path tools', () async {
+      final listed = (await stagedFiles()).keys;
+
+      expect(listed, hasLength(names.length + 1));
+      for (final name in listed) {
+        final diff = await tools().execute(
+          'get_file_diff',
+          <String, dynamic>{'path': name},
+        );
+        final content = await tools().execute(
+          'get_file_content',
+          <String, dynamic>{'path': name},
+        );
+        final summary = jsonDecode(
+          await tools().execute(
+            'get_staged_file_summary',
+            <String, dynamic>{'path': name},
+          ),
+        ) as Map<String, dynamic>;
+
+        expect(diff, isNot(startsWith('No staged diff')), reason: name);
+        expect(content, contains(name == 'new name.txt' ? 'five' : name));
+        expect(summary['additions'], greaterThan(0), reason: name);
+      }
+    });
+
+    test('get_diff_stat shows non-ASCII paths unquoted', () async {
+      final stat = await tools().execute('get_diff_stat', <String, dynamic>{});
+
+      expect(stat, contains('café.txt'));
+    });
+
+    test('get_related_files finds tracked files with non-ASCII names',
+        () async {
+      File(p.join(repo.path, 'café_test.txt')).writeAsStringSync('test\n');
+      await _git(repo, <String>['add', 'café_test.txt']);
+      await _git(repo, <String>['commit', '-q', '-m', 'add files']);
+      File(p.join(repo.path, 'café.txt')).writeAsStringSync('changed\n');
+      await _git(repo, <String>['add', 'café.txt']);
+
+      final related = jsonDecode(
+        await tools().execute(
+          'get_related_files',
+          <String, dynamic>{'path': 'café.txt'},
+        ),
+      ) as Map<String, dynamic>;
+
+      expect(related['relatedFiles'], contains('café_test.txt'));
+    });
+
+    test('get_file_diff treats the path literally, not as a glob', () async {
+      File(p.join(repo.path, 'glob[1].txt')).writeAsStringSync('literal\n');
+      File(p.join(repo.path, 'glob1.txt')).writeAsStringSync('globbed\n');
+      await _git(repo, <String>['add', '-A']);
+
+      final diff = await tools().execute(
+        'get_file_diff',
+        <String, dynamic>{'path': 'glob[1].txt'},
+      );
+
+      expect(diff, contains('literal'));
+      expect(diff, isNot(contains('globbed')));
     });
   });
 

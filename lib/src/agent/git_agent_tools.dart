@@ -248,29 +248,37 @@ class GitAgentTools {
   }
 
   Future<String> _listStagedFiles() async {
-    final output = await _runGit(<String>['diff', '--cached', '--name-status']);
+    // -z keeps git from quoting non-ASCII and special paths, so each path is
+    // the exact one the path-taking tools accept.
+    final fields = (await _runGit(
+      <String>['diff', '--cached', '--name-status', '-z'],
+    ))
+        .split('\u0000');
     final statsByPath = await _stagedNumStats();
     final files = <Map<String, dynamic>>[];
 
-    for (final line in output.split('\n')) {
-      if (line.trim().isEmpty) continue;
+    // Each entry is a status followed by its path. Renames and copies (R and
+    // C) are followed by the old path and then the new one.
+    var index = 0;
+    while (index < fields.length) {
+      final status = fields[index++];
+      if (status.isEmpty) continue;
 
-      final parts = line.split('\t');
-      if (parts.length < 2) continue;
-
-      final status = parts.first;
-      if ((status.startsWith('R') || status.startsWith('C')) &&
-          parts.length >= 3) {
+      if (status.startsWith('R') || status.startsWith('C')) {
+        if (index + 2 > fields.length) break;
         files.add(<String, dynamic>{
           'status': status,
-          'oldPath': parts[1],
-          'path': parts[2],
+          'oldPath': fields[index],
+          'path': fields[index + 1],
         });
+        index += 2;
       } else {
+        if (index + 1 > fields.length) break;
         files.add(<String, dynamic>{
           'status': status,
-          'path': parts[1],
+          'path': fields[index],
         });
+        index++;
       }
     }
 
@@ -461,10 +469,10 @@ class GitAgentTools {
 
   Future<String> _getRelatedFiles(Map<String, dynamic> input) async {
     final stagedPath = await _validateStagedPath(input);
-    final trackedOutput = await _runGit(<String>['ls-files']);
+    final trackedOutput = await _runGit(<String>['ls-files', '-z']);
     final trackedFiles = trackedOutput
-        .split('\n')
-        .where((value) => value.trim().isNotEmpty)
+        .split('\u0000')
+        .where((value) => value.isNotEmpty)
         .map(_normalizeGitPath)
         .toList();
     final stagedBase = path.posix.basenameWithoutExtension(stagedPath);
@@ -584,22 +592,36 @@ class GitAgentTools {
   }
 
   Future<String> _fileDiff(String stagedPath) {
-    return _runGit(<String>['diff', '--cached', '--', stagedPath]);
+    // A literal pathspec, so a name such as `*.txt` matches only itself.
+    return _runGit(
+      <String>['--literal-pathspecs', 'diff', '--cached', '--', stagedPath],
+    );
   }
 
   Future<Map<String, _StagedNumStat>> _stagedNumStats() async {
-    final output = await _runGit(<String>['diff', '--cached', '--numstat']);
+    final fields = (await _runGit(
+      <String>['diff', '--cached', '--numstat', '-z'],
+    ))
+        .split('\u0000');
     final stats = <String, _StagedNumStat>{};
 
-    for (final line in output.split('\n')) {
-      if (line.trim().isEmpty) continue;
-
-      final parts = line.split('\t');
+    // Entries are "<added>\t<deleted>\t<path>". A rename or copy leaves the
+    // path empty and is followed by the old path and then the new one.
+    var index = 0;
+    while (index < fields.length) {
+      final parts = fields[index++].split('\t');
       if (parts.length < 3) continue;
+
+      var rawPath = parts.sublist(2).join('\t');
+      if (rawPath.isEmpty) {
+        if (index + 2 > fields.length) break;
+        rawPath = fields[index + 1];
+        index += 2;
+      }
 
       final additions = int.tryParse(parts[0]) ?? 0;
       final deletions = int.tryParse(parts[1]) ?? 0;
-      final stagedPath = _normalizeGitPath(parts.sublist(2).join('\t'));
+      final stagedPath = _normalizeGitPath(rawPath);
       stats[stagedPath] = _StagedNumStat(
         additions: additions,
         deletions: deletions,
@@ -730,14 +752,19 @@ class GitAgentTools {
   /// Git output can contain binary or non-UTF-8 content, and the default UTF-8
   /// stream decoding used by Process.run throws "Unexpected extension byte" on
   /// the first invalid byte. Callers decode with [_decodeLenient] instead.
+  ///
+  /// `core.quotePath=false` keeps non-ASCII paths readable in diff headers
+  /// and stats (`café.txt`, not `"caf\303\251.txt"`), so the model sees the
+  /// same paths list_staged_files returns.
   Future<ProcessResult> _runGitProcess(
     List<String> args, {
     List<int>? stdinBytes,
   }) async {
+    final gitArgs = <String>['-c', 'core.quotePath=false', ...args];
     if (stdinBytes == null) {
       return Process.run(
         'git',
-        args,
+        gitArgs,
         workingDirectory: folderPath,
         stdoutEncoding: null,
         stderrEncoding: null,
@@ -746,7 +773,7 @@ class GitAgentTools {
 
     final process = await Process.start(
       'git',
-      args,
+      gitArgs,
       workingDirectory: folderPath,
     );
     final stdoutBytes = _collectBytes(process.stdout);

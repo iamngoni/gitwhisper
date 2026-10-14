@@ -81,8 +81,14 @@ class GitUtils {
   }
 
   /// Get the diff of staged changes
+  ///
+  /// Non-ASCII paths are left unquoted (`café.txt`, not
+  /// `"caf\303\251.txt"`) so the model sees real file names.
   static Future<String> getStagedDiff({String? folderPath}) async {
-    return _gitText(['diff', '--cached'], folderPath: folderPath);
+    return _gitText(
+      ['-c', 'core.quotePath=false', 'diff', '--cached'],
+      folderPath: folderPath,
+    );
   }
 
   /// Get the diff of unstagged changes
@@ -398,10 +404,10 @@ class GitUtils {
   /// Stages all unstaged changes (including new files) and returns the number
   /// of files added to the index
   static Future<int> stageAllUnstagedFilesAndCount({String? folderPath}) async {
-    // Get currently staged files before
+    // Get currently staged files before. -z keeps git from quoting names.
     final beforeResult = await Process.run(
       'git',
-      ['diff', '--cached', '--name-only'],
+      ['diff', '--cached', '--name-only', '-z'],
       workingDirectory: folderPath,
     );
     if (beforeResult.exitCode != 0) {
@@ -410,8 +416,7 @@ class GitUtils {
       );
     }
     final before = (beforeResult.stdout as String)
-        .trim()
-        .split('\n')
+        .split('\x00')
         .where((f) => f.isNotEmpty)
         .toSet();
 
@@ -429,7 +434,7 @@ class GitUtils {
     // Get currently staged files after
     final afterResult = await Process.run(
       'git',
-      ['diff', '--cached', '--name-only'],
+      ['diff', '--cached', '--name-only', '-z'],
       workingDirectory: folderPath,
     );
     if (afterResult.exitCode != 0) {
@@ -438,8 +443,7 @@ class GitUtils {
       );
     }
     final after = (afterResult.stdout as String)
-        .trim()
-        .split('\n')
+        .split('\x00')
         .where((f) => f.isNotEmpty)
         .toSet();
 
@@ -733,8 +737,7 @@ class GitUtils {
         }
 
         // Extract filename from "diff --git a/file b/file"
-        final match = RegExp(r'diff --git a/(.*?) b/(.*)').firstMatch(line);
-        currentFileName = match?.group(2) ?? 'unknown';
+        currentFileName = _diffHeaderPath(line) ?? 'unknown';
         currentFile.clear();
         currentFile.add(line);
         currentHunk = null;
@@ -782,6 +785,76 @@ class GitUtils {
     }
 
     return hunks;
+  }
+
+  /// The new path named by a `diff --git a/<old> b/<new>` header, or null
+  /// when [line] is not one.
+  ///
+  /// git C-quotes a path with special characters, e.g. `"b/tab\there.txt"`
+  /// or, unless core.quotePath is off, `"b/caf\303\251.txt"`. Inside a
+  /// quoted path a `"` is always escaped, and an unquoted path never
+  /// contains one, so ` "b/` and `" b/` only occur between the two paths.
+  static String? _diffHeaderPath(String line) {
+    const marker = 'diff --git ';
+    if (!line.startsWith(marker)) return null;
+    final paths = line.substring(marker.length);
+
+    if (paths.endsWith('"')) {
+      final start = paths.lastIndexOf(' "b/');
+      if (start == -1) return null;
+      return _unquoteGitPath(paths.substring(start + 1)).substring(2);
+    }
+    if (paths.startsWith('"')) {
+      final end = paths.lastIndexOf('" b/');
+      return end == -1 ? null : paths.substring(end + 4);
+    }
+
+    // Both unquoted. Unless the file was renamed both halves are equal,
+    // which also handles a path that contains " b/".
+    final half = paths.length ~/ 2;
+    if (paths.length.isOdd &&
+        paths.startsWith('a/') &&
+        paths.startsWith(' b/', half) &&
+        paths.substring(2, half) == paths.substring(half + 3)) {
+      return paths.substring(half + 3);
+    }
+    return RegExp(r'^a/(.*?) b/(.*)$').firstMatch(paths)?.group(2);
+  }
+
+  /// Decodes a C-quoted git path such as `"caf\303\251.txt"`. Octal escapes
+  /// are UTF-8 bytes.
+  static String _unquoteGitPath(String quoted) {
+    final body = quoted.substring(1, quoted.length - 1).runes.toList();
+    final bytes = <int>[];
+    for (var i = 0; i < body.length; i++) {
+      final rune = body[i];
+      if (rune != 0x5C || i + 1 == body.length) {
+        bytes.addAll(utf8.encode(String.fromCharCode(rune)));
+        continue;
+      }
+
+      final next = body[++i];
+      final isOctal = i + 2 < body.length &&
+          body.sublist(i, i + 3).every((r) => r >= 0x30 && r <= 0x37);
+      if (isOctal) {
+        bytes.add(int.parse(String.fromCharCodes(body, i, i + 3), radix: 8));
+        i += 2;
+        continue;
+      }
+      bytes.add(
+        switch (String.fromCharCode(next)) {
+          'a' => 0x07,
+          'b' => 0x08,
+          't' => 0x09,
+          'n' => 0x0A,
+          'v' => 0x0B,
+          'f' => 0x0C,
+          'r' => 0x0D,
+          _ => next,
+        },
+      );
+    }
+    return utf8.decode(bytes, allowMalformed: true);
   }
 
   /// Returns staged files that exceed the size threshold

@@ -135,6 +135,110 @@ void main() {
     });
   });
 
+  group('GitUtils with paths git would quote', () {
+    late Directory repo;
+
+    // Tabs and double quotes cannot appear in Windows file names.
+    final names = <String>[
+      'café.txt',
+      'with space.txt',
+      'x b/y.txt',
+      if (!Platform.isWindows) ...<String>['tab\there.txt', 'qu"ote.txt'],
+    ];
+
+    Future<void> git(List<String> args) async {
+      final result =
+          await Process.run('git', args, workingDirectory: repo.path);
+      if (result.exitCode != 0) {
+        throw StateError('git ${args.join(' ')} failed: ${result.stderr}');
+      }
+    }
+
+    void write(String name, String content) {
+      File(path.join(repo.path, name))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(content);
+    }
+
+    setUp(() async {
+      repo = await Directory.systemTemp.createTemp('gitwhisper_quoted_');
+      // An empty directory, which git does not track.
+      final hooks = Directory(path.join(repo.path, 'hooks'))..createSync();
+      await git(['init', '-q']);
+      await git(['config', 'user.email', 'test@example.com']);
+      await git(['config', 'user.name', 'Test']);
+      await git(['config', 'commit.gpgsign', 'false']);
+      await git(['config', 'core.hooksPath', hooks.path]);
+      await git(['config', 'diff.renames', 'true']);
+      write('old.txt', 'one\ntwo\nthree\nfour\n');
+      await git(['add', '-A']);
+      await git(['commit', '-q', '-m', 'init']);
+    });
+
+    tearDown(() async {
+      if (repo.existsSync()) await repo.delete(recursive: true);
+    });
+
+    test('splitDiffIntoHunks groups staged hunks under the real file names',
+        () async {
+      await git(['mv', 'old.txt', 'new name.txt']);
+      write('new name.txt', 'one\ntwo\nthree\nfour\nfive\n');
+      for (final name in names) {
+        write(name, 'content of $name\n');
+      }
+      await git(['add', '-A']);
+
+      final diff = await GitUtils.getStagedDiff(folderPath: repo.path);
+      final groups =
+          GitUtils.groupHunksByFile(GitUtils.splitDiffIntoHunks(diff));
+
+      expect(groups.keys, unorderedEquals([...names, 'new name.txt']));
+    });
+
+    test('splitDiffIntoHunks decodes C-quoted header paths', () {
+      const diff = r'''
+diff --git "a/caf\303\251.txt" "b/caf\303\251.txt"
+new file mode 100644
+--- /dev/null
++++ "b/caf\303\251.txt"
+@@ -0,0 +1 @@
++x
+diff --git "a/tab\there \"q\".txt" "b/tab\there \"q\".txt"
+--- "a/tab\there \"q\".txt"
++++ "b/tab\there \"q\".txt"
+@@ -1 +1 @@
+-x
++y
+diff --git "a/old\\name.txt" b/new.txt
+similarity index 90%
+@@ -1 +1 @@
+-x
++y''';
+
+      final groups =
+          GitUtils.groupHunksByFile(GitUtils.splitDiffIntoHunks(diff));
+
+      expect(
+        groups.keys,
+        ['café.txt', 'tab\there "q".txt', 'new.txt'],
+      );
+    });
+
+    test('stageAllUnstagedFilesAndCount counts paths git would quote',
+        () async {
+      write('café.txt', 'staged already\n');
+      await git(['add', 'café.txt']);
+      for (final name in names.where((name) => name != 'café.txt')) {
+        write(name, 'content of $name\n');
+      }
+
+      final staged =
+          await GitUtils.stageAllUnstagedFilesAndCount(folderPath: repo.path);
+
+      expect(staged, names.length - 1);
+    });
+  });
+
   group('GitUtils.editorCommand', () {
     const tempFile = r'C:\Users\Jane Doe\AppData\Local\Temp\GITWHISPER_MSG';
 
