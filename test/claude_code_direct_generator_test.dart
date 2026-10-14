@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dio/dio.dart';
+import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
+import 'package:gitwhisper/src/agent/git_agent_tools.dart';
+import 'package:gitwhisper/src/constants.dart';
 import 'package:gitwhisper/src/exceptions/exceptions.dart';
 import 'package:gitwhisper/src/models/claude_code_direct_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
@@ -693,6 +696,119 @@ void main() {
       );
     });
 
+    test('lets the model choose tools, then disables them at the budget',
+        () async {
+      final bodies = <Map<String, dynamic>>[];
+      final executedTools = <String>[];
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        streamMessages: (endpoint, headers, body) async {
+          bodies.add(jsonDecode(jsonEncode(body)) as Map<String, dynamic>);
+          if (bodies.length == 1) {
+            return <Map<String, dynamic>>[
+              _toolUse('call_1', 'first_tool'),
+              _toolUse('call_2', 'second_tool'),
+            ];
+          }
+          return <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'text': 'fix: Finish in budget'},
+          ];
+        },
+      );
+
+      final message = await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(
+            folderPath: tempDir.path,
+            onToolUse: (toolUse) => executedTools.add(toolUse.name),
+          ),
+          language: Language.english,
+          maxToolCalls: 1,
+        ),
+      );
+
+      expect(message, 'fix: Finish in budget');
+      expect(
+        bodies.map((body) => body['tool_choice']),
+        <Object>[
+          <String, dynamic>{'type': 'auto'},
+          <String, dynamic>{'type': 'none'},
+        ],
+      );
+      expect(bodies.last['tools'], isNotEmpty);
+      expect(executedTools, <String>['first_tool']);
+
+      final messages = bodies.last['messages'] as List<dynamic>;
+      final toolResults = (messages.last as Map)['content'] as List<dynamic>;
+      expect(toolResults, hasLength(3));
+      expect(
+        (toolResults[1] as Map)['content'],
+        contains('limit of 1 tool calls was reached'),
+      );
+      expect(
+        (toolResults[2] as Map)['text'],
+        contains('You have used all available tool calls'),
+      );
+    });
+
+    test('rejects Claude responses cut off at max_tokens', () async {
+      final interceptor = _claudeSseInterceptor(
+        text: 'fix: Cut off mid',
+        stopReason: 'max_tokens',
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        useHttpTransport: true,
+      );
+
+      await expectLater(
+        generator.generateCommitMessage(
+          'diff --git a/a.txt b/a.txt',
+          Language.english,
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('max_tokens'),
+          ),
+        ),
+      );
+    });
+
+    test('accepts streamed Claude responses that end normally', () async {
+      final interceptor = _claudeSseInterceptor(
+        text: 'fix: Stream a complete message',
+        stopReason: 'end_turn',
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        useHttpTransport: true,
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/a.txt b/a.txt',
+        Language.english,
+      );
+
+      expect(message, 'fix: Stream a complete message');
+    });
+
     test('refreshes expired stored OAuth credentials before request', () async {
       await _writeCredentials(
         tempDir,
@@ -1296,6 +1412,64 @@ void main() {
   );
 }
 
+Map<String, dynamic> _toolUse(String id, String name) {
+  return <String, dynamic>{
+    'type': 'tool_use',
+    'id': id,
+    'name': name,
+    'input': <String, dynamic>{},
+  };
+}
+
+/// Answers Claude Messages requests with a streamed text block that stops
+/// with [stopReason].
+InterceptorsWrapper _claudeSseInterceptor({
+  required String text,
+  required String stopReason,
+}) {
+  String event(String name, Map<String, dynamic> data) {
+    return 'event: $name\ndata: ${jsonEncode(data)}\n\n';
+  }
+
+  final body = [
+    event('message_start', <String, dynamic>{
+      'type': 'message_start',
+      'message': <String, dynamic>{'id': 'msg_1', 'content': <Object>[]},
+    }),
+    event('content_block_start', <String, dynamic>{
+      'type': 'content_block_start',
+      'index': 0,
+      'content_block': <String, dynamic>{'type': 'text', 'text': ''},
+    }),
+    event('content_block_delta', <String, dynamic>{
+      'type': 'content_block_delta',
+      'index': 0,
+      'delta': <String, dynamic>{'type': 'text_delta', 'text': text},
+    }),
+    event('content_block_stop', <String, dynamic>{
+      'type': 'content_block_stop',
+      'index': 0,
+    }),
+    event('message_delta', <String, dynamic>{
+      'type': 'message_delta',
+      'delta': <String, dynamic>{'stop_reason': stopReason},
+    }),
+    event('message_stop', <String, dynamic>{'type': 'message_stop'}),
+  ].join();
+
+  return InterceptorsWrapper(
+    onRequest: (options, handler) {
+      handler.resolve(
+        Response<ResponseBody>(
+          requestOptions: options,
+          statusCode: 200,
+          data: ResponseBody.fromString(body, 200),
+        ),
+      );
+    },
+  );
+}
+
 Map<String, dynamic> _refreshResponse() {
   return <String, dynamic>{
     'access_token': 'fresh-token',
@@ -1458,6 +1632,7 @@ ClaudeCodeDirectGenerator _sandboxedGenerator(
   ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
   ClaudeCodeLoginRunner? runLogin,
   ClaudeCodeMessagesStreamer? streamMessages,
+  bool useHttpTransport = false,
   ClaudeCodeTokenRefresher? refreshToken,
 }) {
   return ClaudeCodeDirectGenerator(
@@ -1495,10 +1670,14 @@ ClaudeCodeDirectGenerator _sandboxedGenerator(
         (executable, arguments) async {
           throw StateError('Login processes are disabled in tests.');
         },
+    // With useHttpTransport the real streaming client runs; the test must
+    // answer every request with a $dio interceptor.
     streamMessages: streamMessages ??
-        (endpoint, headers, body) async {
-          throw StateError('Network requests are disabled in tests.');
-        },
+        (useHttpTransport
+            ? null
+            : (endpoint, headers, body) async {
+                throw StateError('Network requests are disabled in tests.');
+              }),
     refreshToken: refreshToken ??
         (endpoint, body) async {
           throw StateError('Token refresh requests are disabled in tests.');

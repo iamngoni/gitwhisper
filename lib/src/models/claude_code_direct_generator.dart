@@ -108,6 +108,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   static const String _systemPrompt =
       "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+  static const String _toolBudgetExhaustedPrompt =
+      'You have used all available tool calls. Using the staged-change '
+      'context you already inspected, return only the final commit message '
+      'now. No explanation, no planning text, no Markdown.';
   static const String _prodOAuthClientId =
       '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
   static const String _nonProdOAuthClientId =
@@ -257,9 +261,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       },
     ];
 
-    var toolCallCount = 0;
+    var remainingToolCalls = request.maxToolCalls;
 
     while (true) {
+      // Once the tool budget is spent, ask for the final message with tools
+      // disabled. Otherwise let the model choose: current models reject a
+      // forced tool_choice, and the prompt already asks it to inspect first.
+      final toolsDisabled = remainingToolCalls <= 0;
       final content = await _postStreamingMessages(
         <String, dynamic>{
           'model': actualVariant,
@@ -268,8 +276,9 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           'system': _systemPrompt,
           'messages': messages,
           'tools': GitAgentTools.claudeToolDefinitions,
-          if (messages.length == 1)
-            'tool_choice': <String, dynamic>{'type': 'any'},
+          'tool_choice': <String, dynamic>{
+            'type': toolsDisabled ? 'none' : 'auto',
+          },
         },
       );
 
@@ -277,9 +286,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       if (toolUses.isEmpty) {
         return _extractClaudeText(content).trim();
       }
-
-      toolCallCount += toolUses.length;
-      if (toolCallCount > request.maxToolCalls) {
+      if (toolsDisabled) {
         throw StateError(
           'Agent mode exceeded ${request.maxToolCalls} tool calls.',
         );
@@ -292,9 +299,27 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
       final toolResults = <Map<String, dynamic>>[];
       for (final toolUse in toolUses) {
-        toolResults.add(
-          await _executeClaudeToolUse(request.tools, toolUse),
-        );
+        if (remainingToolCalls > 0) {
+          remainingToolCalls--;
+          toolResults.add(
+            await _executeClaudeToolUse(request.tools, toolUse),
+          );
+        } else {
+          // Every tool_use needs a tool_result, even when it is not run.
+          toolResults.add(<String, dynamic>{
+            'type': 'tool_result',
+            'tool_use_id': toolUse['id']?.toString() ?? '',
+            'content': 'ERROR: Not run; the limit of '
+                '${request.maxToolCalls} tool calls was reached.',
+            'is_error': true,
+          });
+        }
+      }
+      if (remainingToolCalls <= 0) {
+        toolResults.add(<String, dynamic>{
+          'type': 'text',
+          'text': _toolBudgetExhaustedPrompt,
+        });
       }
 
       messages.add(<String, dynamic>{
@@ -407,6 +432,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final blocks = <int, Map<String, dynamic>>{};
     final inputJsonBuffers = <int, StringBuffer>{};
     var completed = false;
+    String? stopReason;
     var eventName = '';
     final dataLines = <String>[];
 
@@ -421,6 +447,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           blocks: blocks,
           inputJsonBuffers: inputJsonBuffers,
           markCompleted: () => completed = true,
+          setStopReason: (reason) => stopReason = reason,
         );
         eventName = '';
         dataLines.clear();
@@ -450,12 +477,20 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         blocks: blocks,
         inputJsonBuffers: inputJsonBuffers,
         markCompleted: () => completed = true,
+        setStopReason: (reason) => stopReason = reason,
       );
     }
 
     if (!completed) {
       throw const FormatException(
         'Claude response stream closed before message_stop.',
+      );
+    }
+    if (stopReason == 'max_tokens') {
+      // A cut-off message (or tool input) must not be used as if complete.
+      throw const FormatException(
+        'Claude stopped at the max_tokens limit before finishing its '
+        'response.',
       );
     }
 
@@ -475,6 +510,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     required Map<int, Map<String, dynamic>> blocks,
     required Map<int, StringBuffer> inputJsonBuffers,
     required void Function() markCompleted,
+    required void Function(String reason) setStopReason,
   }) {
     if (dataLines.isEmpty) return;
 
@@ -515,6 +551,12 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
                 .putIfAbsent(index, StringBuffer.new)
                 .write(delta['partial_json'] ?? '');
         }
+      case 'message_delta':
+        final delta = event['delta'];
+        final reason = delta is Map<dynamic, dynamic>
+            ? _nonBlank(delta['stop_reason']?.toString())
+            : null;
+        if (reason != null) setStopReason(reason);
       case 'message_stop':
         markCompleted();
       case 'error':

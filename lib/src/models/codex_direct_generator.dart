@@ -55,6 +55,10 @@ class CodexDirectGenerator extends CommitGenerator
       'staged-change context you already inspected, return only the final '
       'conventional commit message now. No explanation, no planning text, no '
       'Markdown.';
+  static const String _toolBudgetExhaustedPrompt =
+      'You have used all available tool calls. Using the staged-change '
+      'context you already inspected, return only the final conventional '
+      'commit message now. No explanation, no planning text, no Markdown.';
 
   final String? _codexHome;
   final Map<String, String>? _environment;
@@ -129,14 +133,18 @@ class CodexDirectGenerator extends CommitGenerator
       },
     ];
 
-    var toolCallCount = 0;
+    var remainingToolCalls = maxToolCalls;
     var retriedAfterRefresh = false;
     var retriedForCommitMessage = false;
 
     while (true) {
+      // Once the tool budget is spent, ask for the final message with tools
+      // disabled instead of failing the whole run.
+      final toolsDisabled = tools != null && remainingToolCalls <= 0;
       final body = _requestBody(
         input: input,
         tools: tools,
+        toolChoice: toolsDisabled ? 'none' : 'auto',
       );
 
       late final Map<String, dynamic> response;
@@ -151,6 +159,12 @@ class CodexDirectGenerator extends CommitGenerator
           continue;
         }
         throw ErrorParser.parseProviderError(modelName, error);
+      }
+
+      if (response['status'] == 'incomplete') {
+        throw FormatException(
+          _incompleteResponseMessage(response['incomplete_details']),
+        );
       }
 
       final outputItems = _extractOutputItems(response);
@@ -181,8 +195,7 @@ class CodexDirectGenerator extends CommitGenerator
         );
       }
 
-      toolCallCount += toolCalls.length;
-      if (toolCallCount > maxToolCalls) {
+      if (toolsDisabled) {
         throw StateError(
           'Agent mode exceeded $maxToolCalls tool calls.',
         );
@@ -190,14 +203,34 @@ class CodexDirectGenerator extends CommitGenerator
 
       input.addAll(outputItems.map(_stripResponseItemForInput));
       for (final toolCall in toolCalls) {
-        final output = await _executeToolCall(tools, toolCall);
+        final String output;
+        if (remainingToolCalls > 0) {
+          remainingToolCalls--;
+          output = await _executeToolCall(tools, toolCall);
+        } else {
+          // Every function_call needs an output, even when it is not run.
+          output = 'ERROR: Not run; the limit of $maxToolCalls tool calls '
+              'was reached.';
+        }
         input.add(<String, dynamic>{
           'type': 'function_call_output',
           'call_id': toolCall.callId,
           'output': output,
         });
       }
+      if (remainingToolCalls <= 0) {
+        input.add(_inputTextMessage(_toolBudgetExhaustedPrompt));
+      }
     }
+  }
+
+  static String _incompleteResponseMessage(Object? details) {
+    final reason = details is Map<dynamic, dynamic>
+        ? _nonEmptyString(details['reason'])
+        : null;
+    return reason == null
+        ? 'Codex response was incomplete.'
+        : 'Codex response was incomplete ($reason).';
   }
 
   static bool _shouldRetryForCommitMessage(String text) {
@@ -233,11 +266,12 @@ class CodexDirectGenerator extends CommitGenerator
   Map<String, dynamic> _requestBody({
     required List<Map<String, dynamic>> input,
     GitAgentTools? tools,
+    String toolChoice = 'auto',
   }) {
     return <String, dynamic>{
       'model': actualVariant,
       'input': input,
-      'tool_choice': 'auto',
+      'tool_choice': toolChoice,
       'parallel_tool_calls': tools != null,
       'reasoning': null,
       'store': false,
@@ -324,6 +358,12 @@ class CodexDirectGenerator extends CommitGenerator
     final output = <Map<String, dynamic>>[];
     final outputText = StringBuffer();
     var completed = false;
+    Map<String, dynamic>? completedResponse;
+    void markCompleted(Map<String, dynamic>? response) {
+      completed = true;
+      completedResponse = response;
+    }
+
     var eventName = '';
     final dataLines = <String>[];
 
@@ -337,7 +377,7 @@ class CodexDirectGenerator extends CommitGenerator
           dataLines: dataLines,
           output: output,
           outputText: outputText,
-          markCompleted: () => completed = true,
+          markCompleted: markCompleted,
         );
         eventName = '';
         dataLines.clear();
@@ -366,7 +406,7 @@ class CodexDirectGenerator extends CommitGenerator
         dataLines: dataLines,
         output: output,
         outputText: outputText,
-        markCompleted: () => completed = true,
+        markCompleted: markCompleted,
       );
     }
 
@@ -376,9 +416,13 @@ class CodexDirectGenerator extends CommitGenerator
       );
     }
 
+    final status = completedResponse?['status'];
+    final incompleteDetails = completedResponse?['incomplete_details'];
     return <String, dynamic>{
       'output': output,
       if (outputText.isNotEmpty) 'output_text': outputText.toString(),
+      if (status != null) 'status': status,
+      if (incompleteDetails != null) 'incomplete_details': incompleteDetails,
     };
   }
 
@@ -387,7 +431,7 @@ class CodexDirectGenerator extends CommitGenerator
     required List<String> dataLines,
     required List<Map<String, dynamic>> output,
     required StringBuffer outputText,
-    required void Function() markCompleted,
+    required void Function(Map<String, dynamic>? response) markCompleted,
   }) {
     if (dataLines.isEmpty) return;
 
@@ -410,13 +454,23 @@ class CodexDirectGenerator extends CommitGenerator
         final delta = event['delta'];
         if (delta is String) outputText.write(delta);
       case 'response.completed':
-        markCompleted();
+        final response = event['response'];
+        markCompleted(
+          response is Map<dynamic, dynamic>
+              ? Map<String, dynamic>.from(response)
+              : null,
+        );
       case 'response.failed':
         _throwStreamingFailure(event, fallback: 'Codex response failed.');
       case 'response.incomplete':
+        final response = event['response'];
         _throwStreamingFailure(
           event,
-          fallback: 'Codex response was incomplete.',
+          fallback: _incompleteResponseMessage(
+            response is Map<dynamic, dynamic>
+                ? response['incomplete_details']
+                : null,
+          ),
         );
     }
   }

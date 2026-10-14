@@ -414,6 +414,155 @@ void main() {
       );
     });
 
+    test('asks for the final message with tools disabled at the budget',
+        () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'chatgpt-token');
+
+      final bodies = <Map<String, dynamic>>[];
+      final executedTools = <String>[];
+      final generator = _codexGenerator(
+        root,
+        variant: 'gpt-test',
+        postResponses: (endpoint, headers, body) async {
+          bodies.add(jsonDecode(jsonEncode(body)) as Map<String, dynamic>);
+          if (bodies.length == 1) {
+            return <String, dynamic>{
+              'output': <Map<String, dynamic>>[
+                _functionCall('call_1', 'first_tool'),
+                _functionCall('call_2', 'second_tool'),
+              ],
+            };
+          }
+          return <String, dynamic>{'output_text': 'docs: Finish in budget'};
+        },
+      );
+
+      final message = await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(
+            folderPath: root.path,
+            onToolUse: (toolUse) => executedTools.add(toolUse.name),
+          ),
+          language: Language.english,
+          withEmoji: false,
+          maxToolCalls: 1,
+        ),
+      );
+
+      expect(message, 'docs: Finish in budget');
+      expect(bodies.map((body) => body['tool_choice']), <String>[
+        'auto',
+        'none',
+      ]);
+      expect(bodies.last['tools'], isNotEmpty);
+      expect(executedTools, <String>['first_tool']);
+
+      final input =
+          (bodies.last['input'] as List<dynamic>).cast<Map<dynamic, dynamic>>();
+      final outputs = input
+          .where((item) => item['type'] == 'function_call_output')
+          .map((item) => item['output'].toString())
+          .toList();
+      expect(outputs, hasLength(2));
+      expect(outputs.last, contains('limit of 1 tool calls was reached'));
+      expect(
+        input.last.toString(),
+        contains('You have used all available tool calls'),
+      );
+    });
+
+    test('rejects incomplete Codex responses', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'chatgpt-token');
+
+      final generator = _codexGenerator(
+        root,
+        variant: 'gpt-test',
+        postResponses: (endpoint, headers, body) async => <String, dynamic>{
+          'status': 'incomplete',
+          'incomplete_details': <String, dynamic>{
+            'reason': 'max_output_tokens',
+          },
+          'output_text': 'docs: Cut off mid',
+        },
+      );
+
+      await expectLater(
+        generator.generateCommitMessage(
+          'diff --git a/README.md b/README.md\n+Docs',
+          Language.english,
+          withEmoji: false,
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Codex response was incomplete (max_output_tokens).',
+          ),
+        ),
+      );
+    });
+
+    test('names the reason for an incomplete Codex stream', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'chatgpt-token');
+      final interceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response<ResponseBody>(
+              requestOptions: options,
+              statusCode: 200,
+              data: ResponseBody.fromString(
+                [
+                  _sse(
+                    'response.output_text.delta',
+                    <String, dynamic>{
+                      'type': 'response.output_text.delta',
+                      'delta': 'docs: Cut off',
+                    },
+                  ),
+                  _sse(
+                    'response.incomplete',
+                    <String, dynamic>{
+                      'type': 'response.incomplete',
+                      'response': <String, dynamic>{
+                        'status': 'incomplete',
+                        'incomplete_details': <String, dynamic>{
+                          'reason': 'max_output_tokens',
+                        },
+                      },
+                    },
+                  ),
+                ].join(),
+                200,
+              ),
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      await expectLater(
+        _codexGenerator(root, variant: 'gpt-test').generateCommitMessage(
+          'diff --git a/README.md b/README.md\n+Docs',
+          Language.english,
+          withEmoji: false,
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('max_output_tokens'),
+          ),
+        ),
+      );
+    });
+
     test('adopts a token Codex saved during a request that got a 401',
         () async {
       final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
@@ -764,6 +913,15 @@ Future<void> _writeAuthJson(
       ...extra,
     }),
   );
+}
+
+Map<String, dynamic> _functionCall(String callId, String name) {
+  return <String, dynamic>{
+    'type': 'function_call',
+    'call_id': callId,
+    'name': name,
+    'arguments': '{}',
+  };
 }
 
 String _expiredJwt() {
