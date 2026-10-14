@@ -70,7 +70,7 @@ Future<void> tightenPrivateFile(File file) async {
 
 /// Creates [directory] if needed and makes it owner-only (0700 on POSIX).
 ///
-/// A missing directory is created through `mkdtemp`, which creates it as
+/// A missing directory is created in a fresh temp directory, restricted to
 /// 0700, and then renamed into place, so it is never briefly world-readable.
 Future<void> ensurePrivateDirectory(Directory directory) async {
   if (Platform.isWindows) {
@@ -84,6 +84,9 @@ Future<void> ensurePrivateDirectory(Directory directory) async {
       '.${path.basename(directory.path)}.tmp.',
     );
     try {
+      // createTemp may honour the umask (0755 on Linux), so restrict the
+      // directory before it appears at its final path.
+      await restrictToOwner(staging.path, directory: true);
       await staging.rename(directory.path);
     } on FileSystemException {
       // Another process created it first; fall through and tighten it.
@@ -135,6 +138,10 @@ Future<void> writePrivateFileAtomically(
   final staging = await parent.createTemp('.$name.tmp.');
   var keepStaging = false;
   try {
+    // Directory.createTemp does not use mkdtemp on every platform (on Linux
+    // it creates the directory with the umask default, such as 0755), so
+    // make it owner-only before anything is created inside it.
+    await restrictToOwner(staging.path, directory: true);
     final temp = File(path.join(staging.path, name));
     await createPrivateFile(temp);
     debugOnPrivateFileStaged?.call(temp);
