@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
 import 'package:gitwhisper/src/agent/git_agent_tools.dart';
 import 'package:gitwhisper/src/constants.dart';
+import 'package:gitwhisper/src/exceptions/exceptions.dart';
 import 'package:gitwhisper/src/models/codex_direct_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:path/path.dart' as p;
@@ -18,9 +19,8 @@ void main() {
       await _writeAuthJson(root, accessToken: 'chatgpt-token');
 
       final requests = <_CapturedRequest>[];
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
         postResponses: (endpoint, headers, body) async {
           requests.add(_CapturedRequest(endpoint, headers, body));
@@ -89,9 +89,8 @@ void main() {
       addTearDown(() => root.delete(recursive: true));
       var loginCount = 0;
 
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
         runLogin: (executable, arguments) async {
           loginCount++;
@@ -124,9 +123,8 @@ void main() {
         'model = "gpt-custom"\n[profiles.work]\nmodel = "ignored"\n',
       );
 
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
       );
 
       expect(generator.defaultVariant, 'gpt-custom');
@@ -193,9 +191,8 @@ void main() {
       $dio.interceptors.add(interceptor);
       addTearDown(() => $dio.interceptors.remove(interceptor));
 
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
       );
 
@@ -262,9 +259,8 @@ void main() {
       $dio.interceptors.add(interceptor);
       addTearDown(() => $dio.interceptors.remove(interceptor));
 
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
       );
 
@@ -352,9 +348,8 @@ void main() {
       $dio.interceptors.add(interceptor);
       addTearDown(() => $dio.interceptors.remove(interceptor));
 
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
       );
 
@@ -384,9 +379,8 @@ void main() {
       await _writeAuthJson(root, accessToken: 'chatgpt-token');
 
       final requests = <_CapturedRequest>[];
-      final generator = CodexDirectGenerator(
-        codexHome: root.path,
-        environment: const <String, String>{},
+      final generator = _codexGenerator(
+        root,
         variant: 'gpt-test',
         postResponses: (endpoint, headers, body) async {
           requests.add(_CapturedRequest(endpoint, headers, body));
@@ -419,12 +413,339 @@ void main() {
         contains('return only the final conventional commit message'),
       );
     });
+
+    test('adopts a token Codex saved during a request that got a 401',
+        () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: 'stale-token');
+
+      var refreshCount = 0;
+      final interceptor = _codexInterceptor(
+        responseRequests: <RequestOptions>[],
+        onRefresh: (options, handler) {
+          refreshCount++;
+          _resolveFreshTokens(options, handler);
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final requests = <_CapturedRequest>[];
+      final generator = _codexGenerator(
+        root,
+        variant: 'gpt-test',
+        postResponses: (endpoint, headers, body) async {
+          requests.add(_CapturedRequest(endpoint, headers, body));
+          if (requests.length == 1) {
+            // Codex refreshed while this request was in flight.
+            await _writeAuthJson(
+              root,
+              accessToken: 'codex-cli-token',
+              refreshToken: 'codex-cli-refresh-token',
+            );
+            throw _unauthorized(endpoint);
+          }
+          return <String, dynamic>{'output_text': 'docs: Adopt Codex token'};
+        },
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/README.md b/README.md\n+Docs',
+        Language.english,
+        withEmoji: false,
+      );
+
+      expect(message, 'docs: Adopt Codex token');
+      expect(refreshCount, 0);
+      expect(
+        requests.last.headers['Authorization'],
+        'Bearer codex-cli-token',
+      );
+    });
+
+    test(
+      'merges refreshed tokens into the latest auth.json and saves it '
+      'privately',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+        addTearDown(() => root.delete(recursive: true));
+        await _writeAuthJson(
+          root,
+          accessToken: _expiredJwt(),
+          extra: <String, dynamic>{'OPENAI_API_KEY': null},
+        );
+
+        final interceptor = _codexInterceptor(
+          responseRequests: <RequestOptions>[],
+          onRefresh: (options, handler) {
+            // Codex changes another field while the refresh is running.
+            final authJson = _readAuthJsonFile(root);
+            authJson['last_refresh'] = 'from-codex';
+            authJson['preferred_setting'] = 'updated';
+            File(p.join(root.path, 'auth.json'))
+                .writeAsStringSync(jsonEncode(authJson));
+            _resolveFreshTokens(options, handler);
+          },
+        );
+        $dio.interceptors.add(interceptor);
+        addTearDown(() => $dio.interceptors.remove(interceptor));
+
+        await _codexGenerator(root, variant: 'gpt-test').generateCommitMessage(
+          'diff --git a/README.md b/README.md\n+Docs',
+          Language.english,
+          withEmoji: false,
+        );
+
+        final authJson = _readAuthJsonFile(root);
+        expect(authJson['preferred_setting'], 'updated');
+        expect(authJson, containsPair('OPENAI_API_KEY', null));
+        final tokens = authJson['tokens'] as Map<String, dynamic>;
+        expect(tokens['access_token'], 'fresh-token');
+        expect(tokens['refresh_token'], 'fresh-refresh-token');
+        expect(tokens['account_id'], 'account_123');
+
+        final authFile = File(p.join(root.path, 'auth.json'));
+        expect(authFile.statSync().mode & 0x1FF, 0x180);
+        expect(
+          root.listSync().where((entity) => entity.path.endsWith('.tmp')),
+          isEmpty,
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only.' : false,
+    );
+
+    test('keeps tokens Codex saved while a refresh was running', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: _expiredJwt());
+
+      final responseRequests = <RequestOptions>[];
+      final interceptor = _codexInterceptor(
+        responseRequests: responseRequests,
+        onRefresh: (options, handler) {
+          File(p.join(root.path, 'auth.json')).writeAsStringSync(
+            jsonEncode(<String, dynamic>{
+              'auth_mode': 'chatgpt',
+              'tokens': <String, dynamic>{
+                'access_token': 'codex-cli-token',
+                'refresh_token': 'codex-cli-refresh-token',
+                'account_id': 'account_123',
+              },
+            }),
+          );
+          _resolveFreshTokens(options, handler);
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      await _codexGenerator(root, variant: 'gpt-test').generateCommitMessage(
+        'diff --git a/README.md b/README.md\n+Docs',
+        Language.english,
+        withEmoji: false,
+      );
+
+      expect(
+        responseRequests.single.headers['Authorization'],
+        'Bearer codex-cli-token',
+      );
+      final tokens = _readAuthJsonFile(root)['tokens'] as Map<String, dynamic>;
+      expect(tokens['access_token'], 'codex-cli-token');
+      expect(tokens['refresh_token'], 'codex-cli-refresh-token');
+    });
+
+    test('reports refresh failures as authentication errors without tokens',
+        () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: _expiredJwt());
+
+      final interceptor = _codexInterceptor(
+        responseRequests: <RequestOptions>[],
+        onRefresh: (options, handler) {
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 400,
+              data: <String, dynamic>{
+                'error': 'invalid_grant',
+                'error_description':
+                    'Refresh token refresh-token was already used.',
+              },
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      await expectLater(
+        _codexGenerator(root, variant: 'gpt-test').generateCommitMessage(
+          'diff --git a/README.md b/README.md\n+Docs',
+          Language.english,
+          withEmoji: false,
+        ),
+        throwsA(
+          isA<AuthenticationException>()
+              .having((error) => error.statusCode, 'statusCode', 400)
+              .having(
+                (error) => error.message,
+                'message',
+                allOf(
+                  contains('status 400'),
+                  contains('was already used'),
+                  isNot(contains('refresh-token')),
+                ),
+              ),
+        ),
+      );
+    });
+
+    test('converts rejected refresh requests to authentication errors',
+        () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+      await _writeAuthJson(root, accessToken: _expiredJwt());
+
+      final interceptor = _codexInterceptor(
+        responseRequests: <RequestOptions>[],
+        onRefresh: (options, handler) {
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              response: Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 401,
+                data: <String, dynamic>{
+                  'error': <String, dynamic>{
+                    'message': 'Your refresh token has expired.',
+                    'code': 'refresh_token_expired',
+                  },
+                },
+              ),
+            ),
+          );
+        },
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      await expectLater(
+        _codexGenerator(root, variant: 'gpt-test').generateCommitMessage(
+          'diff --git a/README.md b/README.md\n+Docs',
+          Language.english,
+          withEmoji: false,
+        ),
+        throwsA(
+          isA<AuthenticationException>().having(
+            (error) => error.message,
+            'message',
+            contains('Your refresh token has expired.'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'keeps refreshed tokens in memory when auth.json cannot be saved',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+        addTearDown(() => root.delete(recursive: true));
+        await _writeAuthJson(root, accessToken: _expiredJwt());
+        Process.runSync('chmod', <String>['555', root.path]);
+        addTearDown(() => Process.runSync('chmod', <String>['755', root.path]));
+        try {
+          File(p.join(root.path, 'probe')).createSync();
+          markTestSkipped('Directory permissions are not enforced (root?).');
+          return;
+        } on FileSystemException {
+          // Expected: the Codex home is read-only.
+        }
+
+        var refreshCount = 0;
+        final responseRequests = <RequestOptions>[];
+        final interceptor = _codexInterceptor(
+          responseRequests: responseRequests,
+          onRefresh: (options, handler) {
+            refreshCount++;
+            _resolveFreshTokens(options, handler);
+          },
+        );
+        $dio.interceptors.add(interceptor);
+        addTearDown(() => $dio.interceptors.remove(interceptor));
+
+        final generator = _codexGenerator(root, variant: 'gpt-test');
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await generator.generateCommitMessage(
+            'diff --git a/README.md b/README.md\n+Docs',
+            Language.english,
+            withEmoji: false,
+          );
+        }
+
+        expect(refreshCount, 1);
+        expect(
+          responseRequests.map((request) => request.headers['Authorization']),
+          <String>['Bearer fresh-token', 'Bearer fresh-token'],
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only.' : false,
+    );
+
+    test('does not use the working directory when no home is known', () async {
+      final root = await Directory.systemTemp.createTemp('gitwhisper_codex_');
+      addTearDown(() => root.delete(recursive: true));
+
+      await expectLater(
+        _codexGenerator(
+          root,
+          useEnvironmentCodexHome: true,
+          environment: const <String, String>{'HOME': ''},
+        ).generateCommitMessage('diff', Language.english),
+        throwsA(
+          isA<AuthenticationException>().having(
+            (error) => error.message,
+            'message',
+            contains('Codex home'),
+          ),
+        ),
+      );
+    });
   });
+}
+
+/// Creates a generator that cannot touch the developer's real environment:
+/// HOME points inside [root], auth.json is read from [root], and `codex
+/// login` is a fake that throws unless a test passes its own.
+CodexDirectGenerator _codexGenerator(
+  Directory root, {
+  Map<String, String> environment = const <String, String>{},
+  bool useEnvironmentCodexHome = false,
+  String? variant,
+  CodexResponsesPoster? postResponses,
+  CodexLoginRunner? runLogin,
+}) {
+  return CodexDirectGenerator(
+    codexHome: useEnvironmentCodexHome ? null : root.path,
+    environment: <String, String>{
+      'HOME': p.join(root.path, 'home'),
+      ...environment,
+    },
+    variant: variant,
+    postResponses: postResponses,
+    runLogin: runLogin ??
+        (executable, arguments) async {
+          throw StateError('codex login is disabled in tests.');
+        },
+  );
 }
 
 Future<void> _writeAuthJson(
   Directory root, {
   required String accessToken,
+  String refreshToken = 'refresh-token',
+  Map<String, dynamic> extra = const <String, dynamic>{},
 }) async {
   final file = File(p.join(root.path, 'auth.json'));
   await file.writeAsString(
@@ -437,10 +758,87 @@ Future<void> _writeAuthJson(
           },
         }),
         'access_token': accessToken,
-        'refresh_token': 'refresh-token',
+        'refresh_token': refreshToken,
         'account_id': 'account_123',
       },
+      ...extra,
     }),
+  );
+}
+
+String _expiredJwt() {
+  return _jwt(<String, dynamic>{
+    'exp': DateTime.now()
+            .toUtc()
+            .subtract(const Duration(minutes: 1))
+            .millisecondsSinceEpoch ~/
+        1000,
+  });
+}
+
+Map<String, dynamic> _readAuthJsonFile(Directory root) {
+  return jsonDecode(File(p.join(root.path, 'auth.json')).readAsStringSync())
+      as Map<String, dynamic>;
+}
+
+/// Answers Codex token refreshes with [onRefresh] and Responses requests
+/// with a streamed commit message, recording the Responses requests.
+InterceptorsWrapper _codexInterceptor({
+  required List<RequestOptions> responseRequests,
+  required void Function(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) onRefresh,
+  String message = 'docs: Refresh Codex auth',
+}) {
+  return InterceptorsWrapper(
+    onRequest: (options, handler) {
+      if (options.uri.toString() == 'https://auth.openai.com/oauth/token') {
+        onRefresh(options, handler);
+        return;
+      }
+      responseRequests.add(options);
+      handler.resolve(
+        Response<ResponseBody>(
+          requestOptions: options,
+          statusCode: 200,
+          data: ResponseBody.fromString(_streamingCommitMessage(message), 200),
+        ),
+      );
+    },
+  );
+}
+
+void _resolveFreshTokens(
+  RequestOptions options,
+  RequestInterceptorHandler handler,
+) {
+  handler.resolve(
+    Response<Map<String, dynamic>>(
+      requestOptions: options,
+      statusCode: 200,
+      data: <String, dynamic>{
+        'access_token': 'fresh-token',
+        'refresh_token': 'fresh-refresh-token',
+      },
+    ),
+  );
+}
+
+DioException _unauthorized(Uri endpoint) {
+  final requestOptions = RequestOptions(path: endpoint.toString());
+  return DioException(
+    requestOptions: requestOptions,
+    response: Response<dynamic>(
+      requestOptions: requestOptions,
+      statusCode: 401,
+      data: <String, dynamic>{
+        'error': <String, dynamic>{
+          'message': 'Invalid authentication credentials',
+          'type': 'authentication_error',
+        },
+      },
+    ),
   );
 }
 
