@@ -91,7 +91,7 @@ Or download the executable binary that will work on your operating system direct
 - 🔍 Code analysis to understand staged changes and get suggestions for improvements
 - 🎫 Supports ticket number prefixing for commit messages
 - 🏷️ Create git tags alongside commits with optional auto-push
-- 🧩 Choose specific model variants (gpt-4o, claude-sonnet-4, etc.)
+- 🧩 Choose specific model variants (gpt-5.6-terra, claude-sonnet-5-5, etc.)
 - 🔑 Securely saves API keys for future use
 - 🌍 Multi-language support for commit messages and analysis
 - 🧪 `--dry-run` to preview the generated message without creating a commit
@@ -104,9 +104,8 @@ Or download the executable binary that will work on your operating system direct
   - OpenAI (GPT)
   - Gemini (Google)
   - Grok (xAI)
-  - Llama (Meta)
+  - Meta Model API (`llama`)
   - Deepseek (DeepSeek, Inc.)
-  - GitHub Models
   - All Ollama models
 
 ## Usage
@@ -118,8 +117,8 @@ gitwhisper # shorthand for 'gitwhisper commit' - runs commit command by default
 gw # even shorter command - also runs 'gitwhisper commit' by default
 
 # Choose a specific model variant
-gitwhisper commit --model openai --model-variant gpt-4o
-gw commit --model openai --model-variant gpt-4o
+gitwhisper commit --model openai --model-variant gpt-5.6-terra
+gw commit --model openai --model-variant gpt-5.6-terra
 
 # Tool-capable models use agent mode by default
 gitwhisper commit --model openai
@@ -128,14 +127,14 @@ gitwhisper commit --model gemini
 gitwhisper commit --model grok
 gitwhisper commit --model llama
 gitwhisper commit --model deepseek
-gitwhisper commit --model github
 gitwhisper commit --model ollama
 
 # Add a ticket number prefix to your commit message
 gitwhisper commit --prefix "JIRA-123"
 gw commit --prefix "JIRA-123"
 
-# Automatically push the commit to the remote repository
+# Automatically push the commit to the branch's upstream
+# (with no upstream and a single remote, it is pushed with -u)
 gitwhisper commit --auto-push
 gw commit --auto-push
 gw commit -a # shorthand for --auto-push
@@ -150,6 +149,9 @@ gw commit -t v1.0.0 -a
 # Preview the generated message without committing (no commit, push, or tag)
 gitwhisper commit --dry-run
 gw commit --dry-run
+
+# Send the staged diff in the prompt instead of letting the model inspect it with tools
+gw commit --no-agent
 
 # Use local-auth agent providers (no GitWhisper API key required)
 gitwhisper commit --model codex
@@ -178,6 +180,8 @@ gw acp list --all        # include entries not used for commits
 gw acp info qoder
 gw acp resolve codex
 gw acp install poolside
+gw acp trust .   # allow ACP agents in a repo that ships agent config (see below)
+gw acp untrust .
 gw acp cache path
 gw acp cache refresh
 
@@ -185,13 +189,13 @@ gw acp cache refresh
 gitwhisper change-language
 gw change-language
 
-# Save an API key for future use
-gitwhisper save-key --model claude --key "your-claude-key"
-gw save-key --model claude --key "your-claude-key"
+# Save an API key for future use (prompts for the key without echoing it)
+gitwhisper save-key --model claude
+gw save-key --model claude
 
 # Set defaults (model is required, model-variant is optional)
-gitwhisper set-defaults --model openai --model-variant gpt-4o
-gw set-defaults --model openai --model-variant gpt-4o
+gitwhisper set-defaults --model openai --model-variant gpt-5.6-terra
+gw set-defaults --model openai --model-variant gpt-5.6-terra
 
 # Set just the default model (without variant)
 gitwhisper set-defaults --model claude
@@ -201,7 +205,8 @@ gw set-defaults --model claude
 gitwhisper set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 gw set-defaults --model ollama --model-variant llama3 --base-url http://localhost:11434
 
-# Set max diff size (characters) before prompting for interactive staging
+# Set the largest diff (characters) that `--no-agent` sends in one prompt;
+# larger diffs are summarised file by file
 gw set-defaults --max-diff-size 100000
 
 # Show current defaults
@@ -268,7 +273,7 @@ GitWhisper uses a command-based structure:
 - `update`: Update GitWhisper to the latest version
 - `set-defaults`: Set default model and variant for future use (supports --base-url for Ollama)
 - `show-defaults`: Display current default settings
-- `show-config`: Display the current config file path and contents
+- `show-config`: Display the current config file path and contents (API keys are masked; pass `--reveal` to show them)
 - `clear-defaults`: Clear any set default preferences
 - `always-add`: Configure whether GitWhisper stages changes before committing
 
@@ -276,19 +281,21 @@ GitWhisper uses a command-based structure:
 
 You can provide API keys in several ways:
 
-1. **Command line argument**: `--key "your-api-key"`
+1. **Saved configuration** (recommended): run `gw save-key --model <model>` and paste the key at the hidden prompt. The config file is written with owner-only (0600) permissions.
 2. **Environment variables**:
    - `ANTHROPIC_API_KEY` (for Claude)
    - `OPENAI_API_KEY` (for OpenAI)
    - `GEMINI_API_KEY` (for Gemini)
    - `GROK_API_KEY` (for Grok)
-   - `LLAMA_API_KEY` (for Llama)
-3. **Saved configuration**: Use the `save-key` command to store your API key permanently
+   - `LLAMA_API_KEY` (for the Meta Model API)
+   - `DEEPSEEK_API_KEY` (for DeepSeek)
+3. **Command line argument**: `--key "your-api-key"`. This still works but prints a warning, because the key ends up in your shell history and process list.
 
 Local-auth agent providers and ACP agents do not need GitWhisper API keys:
 
 - `codex` reads the same local Codex credentials used by the Codex CLI, calls the Codex Responses API directly, and lets that model inspect staged changes through GitWhisper's read-only tools.
-- `claude-code` reads Claude Code local credentials from environment, `~/.claude`, or the macOS keychain, calls Anthropic Messages directly, and lets that model inspect staged changes through GitWhisper's read-only tools.
+- `claude-code` reads Claude Code local credentials from environment, `~/.claude`, or the macOS keychain, calls Anthropic Messages directly, and lets that model inspect staged changes through GitWhisper's read-only tools. An `apiKeyHelper` in a repository's `.claude/settings.json` or `.claude/settings.local.json` is only used after you have trusted that folder in Claude Code; otherwise only your user and managed settings are read.
+- When `codex` or `claude-code` refreshes an expired login, the refreshed tokens are written back atomically with owner-only permissions, and tokens the CLI itself refreshed in the meantime are kept rather than overwritten.
 - Other supported ACP agent ids can be used directly, for example `qoder`, `poolside`, `cline`, or other agents shown by `gw acp list`.
 
 GitWhisper caches the ACP registry under `~/.gitwhisper/acp/registry.json`.
@@ -299,7 +306,29 @@ the cached copy. If there is no cache yet, it prints a clear registry/cache
 error with a link to file a support issue. Run `gw acp cache refresh` to force
 an immediate network refresh.
 Binary-only ACP agents are installed under `~/.gitwhisper/acp/agents/` when you
-run `gw acp install <agent>` or when GitWhisper needs to launch them.
+run `gw acp install <agent>` or when GitWhisper needs to launch them. Binary
+downloads must use HTTPS and are checked against the registry's sha256 checksum
+when the registry publishes one.
+
+Agents are matched by their exact registry id (or a known alias); a near miss
+prints "did you mean" suggestions instead of guessing. The first time a given
+agent version is launched, GitWhisper shows exactly what will run (npm package
+or download URL, command, and environment) and asks before starting it. Run
+`gw acp install <agent>` to approve it ahead of time, for example for git hooks
+or CI; non-interactive runs refuse to launch an agent that was never approved.
+
+ACP agents start in a private GitWhisper directory rather than in your
+repository, so a repository's `.npmrc` or `node_modules` cannot change what
+runs. The agent still works on your repository through the ACP session. If the
+repository ships agent configuration that can run commands (for example
+`.claude/`, `.mcp.json`, `.gemini/`, `.codex/`, `.cursor/`, `.npmrc` or
+`node_modules/`), GitWhisper lists it and asks before an ACP agent works there,
+once per repository. Without a terminal (CI, git hooks) it refuses until you
+run `gw acp trust <path>`; `gw acp untrust <path>` revokes it.
+
+While an agent runs, GitWhisper auto-approves only its own read-only git tools,
+one call at a time. Every other permission request (shell commands, file edits,
+web fetches) is rejected.
 Unsupported or generic registry entries are hidden from the default commit-agent
 list. Use `gw acp list --all` to see every registry entry; entries GitWhisper
 does not target for commit generation are marked "not used for commits".
@@ -326,8 +355,11 @@ This list lives in code (`unsupportedCommitAgentIds`) and may change over time;
 `gw acp list --all` is always the source of truth. If an agent you want is
 excluded, open an issue and we can evaluate adding it.
 While a local ACP agent works, GitWhisper shows its tool activity live (which
-files it reads, diffs, searches, and blames) instead of a silent wait. Failed or
-empty agent responses are logged under `~/.gitwhisper/acp/logs/` for debugging.
+files it reads, diffs, searches, and blames) instead of a silent wait. Set
+`GITWHISPER_ACP_DEBUG=1` to write a debug log under `~/.gitwhisper/acp/logs/`.
+Debug logs are off by default, record only message shapes (methods, ids, sizes,
+statuses — never prompts, diffs, or tool output), are readable only by you, and
+are deleted after 7 days.
 
 Agent mode is enabled by default for tool-capable providers:
 
@@ -337,14 +369,16 @@ Agent mode is enabled by default for tool-capable providers:
 - `gw commit --model grok`
 - `gw commit --model llama`
 - `gw commit --model deepseek`
-- `gw commit --model github`
 - `gw commit --model ollama`
 - `gw commit --model codex`
 - `gw commit --model claude-code`
 - `gw commit --model <supported-acp-agent-id>`
 
-In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, diff hunks, file-content chunks, file search, related files, summaries, and blame. Direct API-backed providers receive these through native tool/function-calling APIs; local ACP agents receive them through GitWhisper's MCP server. The full diff is not sent in one prompt.
-Models without tool support automatically use the regular direct-diff mode.
+In agent mode, GitWhisper gives the model read-only tools for staged files, diff stats, per-file diffs, diff hunks, file-content chunks, file search, related files, summaries, and blame. The tools read staged content from the git index, so unstaged edits are never shown and staged symlinks are not followed. Direct API-backed providers receive these through native tool/function-calling APIs; local ACP agents receive them through GitWhisper's MCP server. The full diff is not sent in one prompt.
+
+If an API model rejects tool use (for example an Ollama model without tool support), GitWhisper retries once in direct-diff mode, which sends the staged diff in the prompt. Pass `--no-agent` to use direct-diff mode from the start; diffs larger than `max_diff_size` are summarised file by file first.
+
+If you cancel or discard a commit at any prompt, `gw commit` exits with code 75, so `gw commit && git push` does not push.
 
 ## Model Variants
 
@@ -352,43 +386,29 @@ GitWhisper supports a comprehensive range of model variants:
 
 ### OpenAI
 
-- `gpt-4o` (default)
-- `gpt-5`
-- `gpt-5-mini`
-- `gpt-5-nano`
-- `gpt-5-pro`
-- `gpt-4.1`
-- `gpt-4.1-mini`
-- `gpt-4.1-nano`
-- `gpt-4.5-preview`
-- `gpt-4o-mini`
-- `gpt-realtime`
-- `gpt-realtime-mini`
-- `o1-preview`
-- `o1-mini`
-- `o3-mini`
+- `gpt-5.6-terra` (default)
+- `gpt-5.6-sol`
+- `gpt-5.6-luna`
+- `gpt-5.5`
+- `gpt-6-astra`
+- `gpt-6.1-sol` (no agent mode: no tool calls on Chat Completions)
+- `gpt-6-luna` (no agent mode: tool calls need reasoning effort none)
 
 ### Claude (Anthropic)
 
-- `claude-sonnet-4-20250514` (default)
-- `claude-sonnet-4-5-20250929`
-- `claude-opus-4-1-20250805`
-- `claude-opus-4-20250514`
-- `claude-3-7-sonnet-20250219`
-- `claude-3-7-sonnet-latest`
-- `claude-3-5-sonnet-latest`
-- `claude-3-5-sonnet-20241022`
-- `claude-3-5-sonnet-20240620`
-- `claude-3-opus-20240307`
-- `claude-3-sonnet-20240307`
-- `claude-3-haiku-20240307`
+- `claude-sonnet-5-5` (default)
+- `claude-opus-5-5`
+- `claude-fable-5-1` (demanding reasoning)
+- `claude-haiku-5-5` (fastest)
+- `claude-opus-4-8`
+- `claude-sonnet-4-6`
 
 ### Local-Auth Agent Providers
 
 These providers call the model APIs directly while reusing local CLI credentials:
 
-- `codex` uses the model in `~/.codex/config.toml` when configured, otherwise `gpt-5.5`. Override with `--variant`.
-- `claude-code` uses `claude-sonnet-4-5-20250929` by default. Override with `--variant`.
+- `codex` uses the model in `~/.codex/config.toml` when configured, otherwise `gpt-5.5`. Override with `--model-variant`.
+- `claude-code` uses `claude-sonnet-5-5` by default. Override with `--model-variant`.
 
 ### Local ACP Agent Providers
 
@@ -396,61 +416,42 @@ These providers call the model APIs directly while reusing local CLI credentials
 
 ### Gemini (Google)
 
-- `gemini-2.0-flash` (default, fast performance)
-- `gemini-2.5-pro` (advanced reasoning with thinking)
-- `gemini-2.5-flash` (updated Sep 2025)
-- `gemini-2.5-flash-lite` (most cost-efficient)
-- `gemini-2.5-flash-image` (image generation)
-- `gemini-2.5-computer-use` (agent interaction)
-- `gemini-1.5-pro-002` (2M tokens)
-- `gemini-1.5-flash-002` (1M tokens)
-- `gemini-1.5-flash-8b` (cost effective)
+- `gemini-3.6-flash` (default)
+- `gemini-3.8-flash`
+- `gemini-4-argon` (most capable)
+- `gemini-3.5-flash-lite`
+- `gemini-3.1-flash-lite`
+- `gemini-2.5-pro` (only for accounts that already used it)
+- `gemini-2.5-flash` (only for accounts that already used it)
 
 ### Grok (xAI)
 
-- `grok-2-latest` (default)
-- `grok-4` (most intelligent)
-- `grok-4-heavy` (most powerful)
-- `grok-4-fast` (efficient reasoning)
-- `grok-code-fast-1` (agentic coding)
-- `grok-3` (reasoning capabilities)
-- `grok-3-mini` (faster responses)
+- `grok-4.3` (default)
+- `grok-4.7` (most capable)
+- `grok-4.6`
+- `grok-4.5`
+- `grok-4.20-0309-reasoning`
+- `grok-4.20-0309-non-reasoning`
+- `grok-build-0.1` (agentic coding)
 
-### Llama (Meta)
+### Meta Model API (`llama`)
 
-- `llama-3-70b-instruct` (default)
-- `llama-3-8b-instruct`
-- `llama-3.1-8b-instruct`
-- `llama-3.1-70b-instruct`
-- `llama-3.1-405b-instruct`
-- `llama-3.2-1b-instruct`
-- `llama-3.2-3b-instruct`
-- `llama-3.3-70b-instruct`
+The `llama` provider uses Meta's OpenAI-compatible Meta Model API
+(`https://api.meta.ai/v1`) and needs a Meta Model API key.
+
+- `muse-spark-1.3` (default)
+- `muse-spark-1.2`
+- `muse-spark-1.1`
 
 ### Deepseek (DeepSeek, Inc.)
 
-- `deepseek-chat` (default)
-- `deepseek-v3.2-exp` (latest experimental)
-- `deepseek-v3.1` (hybrid reasoning)
-- `deepseek-v3.1-terminus`
-- `deepseek-r1-0528` (upgraded reasoning)
-- `deepseek-v3-0324` (improved post-training)
-- `deepseek-reasoner`
+- `deepseek-flash` (default)
+- `deepseek-v4-pro`
 
-### GitHub Models
+### GitHub Models (retired)
 
-- `gpt-4o` (default)
-- `DeepSeek-R1`
-- `Llama-3.3-70B-Instruct`
-- `Deepseek-V3`
-- `Phi-4-mini-instruct`
-- `Codestral 25.01`
-- `Mistral Large 24.11`
-- More models are available in the [GitHub Models marketplace](https://github.com/marketplace?type=models)
-
-To run GitHub models you may need the following:
-
-> To authenticate with the model you will need to generate a personal access token (PAT) in your GitHub settings. Create your PAT token by following instructions here: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+GitHub retired GitHub Models on July 30, 2026. `--model github` now stops with a
+message saying so instead of sending a request. Pick another provider.
 
 ### Ollama (self-hosted)
 
@@ -461,7 +462,7 @@ To run GitHub models you may need the following:
 Git Whisper:
 
 1. Checks if you have staged changes in your repository
-2. Chooses agent mode for tool-capable providers, or direct-diff mode for providers without tool support
+2. Uses agent mode by default, or direct-diff mode with `--no-agent` or when the model rejects tools
 3. In agent mode, exposes read-only staged-change tools instead of sending the whole diff at once
 4. In direct-diff mode, retrieves the diff and sends it to the selected AI model
 5. Generates a commit message following the configured conventional commit format
@@ -525,7 +526,7 @@ api_keys:
   openai: "your-openai-key"
   # ...
 whisper_language: english
-max_diff_size: 50000 # Max diff size before prompting for interactive staging
+max_diff_size: 50000 # Largest diff --no-agent sends in one prompt before summarising file by file
 ```
 
 ## Requirements
