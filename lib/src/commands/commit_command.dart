@@ -776,7 +776,7 @@ class CommitCommand extends Command<int> {
 
   /// Generates a commit message for the staged changes in [folderPath] and
   /// sanitizes it. Returns an empty string when the model produced no usable
-  /// message.
+  /// message. [additionalContext] is guidance the user added when retrying.
   ///
   /// When an API provider rejects tool use in agent mode, warns and retries
   /// once in direct-diff mode, and keeps [model] in direct-diff mode for the
@@ -786,6 +786,7 @@ class CommitCommand extends Command<int> {
     required _CommitOptions options,
     required String? folderPath,
     required String label,
+    String? additionalContext,
   }) async {
     if (model.agentMode) {
       try {
@@ -793,6 +794,7 @@ class CommitCommand extends Command<int> {
           generator: model.generator,
           options: options,
           folderPath: folderPath,
+          additionalContext: additionalContext,
         );
         return GitUtils.sanitizeGeneratedCommitMessage(
           rawMessage,
@@ -818,6 +820,7 @@ class CommitCommand extends Command<int> {
       options: options,
       folderPath: folderPath,
       label: label,
+      additionalContext: additionalContext,
     );
     return GitUtils.sanitizeGeneratedCommitMessage(
       rawMessage,
@@ -830,6 +833,7 @@ class CommitCommand extends Command<int> {
     required CommitGenerator generator,
     required _CommitOptions options,
     required String? folderPath,
+    String? additionalContext,
   }) {
     if (generator is! AgentCommitGenerator) {
       throw UnsupportedError(
@@ -848,6 +852,7 @@ class CommitCommand extends Command<int> {
         language: options.language,
         prefix: options.prefix,
         withEmoji: options.withEmoji,
+        additionalContext: additionalContext,
       ),
     );
   }
@@ -859,6 +864,7 @@ class CommitCommand extends Command<int> {
     required _CommitOptions options,
     required String? folderPath,
     required String label,
+    String? additionalContext,
   }) async {
     final diff = await GitUtils.getStagedDiff(folderPath: folderPath);
     if (diff.isEmpty) return '';
@@ -874,11 +880,12 @@ class CommitCommand extends Command<int> {
         generator: generator,
         diff: diff,
         options: options,
+        additionalContext: additionalContext,
       );
     }
 
     return generator.generateCommitMessage(
-      diff,
+      appendAdditionalContext(diff, additionalContext),
       options.language,
       prefix: options.prefix,
       withEmoji: options.withEmoji,
@@ -940,6 +947,9 @@ class CommitCommand extends Command<int> {
     required String label,
   }) async {
     String currentMessage = commitMessage;
+    // Guidance the user added through "add context". It is sent with every
+    // later regeneration.
+    String? additionalContext;
 
     while (true) {
       _logger
@@ -990,17 +1000,15 @@ class CommitCommand extends Command<int> {
           switch (retryOption) {
             case 'same model':
               _logger.info('Regenerating with ${model.name}...');
-              try {
-                currentMessage = await _generateMessage(
-                  model: model,
-                  options: options,
-                  folderPath: folderPath,
-                  label: label,
-                );
-              } on Object catch (e) {
-                _logger.err('Failed to regenerate commit message: $e');
-                continue;
-              }
+              currentMessage = await _regenerateMessage(
+                previousMessage: currentMessage,
+                model: model,
+                options: options,
+                folderPath: folderPath,
+                label: label,
+                additionalContext: additionalContext,
+                failureMessage: 'Failed to regenerate commit message',
+              );
 
             case 'different model':
               final newModelName = _logger.chooseOne(
@@ -1034,42 +1042,47 @@ class CommitCommand extends Command<int> {
               );
 
               _logger.info('Regenerating with $newModelName...');
-              try {
-                currentMessage = await _generateMessage(
-                  model: newModel,
-                  options: options,
-                  folderPath: folderPath,
-                  label: label,
-                );
-              } on Object catch (e) {
-                _logger.err(
-                  'Failed to generate commit message with $newModelName: $e',
-                );
-                continue;
-              }
-
-            case 'add context':
-              final context = _logger.prompt(
-                'Add context or instructions for the AI (e.g., "make it more technical", "focus on performance"):',
+              currentMessage = await _regenerateMessage(
+                previousMessage: currentMessage,
+                model: newModel,
+                options: options,
+                folderPath: folderPath,
+                label: label,
+                additionalContext: additionalContext,
+                failureMessage:
+                    'Failed to generate commit message with $newModelName',
               );
 
-              if (context.trim().isEmpty) {
+            case 'add context':
+              final context = _logger
+                  .prompt(
+                    'Add context or instructions for the AI (e.g., "make it '
+                    'more technical", "focus on performance"):',
+                  )
+                  .trim();
+
+              // The latest context replaces any earlier one and is kept for
+              // later retries.
+              if (context.isEmpty) {
                 _logger.warn('No context provided, using same model...');
+              } else {
+                additionalContext = context;
               }
 
-              _logger.info('Regenerating with additional context...');
-              try {
-                // For now, we'll just regenerate - in the future, we could modify the prompt
-                currentMessage = await _generateMessage(
-                  model: model,
-                  options: options,
-                  folderPath: folderPath,
-                  label: label,
-                );
-              } on Object catch (e) {
-                _logger.err('Failed to regenerate commit message: $e');
-                continue;
-              }
+              _logger.info(
+                additionalContext == null
+                    ? 'Regenerating with ${model.name}...'
+                    : 'Regenerating with additional context...',
+              );
+              currentMessage = await _regenerateMessage(
+                previousMessage: currentMessage,
+                model: model,
+                options: options,
+                folderPath: folderPath,
+                label: label,
+                additionalContext: additionalContext,
+                failureMessage: 'Failed to regenerate commit message',
+              );
           }
           continue;
 
@@ -1078,6 +1091,42 @@ class CommitCommand extends Command<int> {
           return null;
       }
     }
+  }
+
+  /// Regenerates the commit message with [model]. Keeps [previousMessage]
+  /// when generation fails or the model returns no usable message, so the
+  /// user can still commit, edit or retry it.
+  Future<String> _regenerateMessage({
+    required String previousMessage,
+    required _ModelChoice model,
+    required _CommitOptions options,
+    required String? folderPath,
+    required String label,
+    required String failureMessage,
+    String? additionalContext,
+  }) async {
+    final String message;
+    try {
+      message = await _generateMessage(
+        model: model,
+        options: options,
+        folderPath: folderPath,
+        label: label,
+        additionalContext: additionalContext,
+      );
+    } on Object catch (e) {
+      _logger.err('$failureMessage: $e');
+      return previousMessage;
+    }
+
+    if (message.trim().isEmpty) {
+      _logger.warn(
+        '${_modelDisplayName(model.name)} did not return a usable commit '
+        'message. Keeping the previous one.',
+      );
+      return previousMessage;
+    }
+    return message;
   }
 
   /// Checks for large files in staged changes and handles user prompts.
@@ -1149,6 +1198,7 @@ class CommitCommand extends Command<int> {
     required CommitGenerator generator,
     required String diff,
     required _CommitOptions options,
+    String? additionalContext,
   }) async {
     final language = options.language;
     final hunks = GitUtils.splitDiffIntoHunks(diff);
@@ -1201,6 +1251,7 @@ class CommitCommand extends Command<int> {
       language,
       prefix: options.prefix,
       withEmoji: options.withEmoji,
+      additionalContext: additionalContext,
     );
 
     return generator.generateCommitMessage(

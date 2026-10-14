@@ -292,19 +292,42 @@ Response should be only markdown formatted response.
   return prompt;
 }
 
+/// Formats extra guidance the user gave when regenerating a message (the
+/// confirm loop's "add context"), or returns '' when there is none.
+String _additionalContextNote(String? additionalContext) {
+  final context = additionalContext?.trim() ?? '';
+  return context.isNotEmpty
+      ? '''
+ADDITIONAL CONTEXT FROM THE USER:
+$context
+'''
+      : '';
+}
+
+/// Appends [additionalContext] to a [diff] that is passed to a direct-diff
+/// generator.
+///
+/// `CommitGenerator.generateCommitMessage` builds its prompt from the diff
+/// alone, so context the user adds is sent after the diff, marked as not
+/// part of it. Returns [diff] unchanged when there is no context.
+String appendAdditionalContext(String diff, String? additionalContext) {
+  final context = additionalContext?.trim() ?? '';
+  if (context.isEmpty) return diff;
+  return '''
+$diff
+
+ADDITIONAL CONTEXT FROM THE USER (not part of the diff):
+$context
+''';
+}
+
 String getAgentCommitPrompt(
   Language language, {
   String? prefix,
   bool withEmoji = true,
   String? additionalContext,
 }) {
-  final context = additionalContext?.trim() ?? '';
-  final contextNote = context.isNotEmpty
-      ? '''
-ADDITIONAL CONTEXT FROM THE USER:
-$context
-'''
-      : '';
+  final contextNote = _additionalContextNote(additionalContext);
   final hasPrefix = prefix != null && prefix.isNotEmpty;
   final prefixNote = hasPrefix
       ? '''
@@ -432,11 +455,13 @@ Respond with ONLY the summary, no additional text or formatting.
 /// Generates a prompt to create a commit message from file summaries.
 ///
 /// Used after generating per-file summaries to create the final commit message.
+/// [additionalContext] is extra guidance from the user, if any.
 String getCommitFromSummariesPrompt(
   Map<String, String> fileSummaries,
   Language language, {
   String? prefix,
   bool withEmoji = true,
+  String? additionalContext,
 }) {
   final summariesText =
       fileSummaries.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
@@ -453,13 +478,14 @@ String getCommitFromSummariesPrompt(
       ? '\nWrite the description in ${language.name}. '
           'Keep commit types in English.'
       : '';
+  final contextNote = _additionalContextNote(additionalContext);
 
   return '''
 Generate a conventional commit message based on these file change summaries:
 
 $summariesText
 $prefixNote$emojiNote$languageInstruction
-
+${contextNote.isEmpty ? '' : '\n$contextNote'}
 Rules:
 - Use imperative mood ("Add", "Fix", not "Added", "Fixed")
 - Keep description concise (under 50 characters if possible)

@@ -350,6 +350,168 @@ void main() {
     });
   });
 
+  group('commit confirm retry', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    test('keeps the previous message when a retry returns nothing usable',
+        () async {
+      // The sanitizer turns the prose answer into an empty message.
+      final fake = _FakeGenerator(
+        'unused',
+        responses: ['feat: Add a', 'I could not decide.'],
+      );
+      final logger = _ScriptedLogger(
+        answers: ['retry', 'same model', 'commit'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.agentRequests, hasLength(2));
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(
+        logger.warnings,
+        contains(contains('Keeping the previous one')),
+      );
+    });
+
+    test('sends added context to the agent and keeps it for later retries',
+        () async {
+      final fake = _FakeGenerator(
+        'unused',
+        responses: ['feat: Add a', 'feat: Add the a file', 'feat: Add file a'],
+      );
+      final logger = _ScriptedLogger(
+        answers: [
+          'retry',
+          'add context',
+          '  mention the a file  ',
+          'retry',
+          'same model',
+          'commit',
+        ],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(
+        fake.agentRequests.map((request) => request.additionalContext),
+        [null, 'mention the a file', 'mention the a file'],
+      );
+      expect(await _lastSubject(repo), 'feat: Add file a');
+    });
+
+    test('regenerates without context when none is entered', () async {
+      final fake = _FakeGenerator(
+        'unused',
+        responses: ['feat: Add a', 'feat: Add the a file'],
+      );
+      final logger = _ScriptedLogger(
+        answers: ['retry', 'add context', '   ', 'commit'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(
+        fake.agentRequests.map((request) => request.additionalContext),
+        [null, null],
+      );
+      expect(logger.warnings, contains(startsWith('No context provided')));
+      expect(await _lastSubject(repo), 'feat: Add the a file');
+    });
+
+    test('--no-agent puts added context in the prompt', () async {
+      final fake = _FakeGenerator(
+        'unused',
+        responses: ['feat: Add a', 'feat: Add the a file'],
+      );
+      final logger = _ScriptedLogger(
+        answers: ['retry', 'add context', 'mention the a file', 'commit'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--no-agent', '--confirm'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.directInputs, hasLength(2));
+      expect(fake.directInputs[0], isNot(contains('ADDITIONAL CONTEXT')));
+      expect(
+        fake.directInputs[1],
+        allOf(
+          contains('diff --git a/a.txt b/a.txt'),
+          contains('ADDITIONAL CONTEXT FROM THE USER'),
+          contains('mention the a file'),
+        ),
+      );
+      expect(await _lastSubject(repo), 'feat: Add the a file');
+    });
+
+    test('--no-agent puts added context in the file-by-file prompt', () async {
+      await _stageFile(repo, 'b.txt', 'b\n');
+      final fake = _FakeGenerator(
+        'unused',
+        responses: [
+          'Adds a',
+          'Adds b',
+          'feat: Add two files',
+          'Adds a',
+          'Adds b',
+          'feat: Add files a and b',
+        ],
+      );
+      final logger = _ScriptedLogger(
+        answers: ['retry', 'add context', 'mention both files', 'commit'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--no-agent', '--confirm'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+        config: _TestConfigManager(maxDiffSize: 10),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.directInputs, hasLength(6));
+      expect(fake.directInputs[2], isNot(contains('ADDITIONAL CONTEXT')));
+      expect(
+        fake.directInputs[5],
+        allOf(
+          contains('- a.txt: Adds a'),
+          contains('ADDITIONAL CONTEXT FROM THE USER'),
+          contains('mention both files'),
+        ),
+      );
+      expect(await _lastSubject(repo), 'feat: Add files a and b');
+    });
+  });
+
   // Pushes only ever go to bare repositories inside the temp sandbox.
   group('commit --auto-push', () {
     late Directory repo;
