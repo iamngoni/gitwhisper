@@ -536,19 +536,12 @@ class CommitCommand extends Command<int> {
         return _RepoOutcome.succeeded;
       }
 
-      try {
-        await GitUtils.runGitCommit(
-          message: commitMessage,
-          autoPush: options.autoPush,
-          folderPath: folderPath,
-          tag: options.tag,
-        );
-      } on Object catch (e) {
-        _logger.err('${label}Error setting commit message: $e');
-        return _RepoOutcome.failed;
-      }
-
-      return _RepoOutcome.succeeded;
+      return await _commitAndPublish(
+        commitMessage,
+        folderPath: folderPath,
+        options: options,
+        label: label,
+      );
     } on ApiException catch (e) {
       if (multiRepo) {
         _logger.err('$label${ErrorHandler.getErrorSummary(e)}');
@@ -571,6 +564,71 @@ class CommitCommand extends Command<int> {
       }
       return _RepoOutcome.failed;
     }
+  }
+
+  /// Commits [message], then creates the tag and pushes when requested.
+  ///
+  /// Tag and push failures are reported as such: the commit already exists by
+  /// then, and saying the commit failed would be wrong. They still count as a
+  /// failure, so scripts do not assume the commit was pushed.
+  Future<_RepoOutcome> _commitAndPublish(
+    String message, {
+    required String? folderPath,
+    required _CommitOptions options,
+    required String label,
+  }) async {
+    try {
+      await GitUtils.runGitCommit(message: message, folderPath: folderPath);
+    } on Object catch (e) {
+      _logger.err('${label}Error creating the commit: $e');
+      return _RepoOutcome.failed;
+    }
+    _logger.success('${label}Commit successful! 🎉');
+
+    final tag = options.tag;
+    final hasTag = tag != null && tag.isNotEmpty;
+    if (hasTag) {
+      try {
+        await GitUtils.createTag(tag, folderPath: folderPath);
+      } on Object catch (e) {
+        _logger.err(
+          '${label}The commit was created, but tagging it failed: $e'
+          '${options.autoPush ? ' Nothing was pushed.' : ''}',
+        );
+        return _RepoOutcome.failed;
+      }
+      _logger.success('${label}Tag $tag created successfully!');
+    }
+
+    if (!options.autoPush) return _RepoOutcome.succeeded;
+
+    _logger.info('${label}Syncing with remote branch...');
+    final ({String remote, String target}) pushed;
+    try {
+      pushed = await GitUtils.pushCurrentBranch(folderPath: folderPath);
+    } on Object catch (e) {
+      _logger.err('${label}The commit was created, but pushing failed: $e');
+      return _RepoOutcome.failed;
+    }
+    _logger.success('${label}Pushed to ${pushed.target} successfully! 🎉');
+
+    if (hasTag) {
+      try {
+        await GitUtils.pushTag(
+          tag,
+          remote: pushed.remote,
+          folderPath: folderPath,
+        );
+      } on Object catch (e) {
+        _logger.err(
+          '${label}The commit was pushed, but pushing tag $tag failed: $e',
+        );
+        return _RepoOutcome.failed;
+      }
+      _logger.success('${label}Tag $tag pushed successfully!');
+    }
+
+    return _RepoOutcome.succeeded;
   }
 
   String? _getEnvironmentApiKey(String modelName) {

@@ -13,6 +13,17 @@ import 'package:path/path.dart' as path;
 
 import 'constants.dart';
 
+/// A git operation that failed. [message] says what went wrong and, where
+/// possible, how to fix it.
+class GitException implements Exception {
+  const GitException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Utility class for Git operations
 class GitUtils {
   /// Returns a list of subdirectories (1 level down) that are git repositories.
@@ -190,106 +201,169 @@ class GitUtils {
     return result.exitCode == 0 && (result.stdout as String).trim() == 'true';
   }
 
-  /// Run git commit
+  /// Commits the staged changes with [message].
+  ///
+  /// Tagging and pushing are separate steps ([createTag], [pushCurrentBranch],
+  /// [pushTag]) so callers can report a failure there without implying that
+  /// the commit itself failed.
   static Future<void> runGitCommit({
     required String message,
-    bool autoPush = false,
     String? folderPath,
-    String? tag,
   }) async {
-    final args = ['commit', '-m', message];
+    final result = await Process.run(
+      'git',
+      ['commit', '-m', message],
+      workingDirectory: folderPath,
+    );
+    if (result.exitCode != 0) {
+      throw GitException('git commit failed: ${_errorText(result)}');
+    }
+  }
+
+  /// Creates a lightweight [tag] on HEAD.
+  static Future<void> createTag(String tag, {String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['tag', tag],
+      workingDirectory: folderPath,
+    );
+    if (result.exitCode != 0) {
+      throw GitException('Could not create tag $tag: ${_errorText(result)}');
+    }
+  }
+
+  /// Returns the names of the configured remotes.
+  static Future<List<String>> getRemotes({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['remote'],
+      workingDirectory: folderPath,
+    );
+    if (result.exitCode != 0) return [];
+    return (result.stdout as String)
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+  }
+
+  /// Pushes the current branch.
+  ///
+  /// A branch with an upstream is pushed with a plain `git push`, so the
+  /// user's push settings apply. Without an upstream, a repository with
+  /// exactly one remote is pushed there with `-u` to set the upstream.
+  /// Throws a [GitException] explaining what to do for a detached HEAD, no
+  /// remote, several remotes and no upstream, or a rejected push.
+  ///
+  /// Returns the remote pushed to and a `remote/branch` description.
+  static Future<({String remote, String target})> pushCurrentBranch({
+    String? folderPath,
+  }) async {
+    final branch = await _gitValue(
+      ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+      folderPath: folderPath,
+    );
+    if (branch == null) {
+      throw const GitException(
+        'HEAD is detached, so there is no branch to push. Check out a branch '
+        'and push it manually.',
+      );
+    }
+
+    final upstream = await _gitValue(
+      ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+      folderPath: folderPath,
+    );
+    if (upstream != null) {
+      await _push(['push'], folderPath: folderPath);
+      final target = await _gitValue(
+            ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'],
+            folderPath: folderPath,
+          ) ??
+          upstream;
+      return (
+        remote: await _pushRemote(branch, folderPath: folderPath),
+        target: target,
+      );
+    }
+
+    final remotes = await getRemotes(folderPath: folderPath);
+    if (remotes.isEmpty) {
+      throw GitException(
+        'No git remote is configured. Add one with '
+        '`git remote add origin <url>`, then run `git push -u origin $branch`.',
+      );
+    }
+    if (remotes.length > 1) {
+      throw GitException(
+        'Branch $branch has no upstream and this repository has several '
+        'remotes (${remotes.join(', ')}). Push it once with '
+        '`git push -u <remote> $branch` to choose one.',
+      );
+    }
+
+    final remote = remotes.single;
+    await _push(['push', '-u', remote, branch], folderPath: folderPath);
+    return (remote: remote, target: '$remote/$branch');
+  }
+
+  /// Pushes [tag] to [remote].
+  static Future<void> pushTag(
+    String tag, {
+    required String remote,
+    String? folderPath,
+  }) async {
+    await _push(['push', remote, 'refs/tags/$tag'], folderPath: folderPath);
+  }
+
+  static Future<void> _push(List<String> args, {String? folderPath}) async {
     final result = await Process.run(
       'git',
       args,
       workingDirectory: folderPath,
     );
     if (result.exitCode != 0) {
-      throw Exception('Error during git commit: ${result.stderr}');
-    } else {
-      // Create tag if provided
-      if (tag != null && tag.isNotEmpty) {
-        final tagResult = await Process.run(
-          'git',
-          ['tag', tag],
-          workingDirectory: folderPath,
-        );
-        if (tagResult.exitCode != 0) {
-          throw Exception('Error creating tag: ${tagResult.stderr}');
-        }
-        if (folderPath != null) {
-          final folderName = path.basename(folderPath);
-          $logger.success('[$folderName] Tag $tag created successfully!');
-        } else {
-          $logger.success('Tag $tag created successfully!');
-        }
-      }
-
-      if (!autoPush) {
-        if (folderPath != null) {
-          final folderName = path.basename(folderPath);
-          $logger.success('[$folderName] Commit successful! 🎉');
-        } else {
-          $logger.success('Commit successful! 🎉');
-        }
-      } else {
-        /// Push the commit if autoPush is true
-        $logger.info('Commit successful! Syncing with remote branch.');
-
-        final branchName = await Process.run(
-          'git',
-          ['rev-parse', '--abbrev-ref', 'HEAD'],
-          workingDirectory: folderPath,
-        );
-        final remoteNameNoneUrl = await Process.run('git', ['remote']);
-
-        if (branchName.exitCode != 0 || remoteNameNoneUrl.exitCode != 0) {
-          throw Exception(
-            'Error getting branch or remote name: ${branchName.stderr}',
-          );
-        }
-
-        final branch = (branchName.stdout as String).trim();
-        final remoteNoneUrl = (remoteNameNoneUrl.stdout as String).trim();
-
-        /// Run the git push command
-        final pushResult = await Process.run(
-          'git',
-          ['push', remoteNoneUrl, branch],
-          workingDirectory: folderPath,
-        );
-        if (pushResult.exitCode != 0) {
-          throw Exception('Error during git push: ${pushResult.stderr}');
-        } else {
-          if (folderPath != null) {
-            final folderName = path.basename(folderPath);
-            $logger.success(
-                '[$folderName] Pushed to $remoteNoneUrl/$branch successfully! 🎉');
-          } else {
-            $logger
-                .success('Pushed to $remoteNoneUrl/$branch successfully! 🎉');
-          }
-        }
-
-        // Push tag if it was created
-        if (tag != null && tag.isNotEmpty) {
-          final pushTagResult = await Process.run(
-            'git',
-            ['push', remoteNoneUrl, tag],
-            workingDirectory: folderPath,
-          );
-          if (pushTagResult.exitCode != 0) {
-            throw Exception('Error pushing tag: ${pushTagResult.stderr}');
-          } else {
-            if (folderPath != null) {
-              final folderName = path.basename(folderPath);
-              $logger.success('[$folderName] Tag $tag pushed successfully!');
-            } else {
-              $logger.success('Tag $tag pushed successfully!');
-            }
-          }
-        }
-      }
+      throw GitException('git ${args.join(' ')} failed: ${_errorText(result)}');
     }
+  }
+
+  /// The remote a plain `git push` of [branch] goes to, following git's
+  /// order: branch pushRemote, remote.pushDefault, then the branch remote.
+  static Future<String> _pushRemote(String branch, {String? folderPath}) async {
+    for (final key in [
+      'branch.$branch.pushRemote',
+      'remote.pushDefault',
+      'branch.$branch.remote',
+    ]) {
+      final value = await _gitValue(
+        ['config', '--get', key],
+        folderPath: folderPath,
+      );
+      if (value != null) return value;
+    }
+    return 'origin';
+  }
+
+  /// Runs git and returns its trimmed stdout, or null on failure or no output.
+  static Future<String?> _gitValue(
+    List<String> args, {
+    String? folderPath,
+  }) async {
+    final result = await Process.run(
+      'git',
+      args,
+      workingDirectory: folderPath,
+    );
+    if (result.exitCode != 0) return null;
+    final value = (result.stdout as String).trim();
+    return value.isEmpty ? null : value;
+  }
+
+  /// git reports most errors on stderr, but some (e.g. "nothing to commit")
+  /// on stdout.
+  static String _errorText(ProcessResult result) {
+    final stderr = (result.stderr as String).trim();
+    return stderr.isNotEmpty ? stderr : (result.stdout as String).trim();
   }
 
   /// Stages all unstaged changes (including new files) and returns the number

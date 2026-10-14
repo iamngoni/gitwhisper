@@ -350,6 +350,159 @@ void main() {
     });
   });
 
+  // Pushes only ever go to bare repositories inside the temp sandbox.
+  group('commit --auto-push', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    Future<(int, _ScriptedLogger)> commitAndPush([
+      List<String> extraArgs = const [],
+      String? workingDirectory,
+    ]) async {
+      final logger = _ScriptedLogger();
+      final exit = await _runCommit(
+        ['--model', 'codex', '--auto-push', ...extraArgs],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: workingDirectory ?? repo.path,
+        logger: logger,
+      );
+      return (exit, logger);
+    }
+
+    test('pushes to the only remote and sets it as the upstream', () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.success.code);
+      expect(await _ref(origin, 'refs/heads/main'), await _ref(repo, 'HEAD'));
+      expect(
+        await _gitOk(['rev-parse', '--abbrev-ref', '@{upstream}'], repo.path),
+        'origin/main',
+      );
+      expect(
+        logger.successes,
+        contains('Pushed to origin/main successfully! 🎉'),
+      );
+    });
+
+    test('pushes to the configured upstream when there are several remotes',
+        () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      final upstream = await _createBareRemote(sandbox, 'upstream');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(['remote', 'add', 'upstream', upstream.path], repo.path);
+      await _gitOk(['push', '-q', '-u', 'upstream', 'main'], repo.path);
+
+      final (exit, _) = await commitAndPush();
+
+      expect(exit, ExitCode.success.code);
+      expect(await _ref(upstream, 'refs/heads/main'), await _ref(repo, 'HEAD'));
+      expect(await _ref(origin, 'refs/heads/main'), isNull);
+    });
+
+    test('explains several remotes without an upstream, keeping the commit',
+        () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      final upstream = await _createBareRemote(sandbox, 'upstream');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(['remote', 'add', 'upstream', upstream.path], repo.path);
+
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(logger.successes, contains('Commit successful! 🎉'));
+      expect(
+        logger.errors.single,
+        allOf(
+          contains('The commit was created, but pushing failed'),
+          contains('origin, upstream'),
+          contains('git push -u <remote> main'),
+        ),
+      );
+      expect(await _ref(origin, 'refs/heads/main'), isNull);
+      expect(await _ref(upstream, 'refs/heads/main'), isNull);
+    });
+
+    test('explains a missing remote, keeping the commit', () async {
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(logger.errors.single, contains('git remote add origin'));
+    });
+
+    test('explains a detached HEAD, keeping the commit', () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(['checkout', '-q', '--detach'], repo.path);
+
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(logger.errors.single, contains('HEAD is detached'));
+      expect(await _ref(origin, 'refs/heads/main'), isNull);
+    });
+
+    test('pushes the tag to the same remote', () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+
+      final (exit, _) = await commitAndPush(['--tag', 'v1.2.3']);
+
+      expect(exit, ExitCode.success.code);
+      expect(await _ref(origin, 'refs/tags/v1.2.3'), await _ref(repo, 'HEAD'));
+    });
+
+    test('reports a tag failure without pushing, keeping the commit', () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(['tag', 'v1.2.3'], repo.path);
+
+      final (exit, logger) = await commitAndPush(['--tag', 'v1.2.3']);
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(
+        logger.errors.single,
+        allOf(contains('tagging it failed'), contains('Nothing was pushed')),
+      );
+      expect(await _ref(origin, 'refs/heads/main'), isNull);
+    });
+
+    test('runs git remote in each repository in multi-repo mode', () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final one = await _createRepo(workspace, 'one');
+      await _stageFile(one, 'a.txt', 'a\n');
+      // Not called "origin", so a lookup in the wrong directory cannot pass.
+      final backup = await _createBareRemote(sandbox, 'backup');
+      await _gitOk(['remote', 'add', 'backup', backup.path], one.path);
+      final logger = _ScriptedLogger(answers: ['continue']);
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--auto-push'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: workspace.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(await _ref(backup, 'refs/heads/main'), await _ref(one, 'HEAD'));
+      expect(
+        logger.successes,
+        contains('[one] Pushed to backup/main successfully! 🎉'),
+      );
+    });
+  });
+
   group('commit with unresolved merge conflicts', () {
     test('stops before staging or calling the model', () async {
       final repo = await _createRepo(sandbox, 'repo');
@@ -643,6 +796,23 @@ Future<void> _stageFile(Directory repo, String name, String content) async {
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(content);
   await _gitOk(['add', '--', name], repo.path);
+}
+
+/// Creates an empty bare repository in the sandbox to push to.
+Future<Directory> _createBareRemote(Directory parent, String name) async {
+  final bare = Directory(p.join(parent.path, '$name.git'))
+    ..createSync(recursive: true);
+  final empty = Directory(p.join(parent.path, '.empty-$name.git'))
+    ..createSync(recursive: true);
+  await _gitOk(['init', '--bare', '-q', '--template=${empty.path}'], bare.path);
+  await _gitOk(['config', 'core.hooksPath', empty.path], bare.path);
+  return bare;
+}
+
+/// The commit [ref] points to in [repo], or null if it does not exist.
+Future<String?> _ref(Directory repo, String ref) async {
+  final result = await _git(['rev-parse', '--verify', '-q', ref], repo.path);
+  return result.exitCode == 0 ? (result.stdout as String).trim() : null;
 }
 
 /// Leaves [repo] mid-merge with [file] conflicted.
