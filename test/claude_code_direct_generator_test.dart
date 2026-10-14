@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,6 +10,8 @@ import 'package:gitwhisper/src/constants.dart';
 import 'package:gitwhisper/src/exceptions/exceptions.dart';
 import 'package:gitwhisper/src/models/claude_code_direct_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
+import 'package:gitwhisper/src/private_files.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -305,23 +308,122 @@ void main() {
       expect(headers['Authorization'], 'Bearer local-helper-token');
     });
 
-    test('uses USERPROFILE when HOME is not set', () async {
-      final profile = Directory(pathFor(tempDir, 'profile'))..createSync();
-      final claudeDir = Directory(pathFor(profile, '.claude'))..createSync();
-      await _writeCredentials(claudeDir, 'profile-token');
+    test(
+      'never resolves Claude Code files from an empty or relative HOME',
+      () async {
+        // Relative to the working directory, this HOME reaches a folder with
+        // credentials. Using it would let a repository supply them.
+        final home = Directory(pathFor(tempDir, 'relative-home'))..createSync();
+        final claudeDir = Directory(pathFor(home, '.claude'))..createSync();
+        await _writeCredentials(claudeDir, 'cwd-token');
 
-      final generator = _sandboxedGenerator(
-        tempDir,
-        environment: <String, String>{
-          'HOME': '',
-          'USERPROFILE': profile.path,
-        },
-      );
+        for (final environment in <Map<String, String>>[
+          <String, String>{'HOME': p.relative(home.path)},
+          <String, String>{'HOME': '', 'USERPROFILE': home.path},
+        ]) {
+          var logins = 0;
+          final generator = _sandboxedGenerator(
+            tempDir,
+            environment: environment,
+            runLogin: (executable, arguments) async {
+              logins += 1;
+              return 1;
+            },
+          );
 
-      final headers = await generator.resolveHeaders();
+          await expectLater(
+            generator.resolveHeaders(),
+            throwsA(isA<AuthenticationException>()),
+          );
+          expect(logins, 1, reason: 'no stored credentials should be found');
+        }
+      },
+      skip: Platform.isWindows ? 'Windows uses USERPROFILE.' : false,
+    );
 
-      expect(headers['Authorization'], 'Bearer profile-token');
-    });
+    test(
+      'does not open project settings before the folder is trusted',
+      () async {
+        final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
+        await _writeCredentials(userDir, 'stored-token');
+        final claudeDir = Directory(pathFor(tempDir, 'project/.claude'))
+          ..createSync(recursive: true);
+        // Settings a repository could ship that never finish reading.
+        Link(pathFor(claudeDir, 'settings.json')).createSync('/dev/zero');
+        Process.runSync(
+          'mkfifo',
+          <String>[pathFor(claudeDir, 'settings.local.json')],
+        );
+
+        final statted = <String>[];
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: userDir.path,
+          projectDirectory: claudeDir.parent.path,
+        );
+        final headers = await IOOverrides.runZoned(
+          generator.resolveHeaders,
+          statSync: (path) {
+            statted.add(path);
+            return Zone.root.run(() => FileStat.statSync(path));
+          },
+        );
+
+        expect(headers['Authorization'], 'Bearer stored-token');
+        expect(
+          statted,
+          contains(pathFor(userDir, 'settings.json')),
+          reason: 'settings reads start with a stat',
+        );
+        expect(
+          statted.where((path) => path.startsWith(claudeDir.path)),
+          isEmpty,
+        );
+      },
+      skip: Platform.isWindows ? 'Uses POSIX devices and FIFOs.' : false,
+    );
+
+    test(
+      'ignores trusted project settings that are not regular files or are '
+      'too large',
+      () async {
+        final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
+        await File(pathFor(userDir, 'settings.json')).writeAsString(
+          jsonEncode(<String, dynamic>{'apiKeyHelper': 'user-helper'}),
+        );
+        final claudeDir = Directory(pathFor(tempDir, 'project/.claude'))
+          ..createSync(recursive: true);
+        Link(pathFor(claudeDir, 'settings.json')).createSync('/dev/zero');
+        await File(pathFor(claudeDir, 'settings.local.json')).writeAsString(
+          jsonEncode(<String, dynamic>{
+            'apiKeyHelper': 'local-helper',
+            'padding': 'x' * (1024 * 1024),
+          }),
+        );
+        await _writeClaudeTrust(
+          File(pathFor(userDir, '.claude.json')),
+          <String>[claudeDir.parent.path],
+        );
+
+        final commands = <String>[];
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: userDir.path,
+          projectDirectory: claudeDir.parent.path,
+          runApiKeyHelper: (command, timeout) async {
+            commands.add(command);
+            return 'user-helper-token';
+          },
+        );
+
+        final headers = await generator.resolveHeaders();
+
+        expect(commands, <String>['user-helper']);
+        expect(headers['Authorization'], 'Bearer user-helper-token');
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+      skip: Platform.isWindows ? 'Uses /dev/zero.' : false,
+    );
 
     test('uses managed apiKeyHelper drop-in over local settings', () async {
       final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
@@ -1112,6 +1214,7 @@ void main() {
           expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
         );
 
+        final staged = _recordStagedFiles();
         final generator = _sandboxedGenerator(
           tempDir,
           claudeConfigDir: tempDir.path,
@@ -1119,6 +1222,15 @@ void main() {
         );
 
         await generator.resolveHeaders();
+
+        // The temp file sits in a fresh 0700 directory next to the target
+        // and is 0600 before anything is written to it, so no other user can
+        // ever open it.
+        expect(staged, hasLength(1));
+        expect(staged.single.stagingParent, tempDir.path);
+        expect(staged.single.stagingMode, 0x1C0);
+        expect(staged.single.fileMode, 0x180);
+        expect(staged.single.length, 0);
 
         final credentialsFile = File(pathFor(tempDir, '.credentials.json'));
         expect(_permissionBits(credentialsFile), 0x180);
@@ -1401,6 +1513,7 @@ void main() {
         }
 
         var refreshCalls = 0;
+        final staged = _recordStagedFiles();
         final generator = _sandboxedGenerator(
           tempDir,
           claudeConfigDir: tempDir.path,
@@ -1421,6 +1534,11 @@ void main() {
         final recovery = File(
           pathFor(tempDir, '.credentials.json.gitwhisper-recovery'),
         );
+        expect(staged, hasLength(1), reason: 'only the recovery copy');
+        expect(staged.single.stagingParent, tempDir.path);
+        expect(staged.single.stagingMode, 0x1C0);
+        expect(staged.single.fileMode, 0x180);
+        expect(staged.single.length, 0);
         expect(_permissionBits(recovery), 0x180);
         final recovered = jsonDecode(recovery.readAsStringSync()) as Map;
         expect(
@@ -1430,6 +1548,259 @@ void main() {
       },
       skip: Platform.isWindows ? 'POSIX permissions only.' : false,
     );
+
+    test(
+      'keeps refreshed tokens in memory across repeated failed saves',
+      () async {
+        final lockedDir = Directory(pathFor(tempDir, 'locked'))..createSync();
+        File(pathFor(lockedDir, 'credentials.json')).writeAsStringSync(
+          _credentialsJson(
+            'expired-token',
+            expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
+        Link(pathFor(tempDir, '.credentials.json'))
+            .createSync(pathFor(lockedDir, 'credentials.json'));
+        Process.runSync('chmod', <String>['555', lockedDir.path]);
+        addTearDown(
+          () => Process.runSync('chmod', <String>['755', lockedDir.path]),
+        );
+        try {
+          File(pathFor(lockedDir, 'probe')).createSync();
+          markTestSkipped('Directory permissions are not enforced (root?).');
+          return;
+        } on FileSystemException {
+          // Expected: the credentials directory is read-only.
+        }
+
+        final usedRefreshTokens = <Object?>[];
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: tempDir.path,
+          refreshToken: (endpoint, body) async {
+            usedRefreshTokens.add(body['refresh_token']);
+            final round = usedRefreshTokens.length;
+            return <String, dynamic>{
+              'access_token': 'fresh-token-$round',
+              'refresh_token': 'fresh-refresh-token-$round',
+              // The first tokens are already due for a refresh.
+              'expires_in': round == 1 ? 60 : 3600,
+            };
+          },
+        );
+
+        final first = await generator.resolveHeaders();
+        final second = await generator.resolveHeaders();
+        final third = await generator.resolveHeaders();
+
+        expect(first['Authorization'], 'Bearer fresh-token-1');
+        expect(second['Authorization'], 'Bearer fresh-token-2');
+        expect(third['Authorization'], 'Bearer fresh-token-2');
+        // The stored, already spent refresh token is never used again.
+        expect(
+          usedRefreshTokens,
+          <String>['refresh-token', 'fresh-refresh-token-1'],
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only.' : false,
+    );
+
+    test('does not re-create credentials removed during a refresh', () async {
+      final logouts = <String, void Function(File credentialsFile)>{
+        'deleted file': (file) => file.deleteSync(),
+        'removed entry': (file) => file.writeAsStringSync(
+              jsonEncode(<String, dynamic>{
+                'mcpOAuth': <String, dynamic>{'server': 'kept'},
+              }),
+            ),
+      };
+
+      for (final logout in logouts.entries) {
+        final credentialsFile = File(pathFor(tempDir, '.credentials.json'));
+        await _writeCredentials(
+          tempDir,
+          'expired-token',
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        );
+
+        var refreshCalls = 0;
+        final generator = _sandboxedGenerator(
+          tempDir,
+          claudeConfigDir: tempDir.path,
+          refreshToken: (endpoint, body) async {
+            refreshCalls += 1;
+            // The user logs out while the refresh request is in flight.
+            logout.value(credentialsFile);
+            return _refreshResponse();
+          },
+        );
+
+        final first = await generator.resolveHeaders();
+        final second = await generator.resolveHeaders();
+
+        expect(
+          first['Authorization'],
+          'Bearer fresh-token',
+          reason: logout.key,
+        );
+        expect(
+          second['Authorization'],
+          'Bearer fresh-token',
+          reason: logout.key,
+        );
+        expect(refreshCalls, 1, reason: logout.key);
+        expect(
+          credentialsFile.existsSync()
+              ? credentialsFile.readAsStringSync()
+              : null,
+          isNot(contains('claudeAiOauth')),
+          reason: logout.key,
+        );
+        expect(
+          File('${credentialsFile.path}.gitwhisper-recovery').existsSync(),
+          isFalse,
+          reason: logout.key,
+        );
+        if (credentialsFile.existsSync()) credentialsFile.deleteSync();
+      }
+    });
+
+    test('does not re-create a keychain entry removed during a refresh',
+        () async {
+      var loggedOut = false;
+      var keychainWrites = 0;
+      var refreshCalls = 0;
+      final generator = _sandboxedGenerator(
+        tempDir,
+        readMacOsKeychainService: (service) async => loggedOut
+            ? null
+            : _credentialsJson(
+                'expired-token',
+                expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+              ),
+        writeMacOsKeychainService: (service, value) async {
+          keychainWrites += 1;
+        },
+        refreshToken: (endpoint, body) async {
+          refreshCalls += 1;
+          loggedOut = true;
+          return _refreshResponse();
+        },
+      );
+
+      final first = await generator.resolveHeaders();
+      final second = await generator.resolveHeaders();
+
+      expect(first['Authorization'], 'Bearer fresh-token');
+      expect(second['Authorization'], 'Bearer fresh-token');
+      expect(refreshCalls, 1);
+      expect(keychainWrites, 0);
+    });
+
+    test('adopts an access token Claude Code saved with the same refresh token',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          // The refresh token was not rotated, so only the access token
+          // tells that Claude Code refreshed too.
+          await _writeCredentials(tempDir, 'claude-code-token');
+          return _refreshResponse();
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer claude-code-token');
+      final stored = await _readStoredOauth(tempDir);
+      expect(stored['accessToken'], 'claude-code-token');
+      expect(stored['refreshToken'], 'refresh-token');
+    });
+
+    test('adopts credentials saved without a refresh token during a refresh',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          // For example `claude setup-token`, which has no refresh token.
+          await _writeCredentials(tempDir, 'setup-token', refreshToken: null);
+          return _refreshResponse();
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer setup-token');
+      final stored = await _readStoredOauth(tempDir);
+      expect(stored['accessToken'], 'setup-token');
+      expect(stored, isNot(contains('refreshToken')));
+    });
+
+    test('deletes the recovery copy after the next successful save', () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+      final recovery = File(
+        pathFor(tempDir, '.credentials.json.gitwhisper-recovery'),
+      )..writeAsStringSync(_credentialsJson('older-token'));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async => _refreshResponse(),
+      );
+
+      await generator.resolveHeaders();
+
+      expect((await _readStoredOauth(tempDir))['accessToken'], 'fresh-token');
+      expect(recovery.existsSync(), isFalse);
+    });
+
+    test('deletes the recovery copy when adopting newer stored tokens',
+        () async {
+      await _writeCredentials(
+        tempDir,
+        'expired-token',
+        expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+      final recovery = File(
+        pathFor(tempDir, '.credentials.json.gitwhisper-recovery'),
+      )..writeAsStringSync(_credentialsJson('older-token'));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        refreshToken: (endpoint, body) async {
+          await _writeCredentials(
+            tempDir,
+            'claude-code-token',
+            refreshToken: 'claude-code-refresh-token',
+          );
+          return _refreshResponse();
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer claude-code-token');
+      expect(recovery.existsSync(), isFalse);
+    });
   });
 
   group(
@@ -1590,6 +1961,34 @@ String _claudeSseBody({required String text, required String stopReason}) {
   ].join();
 }
 
+/// Records every file the private writer stages while the current test runs:
+/// the directory it is staged in, that directory's mode, and the file's mode
+/// and length before anything is written to it.
+List<
+    ({
+      String stagingParent,
+      int stagingMode,
+      int fileMode,
+      int length,
+    })> _recordStagedFiles() {
+  final staged = <({
+    String stagingParent,
+    int stagingMode,
+    int fileMode,
+    int length,
+  })>[];
+  debugOnPrivateFileStaged = (file) => staged.add(
+        (
+          stagingParent: file.parent.parent.path,
+          stagingMode: file.parent.statSync().mode & 0x1FF,
+          fileMode: file.statSync().mode & 0x1FF,
+          length: file.lengthSync(),
+        ),
+      );
+  addTearDown(() => debugOnPrivateFileStaged = null);
+  return staged;
+}
+
 Map<String, dynamic> _refreshResponse() {
   return <String, dynamic>{
     'access_token': 'fresh-token',
@@ -1642,7 +2041,7 @@ Future<bool> _waitForProcessExit(int pid) async {
 Future<void> _writeCredentials(
   Directory directory,
   String token, {
-  String refreshToken = 'refresh-token',
+  String? refreshToken = 'refresh-token',
   DateTime? expiresAt,
 }) async {
   await File(pathFor(directory, '.credentials.json')).writeAsString(
@@ -1656,13 +2055,13 @@ Future<void> _writeCredentials(
 
 String _credentialsJson(
   String token, {
-  String refreshToken = 'refresh-token',
+  String? refreshToken = 'refresh-token',
   DateTime? expiresAt,
 }) {
   return jsonEncode(<String, dynamic>{
     'claudeAiOauth': <String, dynamic>{
       'accessToken': token,
-      'refreshToken': refreshToken,
+      if (refreshToken != null) 'refreshToken': refreshToken,
       'expiresAt': (expiresAt ?? DateTime.now().add(const Duration(hours: 1)))
           .toUtc()
           .millisecondsSinceEpoch,

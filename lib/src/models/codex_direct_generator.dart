@@ -10,6 +10,8 @@ import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
 import '../git_utils.dart';
+import '../private_files.dart';
+import '../user_home.dart';
 import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
@@ -50,6 +52,8 @@ class CodexDirectGenerator extends CommitGenerator
       Uri.parse('https://auth.openai.com/oauth/token');
 
   static const String _oauthClientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
+  static const String _credentialLockFileName =
+      '.gitwhisper-oauth-refresh.lock';
   static const String _commitRetryPrompt =
       'You stopped before returning the final commit message. Using the '
       'staged-change context you already inspected, return only the final '
@@ -67,6 +71,7 @@ class CodexDirectGenerator extends CommitGenerator
   final CodexLoginRunner _runLogin;
   final String loginExecutable;
   ({String? replacedRefreshToken, _CodexAuth auth})? _unsavedAuth;
+  final Set<String> _warnedUnsafeFiles = <String>{};
 
   Map<String, String> get _env => _environment ?? Platform.environment;
 
@@ -505,7 +510,11 @@ class CodexDirectGenerator extends CommitGenerator
     }
 
     final authFile = File(path.join(codexHome, 'auth.json'));
+    final unsaved = _unsavedAuth;
     if (!authFile.existsSync()) {
+      // Codex was logged out during this run; the refreshed tokens stay in
+      // use until it ends.
+      if (unsaved != null) return unsaved.auth;
       if (allowLogin) {
         await _login();
         return _loadAuth(allowLogin: false);
@@ -515,11 +524,19 @@ class CodexDirectGenerator extends CommitGenerator
       );
     }
 
-    var auth = _CodexAuth.fromJson(authFile, _readAuthJson(authFile));
+    final Map<String, dynamic> authJson;
+    try {
+      authJson = _readAuthJson(authFile);
+    } on UnsafeFileException catch (error) {
+      throw AuthenticationException(
+        message: 'Ignoring Codex credentials in ${authFile.path}: '
+            '${error.message}. Run `codex login`.',
+      );
+    }
+    var auth = _CodexAuth.fromJson(authFile, authJson);
 
     // Refreshed tokens that could not be saved stay in use for this run while
     // auth.json still holds the refresh token they replaced.
-    final unsaved = _unsavedAuth;
     if (unsaved != null) {
       if (auth.refreshToken == unsaved.replacedRefreshToken) {
         return unsaved.auth;
@@ -534,31 +551,63 @@ class CodexDirectGenerator extends CommitGenerator
     return auth;
   }
 
+  /// Reads auth.json. Only a regular file of at most 1 MiB is read; anything
+  /// else throws [UnsafeFileException].
   static Map<String, dynamic> _readAuthJson(File authFile) {
-    final decoded = jsonDecode(authFile.readAsStringSync());
+    final contents = readRegularFileSync(authFile);
+    if (contents == null) {
+      throw FileSystemException('Codex auth.json was not found', authFile.path);
+    }
+    final decoded = jsonDecode(contents);
     if (decoded is! Map<dynamic, dynamic>) {
       throw const FormatException('Codex auth.json must contain an object.');
     }
     return Map<String, dynamic>.from(decoded);
   }
 
-  static _CodexAuth? _readStoredAuth(File authFile) {
+  static Map<String, dynamic>? _tryReadAuthJson(File authFile) {
     try {
-      return _CodexAuth.fromJson(authFile, _readAuthJson(authFile));
+      return _readAuthJson(authFile);
     } on FormatException {
       return null;
     } on FileSystemException {
       return null;
+    }
+  }
+
+  /// The usable credentials in [authJson], or null when it holds none, for
+  /// example after `codex logout`.
+  static _CodexAuth? _tryAuthFromJson(
+    File authFile,
+    Map<String, dynamic>? authJson,
+  ) {
+    if (authJson == null) return null;
+    try {
+      return _CodexAuth.fromJson(authFile, authJson);
     } on AuthenticationException {
       return null;
     }
+  }
+
+  /// The credentials to use now: auth.json, unless it still holds the refresh
+  /// token that this run replaced but could not save (or is gone), in which
+  /// case the refreshed tokens kept in memory.
+  _CodexAuth? _currentStoredAuth(File authFile) {
+    final stored = _tryAuthFromJson(authFile, _tryReadAuthJson(authFile));
+    final unsaved = _unsavedAuth;
+    if (unsaved == null) return stored;
+    if (stored == null || stored.refreshToken == unsaved.replacedRefreshToken) {
+      return unsaved.auth;
+    }
+    _unsavedAuth = null;
+    return stored;
   }
 
   /// After a 401, prefers a token Codex saved since this run read auth.json
   /// and only refreshes when the file still holds the rejected token.
   Future<_CodexAuth> _recoverFromUnauthorized(_CodexAuth failedAuth) async {
     final authFile = failedAuth.authFile;
-    final stored = authFile == null ? null : _readStoredAuth(authFile);
+    final stored = authFile == null ? null : _currentStoredAuth(authFile);
     if (stored != null && stored.token != failedAuth.token) return stored;
 
     return _refreshChatGptAuth(
@@ -584,75 +633,134 @@ class CodexDirectGenerator extends CommitGenerator
       return auth;
     }
 
-    $logger.info('Refreshing Codex authentication...');
-    final data = await _postTokenRefresh(refreshToken);
-    final idToken = _nonEmptyString(data['id_token']);
-    final accessToken = _nonEmptyString(data['access_token']);
-    final newRefreshToken = _nonEmptyString(data['refresh_token']);
+    return _withCredentialRefreshLock(authFile, () async {
+      // Another gitwhisper process may have refreshed while this one waited
+      // for the lock, which spends the refresh token read earlier.
+      final current = _currentStoredAuth(authFile);
+      if (current != null && current.token != auth.token) return current;
 
-    // Re-read right before writing: Codex may have refreshed (rotating the
-    // refresh token) or changed other fields while the request was running.
-    Map<String, dynamic>? latestJson;
-    try {
-      latestJson = _readAuthJson(authFile);
-    } on FormatException {
-      latestJson = null;
-    } on FileSystemException {
-      latestJson = null;
-    }
+      $logger.info('Refreshing Codex authentication...');
+      final data = await _postTokenRefresh(refreshToken);
 
-    if (latestJson != null) {
-      final latestTokens = latestJson['tokens'];
-      final latestRefreshToken = latestTokens is Map<dynamic, dynamic>
-          ? _nonEmptyString(latestTokens['refresh_token'])
-          : null;
-      if (latestRefreshToken != null && latestRefreshToken != refreshToken) {
-        // Codex refreshed or the user logged in again; keep its tokens.
-        try {
-          return _CodexAuth.fromJson(authFile, latestJson);
-        } on AuthenticationException {
-          // Unusable; save the tokens from this refresh instead.
-        }
+      // Re-read right before writing: Codex may have refreshed (rotating the
+      // refresh token), logged out, or changed other fields while the
+      // request was running.
+      final latestJson = _tryReadAuthJson(authFile);
+      final latest = _tryAuthFromJson(authFile, latestJson);
+      if (latestJson == null || latest == null) {
+        // The user logged out. Saving would sign them back in, so the new
+        // tokens are kept for the rest of this run only.
+        $logger.detail(
+          'Codex credentials were removed (or became unreadable) during the '
+          'refresh; using the refreshed tokens for this run only.',
+        );
+        final refreshed = _CodexAuth.fromJson(
+          authFile,
+          _withRefreshedTokens(snapshotJson, data),
+        );
+        _unsavedAuth = (replacedRefreshToken: refreshToken, auth: refreshed);
+        return refreshed;
       }
-    }
 
-    final authJson =
-        Map<String, dynamic>.from(latestJson ?? Map.of(snapshotJson));
-    final existingTokens = authJson['tokens'];
+      if (_isNewerStoredLogin(
+        latest,
+        previousToken: auth.token,
+        previousRefreshToken: refreshToken,
+      )) {
+        // Codex refreshed or the user logged in again; keep its tokens.
+        _unsavedAuth = null;
+        return latest;
+      }
+
+      final authJson = _withRefreshedTokens(latestJson, data);
+      final refreshed = _CodexAuth.fromJson(authFile, authJson);
+
+      const encoder = JsonEncoder.withIndent('  ');
+      try {
+        await writePrivateFileAtomically(
+          authFile,
+          '${encoder.convert(authJson)}\n',
+        );
+        _unsavedAuth = null;
+      } on Object catch (error) {
+        // The refresh already spent the refresh token in auth.json, so going
+        // back to it would sign the user out. Keep the new tokens for the
+        // rest of this run, while auth.json still holds that spent token.
+        _unsavedAuth = (
+          replacedRefreshToken: latest.refreshToken,
+          auth: refreshed,
+        );
+        final reason = error is FileSystemException
+            ? error.osError?.message ?? error.message
+            : 'unexpected error';
+        $logger.warn(
+          'Could not save refreshed Codex credentials to ${authFile.path} '
+          '($reason). They will be used for this run only, so Codex may ask '
+          'you to log in again.',
+        );
+      }
+
+      return refreshed;
+    });
+  }
+
+  /// Runs [action] while holding an exclusive lock shared by gitwhisper
+  /// processes, so only one of them refreshes and saves at a time. Locking is
+  /// best effort: saving still re-reads auth.json before writing.
+  Future<T> _withCredentialRefreshLock<T>(
+    File authFile,
+    Future<T> Function() action,
+  ) {
+    final codexHome = authFile.parent;
+    if (!codexHome.existsSync()) return action();
+
+    return withExclusiveFileLock(
+      File(path.join(codexHome.path, _credentialLockFileName)),
+      action,
+      onLockFailed: (error) => $logger.detail(
+        'Refreshing Codex credentials without a lock: ${error.message}',
+      ),
+    );
+  }
+
+  /// Whether [latest], read from auth.json just before saving, came from
+  /// another refresh or login since the tokens being refreshed were read, so
+  /// it should be used instead of overwritten. A login without a refresh
+  /// token (such as an API key) always wins.
+  bool _isNewerStoredLogin(
+    _CodexAuth latest, {
+    required String previousToken,
+    required String previousRefreshToken,
+  }) {
+    final latestRefreshToken = latest.refreshToken;
+    if (latestRefreshToken == null) return true;
+    // Still the tokens this run already replaced but could not save.
+    if (latestRefreshToken == _unsavedAuth?.replacedRefreshToken) return false;
+    return latestRefreshToken != previousRefreshToken ||
+        latest.token != previousToken;
+  }
+
+  /// [authJson] with the tokens from the refresh response [data] merged in.
+  static Map<String, dynamic> _withRefreshedTokens(
+    Map<String, dynamic> authJson,
+    Map<String, dynamic> data,
+  ) {
+    final merged = Map<String, dynamic>.from(authJson);
+    final existingTokens = merged['tokens'];
     final tokens = existingTokens is Map<dynamic, dynamic>
         ? Map<String, dynamic>.from(existingTokens)
         : <String, dynamic>{};
 
+    final idToken = _nonEmptyString(data['id_token']);
+    final accessToken = _nonEmptyString(data['access_token']);
+    final refreshToken = _nonEmptyString(data['refresh_token']);
     if (idToken != null) tokens['id_token'] = idToken;
     if (accessToken != null) tokens['access_token'] = accessToken;
-    if (newRefreshToken != null) tokens['refresh_token'] = newRefreshToken;
+    if (refreshToken != null) tokens['refresh_token'] = refreshToken;
 
-    authJson['tokens'] = tokens;
-    authJson['last_refresh'] = DateTime.now().toUtc().toIso8601String();
-    final refreshed = _CodexAuth.fromJson(authFile, authJson);
-
-    const encoder = JsonEncoder.withIndent('  ');
-    try {
-      await _writePrivateFileAtomically(
-        authFile,
-        '${encoder.convert(authJson)}\n',
-      );
-      _unsavedAuth = null;
-    } on Object catch (error) {
-      // The refresh already spent the old refresh token, so going back to it
-      // would sign the user out. Keep the new tokens for the rest of this run.
-      _unsavedAuth = (replacedRefreshToken: refreshToken, auth: refreshed);
-      final reason = error is FileSystemException
-          ? error.osError?.message ?? error.message
-          : 'unexpected error';
-      $logger.warn(
-        'Could not save refreshed Codex credentials to ${authFile.path} '
-        '($reason). They will be used for this run only, so Codex may ask '
-        'you to log in again.',
-      );
-    }
-
-    return refreshed;
+    merged['tokens'] = tokens;
+    merged['last_refresh'] = DateTime.now().toUtc().toIso8601String();
+    return merged;
   }
 
   Future<Map<String, dynamic>> _postTokenRefresh(String refreshToken) async {
@@ -734,73 +842,41 @@ class CodexDirectGenerator extends CommitGenerator
     return '${sanitized.substring(0, 200)}...';
   }
 
-  /// Replaces [target] atomically with [contents], readable only by the
-  /// owner: a temp file in the same directory is restricted to 0600,
-  /// written, flushed and then renamed over the target. A symlinked target
-  /// is followed so the link itself is preserved.
-  static Future<void> _writePrivateFileAtomically(
-    File target,
-    String contents,
-  ) async {
-    final destination = FileSystemEntity.isLinkSync(target.path)
-        ? File(target.resolveSymbolicLinksSync())
-        : target;
-    final temp = File(
-      path.join(
-        destination.parent.path,
-        '.${path.basename(destination.path)}.gitwhisper-$pid-'
-        '${DateTime.now().microsecondsSinceEpoch}.tmp',
-      ),
-    );
-
-    try {
-      await temp.create(exclusive: true);
-      if (!Platform.isWindows) {
-        final result = await Process.run('chmod', <String>['600', temp.path]);
-        if (result.exitCode != 0) {
-          throw FileSystemException(
-            'Could not restrict permissions to the owner',
-            temp.path,
-          );
-        }
-      }
-      final handle = await temp.open(mode: FileMode.writeOnly);
-      try {
-        await handle.writeString(contents);
-        await handle.flush();
-      } finally {
-        await handle.close();
-      }
-      await temp.rename(destination.path);
-    } on Object {
-      try {
-        if (temp.existsSync()) temp.deleteSync();
-      } on FileSystemException {
-        // Leave the temp file; it holds nothing the target did not.
-      }
-      rethrow;
-    }
-  }
-
   /// The Codex home directory, or null when no home directory is known.
   /// Never falls back to the working directory: a repository's own `.codex/`
-  /// must not be mistaken for the user's credentials or settings.
+  /// must not be mistaken for the user's credentials or settings, so an
+  /// empty or relative HOME counts as unknown.
   String? get _resolvedCodexHome {
     final explicit = _nonEmptyString(_codexHome ?? _env['CODEX_HOME']);
     if (explicit != null) return explicit;
-    final home =
-        _nonEmptyString(_env['HOME']) ?? _nonEmptyString(_env['USERPROFILE']);
-    if (home == null) return null;
-    return path.join(home, '.codex');
+    try {
+      return path.join(userHomeDirectory(environment: _env), '.codex');
+    } on UserHomeException {
+      return null;
+    }
   }
 
   String? _configuredDefaultVariant() {
     final codexHome = _resolvedCodexHome;
     if (codexHome == null) return null;
     final configFile = File(path.join(codexHome, 'config.toml'));
-    if (!configFile.existsSync()) return null;
 
-    for (final line in configFile.readAsLinesSync()) {
+    final String? config;
+    try {
+      config = readRegularFileSync(configFile);
+    } on UnsafeFileException catch (error) {
+      if (_warnedUnsafeFiles.add(configFile.path)) {
+        $logger.warn('Ignoring ${configFile.path}: ${error.message}.');
+      }
+      return null;
+    } on FormatException {
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+    if (config == null) return null;
+
+    for (final line in LineSplitter.split(config)) {
       final trimmed = line.trim();
       if (trimmed.startsWith('[')) return null;
       final match = RegExp(r'^model\s*=\s*"([^"]+)"').firstMatch(trimmed);

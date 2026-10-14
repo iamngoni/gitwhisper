@@ -11,6 +11,8 @@ import '../agent/git_agent_tools.dart';
 import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
+import '../private_files.dart';
+import '../user_home.dart';
 import 'claude_generator.dart';
 import 'commit_generator.dart';
 import 'language.dart';
@@ -132,7 +134,11 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   /// `security -i` reads each command into a fixed-size line buffer and
   /// splits longer lines; Claude Code uses the same limit.
   static const int _securityInteractiveMaxLength = 4032;
-  static const Duration _credentialLockTimeout = Duration(seconds: 30);
+
+  /// Claude Code's global config keeps per-project state and can grow far
+  /// beyond a settings file, so it gets a larger cap. It lives in the home
+  /// or config directory, never in a repository.
+  static const int _maxGlobalConfigBytes = 64 * 1024 * 1024;
   static const String _credentialLockFileName =
       '.gitwhisper-oauth-refresh.lock';
   static const String _credentialRecoverySuffix = '.gitwhisper-recovery';
@@ -183,7 +189,8 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   final Map<String, String?> _fileDescriptorCredentialCache =
       <String, String?>{};
   _ClaudeCodeApiKeyHelperCache? _apiKeyHelperCache;
-  bool _warnedAboutUntrustedProjectSettings = false;
+  bool? _projectTrusted;
+  final Set<String> _warnedUnsafeFiles = <String>{};
   ({
     String? replacedRefreshToken,
     _ClaudeCodeOAuthCredentials credentials,
@@ -813,7 +820,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     if (configDir == null) return null;
 
     final credentialsFile = File(path.join(configDir, '.credentials.json'));
-    final decoded = await _readJsonObject(credentialsFile);
+    final decoded = _readJsonObjectSync(credentialsFile);
     if (decoded == null) return null;
 
     return _readClaudeAiOauthCredentials(
@@ -826,26 +833,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final configFile = _globalClaudeConfigFile;
     if (configFile == null) return null;
 
-    final decoded = await _readJsonObject(configFile);
+    final decoded = _readJsonObjectSync(
+      configFile,
+      maxBytes: _maxGlobalConfigBytes,
+    );
     if (decoded == null) return null;
 
     return _readNestedString(decoded, <String>['primaryApiKey']);
-  }
-
-  Future<Map<String, dynamic>?> _readJsonObject(File file) async {
-    try {
-      if (!file.existsSync()) return null;
-      final decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is Map<dynamic, dynamic>) {
-        return Map<String, dynamic>.from(decoded);
-      }
-    } on FormatException {
-      return null;
-    } on FileSystemException {
-      return null;
-    }
-
-    return null;
   }
 
   Future<String?> _readApiKeyHelperToken() async {
@@ -882,36 +876,27 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   String? get _configuredApiKeyHelper {
     String? helper;
-    bool? projectTrusted;
     for (final source in _claudeSettingsSources) {
-      final value = _readJsonObjectSync(source.file)['apiKeyHelper'];
-      final command = value is String ? _nonBlank(value) : null;
-      if (command == null) continue;
-
       // A repository can ship .claude/settings*.json, and apiKeyHelper runs a
-      // shell command. Like Claude Code, only honour it once the user has
-      // accepted the workspace trust dialog for this folder.
+      // shell command. Like Claude Code, only use project settings once the
+      // user has accepted the workspace trust dialog for this folder, and do
+      // not even open them before that.
       if (source.isProjectScope) {
-        projectTrusted ??= _isProjectTrusted;
-        if (!projectTrusted) {
-          _warnIgnoredProjectApiKeyHelper(source.file);
-          continue;
-        }
+        final type = FileSystemEntity.typeSync(
+          source.file.path,
+          followLinks: false,
+        );
+        if (type == FileSystemEntityType.notFound) continue;
+        // Unread, so whether it sets apiKeyHelper is unknown; many
+        // repositories ship settings without one, so this stays quiet.
+        if (!(_projectTrusted ??= _isProjectTrusted)) continue;
       }
 
-      helper = command;
+      final value = _readJsonObjectSync(source.file)?['apiKeyHelper'];
+      final command = value is String ? _nonBlank(value) : null;
+      if (command != null) helper = command;
     }
     return helper;
-  }
-
-  void _warnIgnoredProjectApiKeyHelper(File file) {
-    if (_warnedAboutUntrustedProjectSettings) return;
-    _warnedAboutUntrustedProjectSettings = true;
-    $logger.warn(
-      'Ignoring apiKeyHelper from ${file.path} because this folder is not '
-      'trusted in Claude Code. Open it with `claude` and accept the trust '
-      'prompt to use project settings.',
-    );
   }
 
   List<({File file, bool isProjectScope})> get _claudeSettingsSources {
@@ -954,7 +939,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final configFile = _globalClaudeConfigFile;
     if (configFile == null) return false;
 
-    final projects = _readJsonObjectSync(configFile)['projects'];
+    final projects = _readJsonObjectSync(
+      configFile,
+      maxBytes: _maxGlobalConfigBytes,
+    )?['projects'];
     if (projects is! Map<dynamic, dynamic>) return false;
 
     for (final key in _projectConfigKeys) {
@@ -1042,20 +1030,32 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return '/etc/claude-code';
   }
 
-  Map<String, dynamic> _readJsonObjectSync(File file) {
+  /// Reads a settings or credentials JSON object from [file], or null when
+  /// it is missing or unusable. Only regular files of at most [maxBytes] are
+  /// read: a repository could ship a settings file that is a link to
+  /// /dev/zero or a FIFO, which would never finish reading.
+  Map<String, dynamic>? _readJsonObjectSync(
+    File file, {
+    int maxBytes = maxSettingsFileBytes,
+  }) {
     try {
-      if (!file.existsSync()) return <String, dynamic>{};
-      final decoded = jsonDecode(file.readAsStringSync());
+      final contents = readRegularFileSync(file, maxBytes: maxBytes);
+      if (contents == null) return null;
+      final decoded = jsonDecode(contents);
       if (decoded is Map<dynamic, dynamic>) {
         return Map<String, dynamic>.from(decoded);
       }
+    } on UnsafeFileException catch (error) {
+      if (_warnedUnsafeFiles.add(error.path ?? file.path)) {
+        $logger.warn('Ignoring ${file.path}: ${error.message}.');
+      }
     } on FormatException {
-      return <String, dynamic>{};
+      return null;
     } on FileSystemException {
-      return <String, dynamic>{};
+      return null;
     }
 
-    return <String, dynamic>{};
+    return null;
   }
 
   Duration get _apiKeyHelperTtl {
@@ -1296,60 +1296,19 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   /// Runs [action] while holding an exclusive lock shared by gitwhisper
   /// processes, so only one of them refreshes and saves at a time. Locking is
   /// best effort: saving still re-reads the store before writing.
-  Future<T> _withCredentialRefreshLock<T>(Future<T> Function() action) async {
+  Future<T> _withCredentialRefreshLock<T>(Future<T> Function() action) {
     final configDir = _resolvedClaudeConfigDir;
     if (configDir == null || !Directory(configDir).existsSync()) {
       return action();
     }
 
-    final lockFile = File(path.join(configDir, _credentialLockFileName));
-    RandomAccessFile? handle;
-    try {
-      handle = await lockFile.open(mode: FileMode.append);
-      await _acquireExclusiveLock(handle);
-    } on FileSystemException catch (error) {
-      $logger.detail(
+    return withExclusiveFileLock(
+      File(path.join(configDir, _credentialLockFileName)),
+      action,
+      onLockFailed: (error) => $logger.detail(
         'Refreshing Claude Code credentials without a lock: ${error.message}',
-      );
-      await _closeQuietly(handle);
-      handle = null;
-    }
-
-    try {
-      return await action();
-    } finally {
-      if (handle != null) {
-        try {
-          await handle.unlock();
-        } on FileSystemException {
-          // Closing the file releases the lock as well.
-        }
-        await _closeQuietly(handle);
-      }
-    }
-  }
-
-  static Future<void> _acquireExclusiveLock(RandomAccessFile handle) async {
-    final deadline = DateTime.now().add(_credentialLockTimeout);
-    while (true) {
-      try {
-        // The default is a non-blocking exclusive lock; poll so a stuck
-        // holder cannot hang this process forever.
-        await handle.lock();
-        return;
-      } on FileSystemException {
-        if (DateTime.now().isAfter(deadline)) rethrow;
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-    }
-  }
-
-  static Future<void> _closeQuietly(RandomAccessFile? handle) async {
-    try {
-      await handle?.close();
-    } on FileSystemException {
-      // Nothing useful to do; the OS releases the handle on exit.
-    }
+      ),
+    );
   }
 
   Future<_ClaudeCodeOAuthCredentials> _refreshClaudeCodeOAuthCredentials(
@@ -1449,23 +1408,33 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
     // Re-read right before writing. The refresh (and, after a 401, the
     // request before it) can take minutes, and Claude Code may have saved
-    // new tokens or other entries in the meantime.
+    // new tokens, logged out, or changed other entries in the meantime.
     final latestRoot = await _readOAuthStoreRoot(store);
-    if (latestRoot != null) {
-      final latest = _readClaudeAiOauthCredentials(
-        latestRoot,
-        store.withRoot(latestRoot),
+    final latest = latestRoot == null
+        ? null
+        : _readClaudeAiOauthCredentials(latestRoot, store.withRoot(latestRoot));
+    if (latestRoot == null || latest == null) {
+      // The user logged out. Saving would sign them back in, so the new
+      // tokens are kept for the rest of this run only.
+      $logger.detail(
+        'Claude Code credentials were removed (or became unreadable) during '
+        'the refresh; using the refreshed tokens for this run only.',
       );
-      final latestRefreshToken = latest?.refreshToken;
-      if (latest != null &&
-          latestRefreshToken != null &&
-          latestRefreshToken != previous.refreshToken) {
-        // Claude Code refreshed or the user logged in again; keep its tokens.
-        return latest;
-      }
+      _unsavedOAuthCredentials = (
+        replacedRefreshToken: previous.refreshToken,
+        credentials: refreshed,
+      );
+      return refreshed;
     }
 
-    final root = Map<String, dynamic>.from(latestRoot ?? store.root);
+    if (_isNewerStoredLogin(latest, previous: previous)) {
+      // Claude Code refreshed or the user logged in again; keep its tokens.
+      _unsavedOAuthCredentials = null;
+      await _deleteCredentialRecoveryCopy(store);
+      return latest;
+    }
+
+    final root = Map<String, dynamic>.from(latestRoot);
     root['claudeAiOauth'] = _mergeClaudeAiOauth(
       root['claudeAiOauth'],
       refreshed,
@@ -1474,17 +1443,39 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
     try {
       await _writeOAuthStoreRoot(store, root);
-      _unsavedOAuthCredentials = null;
     } on Object catch (error) {
-      // The refresh already spent the old refresh token, so going back to it
-      // would sign the user out. Keep the new tokens for the rest of this run.
+      // The refresh already spent the refresh token in the store, so going
+      // back to it would sign the user out. Keep the new tokens for the rest
+      // of this run, while the store still holds that spent token.
       _unsavedOAuthCredentials = (
-        replacedRefreshToken: previous.refreshToken,
+        replacedRefreshToken: latest.refreshToken,
         credentials: saved,
       );
       await _reportCredentialSaveFailure(store, root, error);
+      return saved;
     }
+
+    _unsavedOAuthCredentials = null;
+    await _deleteCredentialRecoveryCopy(store);
     return saved;
+  }
+
+  /// Whether [latest], read from the store just before saving, came from
+  /// another refresh or login since [previous] was read, so it should be
+  /// used instead of overwritten. A login without a refresh token (such as
+  /// `claude setup-token`) always wins.
+  bool _isNewerStoredLogin(
+    _ClaudeCodeOAuthCredentials latest, {
+    required _ClaudeCodeOAuthCredentials previous,
+  }) {
+    final latestRefreshToken = latest.refreshToken;
+    if (latestRefreshToken == null) return true;
+    // Still the tokens this run already replaced but could not save.
+    if (latestRefreshToken == _unsavedOAuthCredentials?.replacedRefreshToken) {
+      return false;
+    }
+    return latestRefreshToken != previous.refreshToken ||
+        latest.accessToken != previous.accessToken;
   }
 
   static Map<String, dynamic> _mergeClaudeAiOauth(
@@ -1516,7 +1507,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     _ClaudeCodeOAuthStore store,
   ) async {
     final file = store.file;
-    if (file != null) return _readJsonObject(file);
+    if (file != null) return _readJsonObjectSync(file);
 
     final value = await _readMacOsKeychainService(
       _macOsKeychainServiceName(credentials: true),
@@ -1539,7 +1530,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   ) async {
     final file = store.file;
     if (file != null) {
-      await _writePrivateFileAtomically(file, _encodeCredentialsFile(root));
+      await writePrivateFileAtomically(file, _encodeCredentialsFile(root));
       return;
     }
 
@@ -1565,9 +1556,9 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       return;
     }
 
-    final recoveryFile = File('${file.path}$_credentialRecoverySuffix');
+    final recoveryFile = _credentialRecoveryFile(file);
     try {
-      await _writePrivateFileAtomically(
+      await writePrivateFileAtomically(
         recoveryFile,
         _encodeCredentialsFile(root),
       );
@@ -1586,6 +1577,28 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
+  static File _credentialRecoveryFile(File credentialsFile) =>
+      File('${credentialsFile.path}$_credentialRecoverySuffix');
+
+  /// Deletes the copy written when an earlier save failed, once the store
+  /// holds tokens at least as new as it.
+  static Future<void> _deleteCredentialRecoveryCopy(
+    _ClaudeCodeOAuthStore store,
+  ) async {
+    final file = store.file;
+    if (file == null) return;
+
+    final recoveryFile = _credentialRecoveryFile(file);
+    try {
+      if (recoveryFile.existsSync()) await recoveryFile.delete();
+    } on FileSystemException catch (error) {
+      $logger.detail(
+        'Could not delete ${recoveryFile.path}: '
+        '${error.osError?.message ?? error.message}',
+      );
+    }
+  }
+
   static String _describeCredentialSaveError(Object error) {
     if (error is FileSystemException) {
       return error.osError?.message ?? error.message;
@@ -1598,57 +1611,6 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   static String _encodeCredentialsFile(Map<String, dynamic> root) {
     const encoder = JsonEncoder.withIndent('  ');
     return '${encoder.convert(root)}\n';
-  }
-
-  /// Replaces [target] atomically with [contents], readable only by the
-  /// owner: a temp file in the same directory is restricted to 0600,
-  /// written, flushed and then renamed over the target. A symlinked target
-  /// is followed so the link itself is preserved.
-  static Future<void> _writePrivateFileAtomically(
-    File target,
-    String contents,
-  ) async {
-    final destination = FileSystemEntity.isLinkSync(target.path)
-        ? File(target.resolveSymbolicLinksSync())
-        : target;
-    final temp = File(
-      path.join(
-        destination.parent.path,
-        '.${path.basename(destination.path)}.gitwhisper-$pid-'
-        '${DateTime.now().microsecondsSinceEpoch}.tmp',
-      ),
-    );
-
-    try {
-      await temp.create(exclusive: true);
-      await _restrictToOwner(temp);
-      final handle = await temp.open(mode: FileMode.writeOnly);
-      try {
-        await handle.writeString(contents);
-        await handle.flush();
-      } finally {
-        await handle.close();
-      }
-      await temp.rename(destination.path);
-    } on Object {
-      try {
-        if (temp.existsSync()) temp.deleteSync();
-      } on FileSystemException {
-        // Leave the temp file; it holds nothing the target did not.
-      }
-      rethrow;
-    }
-  }
-
-  static Future<void> _restrictToOwner(File file) async {
-    if (Platform.isWindows) return;
-    final result = await Process.run('chmod', <String>['600', file.path]);
-    if (result.exitCode != 0) {
-      throw FileSystemException(
-        'Could not restrict permissions to the owner',
-        file.path,
-      );
-    }
   }
 
   Future<void> _writeMacOsKeychainService(
@@ -1687,8 +1649,8 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           stdin: interactiveCommand,
         );
       } else {
-        // Too long (or not safely quotable) for `security -i`, so fall back to
-        // argv like Claude Code does.
+        // Too long (or not safely quotable) for `security -i`. argv is the
+        // only other way to pass the value, and Claude Code does the same.
         exitCode = await runSecurity(<String>[
           'add-generic-password',
           '-U',
@@ -1852,8 +1814,15 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     return null;
   }
 
-  String? get _homeDirectory =>
-      _nonBlank(_env['HOME']) ?? _nonBlank(_env['USERPROFILE']);
+  /// HOME (USERPROFILE on Windows), or null when it is unset, empty or
+  /// relative, which would make it resolve against the working directory.
+  String? get _homeDirectory {
+    try {
+      return userHomeDirectory(environment: _env);
+    } on UserHomeException {
+      return null;
+    }
+  }
 
   Uri get _refreshTokenEndpoint {
     final customBaseUrl = _customOAuthBaseUrl;
