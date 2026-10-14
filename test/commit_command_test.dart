@@ -188,6 +188,45 @@ void main() {
     });
   });
 
+  group('commit always_add', () {
+    test('stages a repo whose only changes are untracked files', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      File(p.join(repo.path, 'new.txt')).writeAsStringSync('new\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add new file'),
+        workingDirectory: repo.path,
+        config: _TestConfigManager(alwaysAdd: true),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(await _lastSubject(repo), 'feat: Add new file');
+      expect(
+        await _gitOk(['show', '--name-only', '--pretty=', 'HEAD'], repo.path),
+        'new.txt',
+      );
+    });
+
+    test('stages untracked-only repos in multi-repo mode', () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final repo = await _createRepo(workspace, 'one');
+      File(p.join(repo.path, 'new.txt')).writeAsStringSync('new\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add new file'),
+        workingDirectory: workspace.path,
+        logger: _ScriptedLogger(answers: ['continue']),
+        config: _TestConfigManager(alwaysAdd: true),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(await _lastSubject(repo), 'feat: Add new file');
+    });
+  });
+
   group('commit cancellation exit codes', () {
     final cancelled = CommitCommand.cancelledExitCode.code;
 

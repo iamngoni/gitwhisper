@@ -171,15 +171,21 @@ class CommitCommand extends Command<int> {
     if (!hasStagedChanges) {
       // Check if we should always add unstaged files
       if (configManager.shouldAlwaysAdd()) {
-        // Check for unstaged changes
+        // Check for unstaged changes or untracked files
         final hasUnstagedChanges = !hasSubGitRepos
             ? await GitUtils.hasUnstagedChanges(folderPath: workingDirectory)
             : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
                 .isNotEmpty;
 
-        if (hasUnstagedChanges) {
+        final hasUntrackedFiles = !hasSubGitRepos
+            ? await GitUtils.hasUntrackedFiles(folderPath: workingDirectory)
+            : (await GitUtils.foldersWithUntrackedFiles(subGitRepos))
+                .isNotEmpty;
+
+        if (hasUnstagedChanges || hasUntrackedFiles) {
           _logger.info(
-            'Unstaged changes found. Staging all changes and new files...',
+            'Unstaged changes or untracked files found. Staging all changes '
+            'and new files...',
           );
           if (!hasSubGitRepos) {
             final int stagedFiles =
@@ -188,9 +194,11 @@ class CommitCommand extends Command<int> {
             );
             _logger.success('$stagedFiles files have been staged.');
           } else {
-            final List<String> foldersWithUnstagedChanges =
-                await GitUtils.foldersWithUnstagedChanges(subGitRepos);
-            for (final f in foldersWithUnstagedChanges) {
+            final foldersWithChanges = <String>{
+              ...await GitUtils.foldersWithUnstagedChanges(subGitRepos),
+              ...await GitUtils.foldersWithUntrackedFiles(subGitRepos),
+            };
+            for (final f in foldersWithChanges) {
               final int stagedFiles =
                   await GitUtils.stageAllUnstagedFilesAndCount(folderPath: f);
               final folderName = path.basename(f);
@@ -200,7 +208,7 @@ class CommitCommand extends Command<int> {
             }
           }
         } else {
-          _logger.err('No staged or unstaged changes found!');
+          _logger.err('No staged, unstaged, or untracked changes found!');
           return ExitCode.usage.code;
         }
       } else {
