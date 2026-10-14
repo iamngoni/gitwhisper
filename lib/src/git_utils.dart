@@ -266,9 +266,13 @@ class GitUtils {
 
   /// Pushes the current branch.
   ///
-  /// A branch with an upstream is pushed with a plain `git push`, so the
-  /// user's push settings apply. Without an upstream, a repository with
-  /// exactly one remote is pushed there with `-u` to set the upstream.
+  /// A branch with an upstream on a remote is pushed with a plain `git push`
+  /// when git can say where that goes (`@{push}` resolves), so the user's
+  /// push settings apply. Otherwise, for example after `git checkout -b
+  /// feature origin/main` with `push.default=simple`, the branch is pushed
+  /// under its own name to its push remote, leaving the upstream unchanged.
+  /// Without an upstream, or with a local one, a repository with exactly one
+  /// remote is pushed there with `-u` to set the upstream.
   /// Throws a [GitException] explaining what to do for a detached HEAD, no
   /// remote, several remotes and no upstream, or a rejected push.
   ///
@@ -291,17 +295,25 @@ class GitUtils {
       ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
       folderPath: folderPath,
     );
-    if (upstream != null) {
-      await _push(['push'], folderPath: folderPath);
-      final target = await _gitValue(
-            ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'],
-            folderPath: folderPath,
-          ) ??
-          upstream;
-      return (
-        remote: await _pushRemote(branch, folderPath: folderPath),
-        target: target,
+    final remote = upstream == null
+        ? null
+        : await _pushRemote(branch, folderPath: folderPath);
+    // A local upstream (remote ".") is handled like no upstream below.
+    if (remote != null && remote != '.') {
+      final pushTarget = await _gitValue(
+        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'],
+        folderPath: folderPath,
       );
+      if (pushTarget != null) {
+        await _push(['push'], folderPath: folderPath);
+        return (remote: remote, target: pushTarget);
+      }
+
+      await _push(
+        ['push', remote, 'refs/heads/$branch:refs/heads/$branch'],
+        folderPath: folderPath,
+      );
+      return (remote: remote, target: '$remote/$branch');
     }
 
     final remotes = await getRemotes(folderPath: folderPath);
@@ -319,9 +331,9 @@ class GitUtils {
       );
     }
 
-    final remote = remotes.single;
-    await _push(['push', '-u', remote, branch], folderPath: folderPath);
-    return (remote: remote, target: '$remote/$branch');
+    final onlyRemote = remotes.single;
+    await _push(['push', '-u', onlyRemote, branch], folderPath: folderPath);
+    return (remote: onlyRemote, target: '$onlyRemote/$branch');
   }
 
   /// Pushes [tag] to [remote].

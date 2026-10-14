@@ -568,6 +568,61 @@ void main() {
       expect(await _ref(origin, 'refs/heads/main'), isNull);
     });
 
+    test('pushes a branch whose upstream has another name under its own name',
+        () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(['push', '-q', '-u', 'origin', 'main'], repo.path);
+      // --track makes git set origin/main as the upstream, as it does by
+      // default when branching from a remote-tracking branch.
+      await _gitOk(
+        ['checkout', '-q', '--track', '-b', 'feature', 'origin/main'],
+        repo.path,
+      );
+
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.success.code, reason: '${logger.errors}');
+      final head = await _ref(repo, 'HEAD');
+      expect(await _ref(origin, 'refs/heads/feature'), head);
+      expect(await _ref(repo, 'refs/remotes/origin/feature'), head);
+      expect(
+        await _ref(origin, 'refs/heads/main'),
+        isNot(head),
+        reason: 'the upstream branch must not be pushed to',
+      );
+      expect(
+        await _gitOk(['rev-parse', '--abbrev-ref', '@{upstream}'], repo.path),
+        'origin/main',
+        reason: 'the upstream is left unchanged',
+      );
+      expect(
+        logger.successes,
+        contains('Pushed to origin/feature successfully! 🎉'),
+      );
+    });
+
+    test('pushes a branch with a local upstream to the only remote', () async {
+      final origin = await _createBareRemote(sandbox, 'origin');
+      await _gitOk(['remote', 'add', 'origin', origin.path], repo.path);
+      await _gitOk(
+        ['checkout', '-q', '--track', '-b', 'feature', 'main'],
+        repo.path,
+      );
+
+      final (exit, logger) = await commitAndPush();
+
+      expect(exit, ExitCode.success.code, reason: '${logger.errors}');
+      expect(
+        await _ref(origin, 'refs/heads/feature'),
+        await _ref(repo, 'HEAD'),
+      );
+      expect(
+        await _gitOk(['rev-parse', '--abbrev-ref', '@{upstream}'], repo.path),
+        'origin/feature',
+      );
+    });
+
     test('explains several remotes without an upstream, keeping the commit',
         () async {
       final origin = await _createBareRemote(sandbox, 'origin');
