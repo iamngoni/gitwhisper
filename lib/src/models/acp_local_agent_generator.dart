@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:mason_logger/mason_logger.dart';
 
 import '../acp/acp_client.dart';
+import '../acp/acp_consent.dart';
+import '../acp/acp_debug_log.dart';
 import '../acp/acp_launcher.dart';
 import '../acp/acp_registry.dart';
 import '../agent/agent_commit_generator.dart';
@@ -25,6 +27,8 @@ class AcpLocalAgentGenerator extends CommitGenerator
     this.startProcess,
     this.agentLauncher,
     this.timeout = const Duration(minutes: 5),
+    this.debugLogs,
+    this.prompter,
     super.variant,
   }) : super(null);
 
@@ -36,6 +40,14 @@ class AcpLocalAgentGenerator extends CommitGenerator
   final AcpProcessStarter? startProcess;
   final AcpAgentLauncher? agentLauncher;
   final Duration timeout;
+
+  /// ACP debug logs. Off unless `GITWHISPER_ACP_DEBUG=1`.
+  final AcpDebugLogs? debugLogs;
+
+  /// Asks before running an agent's terminal login command.
+  final AcpConsentPrompter? prompter;
+
+  late final AcpDebugLogs _debugLogs = debugLogs ?? AcpDebugLogs();
   Progress? _acpStatusProgress;
   String? _acpStatusProgressTitle;
 
@@ -103,13 +115,16 @@ ${getAgentCommitPrompt(
     String prompt, {
     bool requireConventionalCommit = false,
   }) async {
+    AcpDebugLog.lastLogPath = null;
+    await _pruneDebugLogs();
+
     final registry = await (registryLoader ?? AcpRegistryLoader()).load();
     final agent = registry.resolveSupported(registryQuery);
     final launcher = agentLauncher ?? AcpAgentLauncher();
     // Ask before the first launch of this agent version, before any spinner
     // starts, so the prompt is readable.
     await launcher.ensureLaunchApproved(agent);
-    final logFile = _createLogFile(agent.id);
+    final logFile = await _createLogFile(agent.id);
     final launchProgress = $logger.progress('Preparing ACP agent ${agent.id}');
 
     late final AcpLaunchCommand launch;
@@ -195,7 +210,7 @@ ${getAgentCommitPrompt(
     AcpLaunchCommand launch,
     Map<String, String> mergedEnvironment,
     String prompt,
-    File logFile, {
+    File? logFile, {
     bool requireConventionalCommit = false,
   }) {
     return AcpClient(
@@ -343,6 +358,38 @@ ${getAgentCommitPrompt(
     };
 
     final label = method.name.isNotEmpty ? method.name : method.id;
+    final commandLine = formatCommandLine(
+      <String>[authLaunch.executable, ...authLaunch.arguments],
+    );
+    final authWorkingDirectory =
+        authLaunch.workingDirectory ?? workingDirectory;
+
+    // The login command can come from the agent's own error text, so show
+    // exactly what will run and ask first. Without a terminal, do not run it.
+    final consent = prompter ?? AcpConsentPrompter();
+    final approved = consent.ask(
+      'Run this login command now?',
+      details: <String>[
+        'ACP agent ${agent.id} needs you to sign in ($label).',
+        'GitWhisper will run:',
+        '  $commandLine',
+        if (authWorkingDirectory != null) '  in $authWorkingDirectory',
+        if (authLaunch.environment.isNotEmpty)
+          '  with ${authLaunch.environment.entries.map(
+                (entry) => '${entry.key}=${entry.value}',
+              ).join(' ')}',
+      ],
+    );
+    if (!approved) {
+      final reason = consent.canPrompt
+          ? 'you declined to run its login command'
+          : 'there is no interactive terminal to confirm its login command';
+      throw AcpException(
+        'ACP agent ${agent.id} requires authentication, but $reason. Sign in '
+        'by running this yourself, then retry:\n  $commandLine',
+      );
+    }
+
     $logger.info('Authentication required. Starting $label...');
 
     final process = await Process.start(
@@ -382,7 +429,7 @@ ${getAgentCommitPrompt(
       arguments: launch.arguments,
       environment: mergedEnvironment.isEmpty ? null : mergedEnvironment,
       workingDirectory: launch.workingDirectory ?? workingDirectory,
-      logFile: _createLogFile('${agent.id}-auth'),
+      logFile: await _createLogFile('${agent.id}-auth'),
       timeout: timeout,
       onStatus: _logStatus,
       startProcess: startProcess,
@@ -390,20 +437,19 @@ ${getAgentCommitPrompt(
     $logger.success('Authentication complete. Retrying ${agent.id}...');
   }
 
-  File _createLogFile(String agentId) {
-    final home = Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        Directory.current.path;
-    final safeAgent = agentId.replaceAll(RegExp('[^a-zA-Z0-9_.-]+'), '-');
-    final timestamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '-')
-        .replaceAll('.', '-');
-    final file = File(
-      '$home/.gitwhisper/acp/logs/$safeAgent-$timestamp.jsonl',
-    );
-    AcpDebugLog.lastLogPath = file.path;
+  /// Creates this run's debug log when `GITWHISPER_ACP_DEBUG` is on.
+  Future<File?> _createLogFile(String agentId) async {
+    final file = await _debugLogs.createLogFile(agentId);
+    if (file != null) AcpDebugLog.lastLogPath = file.path;
     return file;
+  }
+
+  Future<void> _pruneDebugLogs() async {
+    try {
+      await _debugLogs.prune();
+    } on Object {
+      // Pruning is housekeeping; never fail a commit over it.
+    }
   }
 }
 
@@ -412,5 +458,7 @@ extension<T> on Iterable<T> {
 }
 
 class AcpDebugLog {
+  /// Path of the debug log written by the most recent ACP run, or null when
+  /// debug logging is off.
   static String? lastLogPath;
 }

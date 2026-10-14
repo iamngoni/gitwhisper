@@ -2,11 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:gitwhisper/src/acp/acp_client.dart';
+import 'package:gitwhisper/src/acp/acp_consent.dart';
+import 'package:gitwhisper/src/acp/acp_debug_log.dart';
+import 'package:gitwhisper/src/acp/acp_launcher.dart';
 import 'package:gitwhisper/src/acp/acp_registry.dart';
 import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
 import 'package:gitwhisper/src/agent/git_agent_tools.dart';
 import 'package:gitwhisper/src/models/acp_local_agent_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
+import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -22,6 +26,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       final message = await generator.generateAgentCommitMessage(
@@ -52,9 +59,11 @@ void main() {
       ]);
       expect(invocation.prompt, contains('GW-12'));
       expect(invocation.prompt, contains('Inspect staged git changes'));
-      final logPath = AcpDebugLog.lastLogPath;
-      expect(logPath, isNotNull);
-      expect(await File(logPath!).readAsString(), contains('final_agent_text'));
+      expect(
+        AcpDebugLog.lastLogPath,
+        isNull,
+        reason: 'debug logging is off by default',
+      );
     });
 
     test('claude-code resolves claude-acp from registry', () async {
@@ -67,6 +76,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       final analysis = await generator.analyzeChanges(
@@ -93,6 +105,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       final message = await generator.generateCommitMessage(
@@ -126,6 +141,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       expect(
@@ -156,6 +174,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       final message = await generator.generateAgentCommitMessage(
@@ -189,6 +210,9 @@ void main() {
         registryLoader: fake.registryLoader,
         environment: fake.environment,
         workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
       );
 
       final message = await generator.generateAgentCommitMessage(
@@ -217,6 +241,11 @@ void main() {
           registryUrl: 'http://127.0.0.1:1/missing.json',
           cacheFile: File(p.join(temp.path, 'missing-registry.json')),
         ),
+        agentLauncher: _testLauncher(temp),
+        debugLogs: AcpDebugLogs(
+          directory: Directory(p.join(temp.path, 'logs')),
+          enabled: false,
+        ),
       );
 
       expect(
@@ -225,6 +254,243 @@ void main() {
       );
     });
   });
+
+  group('ACP debug logs', () {
+    test('are off by default and leave no files behind', () async {
+      final fake = await FakeAcpAgent.create();
+      addTearDown(fake.dispose);
+      final logs = AcpDebugLogs(
+        directory: Directory(p.join(fake.root.path, 'logs')),
+        environment: const <String, String>{},
+      );
+
+      await AcpLocalAgentGenerator(
+        model: 'codex',
+        registryQuery: 'codex',
+        registryLoader: fake.registryLoader,
+        environment: fake.environment,
+        workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: logs,
+      ).analyzeChanges('diff --git a/a b/a', Language.english);
+
+      expect(logs.enabled, isFalse);
+      expect(logs.directory.existsSync(), isFalse);
+      expect(AcpDebugLog.lastLogPath, isNull);
+    });
+
+    test('GITWHISPER_ACP_DEBUG turns logging on', () {
+      bool enabledFor(String? value) => AcpDebugLogs(
+            directory: Directory.systemTemp,
+            environment: <String, String>{
+              if (value != null) AcpDebugLogs.environmentVariable: value,
+            },
+          ).enabled;
+
+      expect(enabledFor('1'), isTrue);
+      expect(enabledFor('true'), isTrue);
+      expect(enabledFor('0'), isFalse);
+      expect(enabledFor(null), isFalse);
+    });
+
+    test(
+      'when on, logs are private and record no prompt or agent text',
+      () async {
+        final fake = await FakeAcpAgent.create();
+        addTearDown(fake.dispose);
+
+        await AcpLocalAgentGenerator(
+          model: 'codex',
+          registryQuery: 'codex',
+          registryLoader: fake.registryLoader,
+          environment: fake.environment,
+          workingDirectory: fake.workingDirectory,
+          agentLauncher: fake.launcher,
+          debugLogs: fake.debugLogs(enabled: true),
+        ).generateAgentCommitMessage(
+          const AgentCommitRequest(
+            tools: GitAgentTools(),
+            language: Language.english,
+            prefix: 'GW-SECRET-PREFIX',
+          ),
+        );
+
+        final logFile = File(AcpDebugLog.lastLogPath!);
+        final log = logFile.readAsStringSync();
+        expect(p.dirname(logFile.path), p.join(fake.root.path, 'logs'));
+        expect(log, contains('session/prompt'));
+        expect(log, contains('final_agent_text'));
+        expect(log, isNot(contains('GW-SECRET-PREFIX')));
+        expect(log, isNot(contains('Inspect staged git changes')));
+        expect(log, isNot(contains('add ACP local agent support')));
+        expect(logFile.statSync().mode & 0x1FF, 0x180, reason: '0600');
+        expect(logFile.parent.statSync().mode & 0x1FF, 0x1C0, reason: '0700');
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only' : null,
+    );
+
+    test('prunes only old GitWhisper logs when ACP starts', () async {
+      final fake = await FakeAcpAgent.create();
+      addTearDown(fake.dispose);
+      final logsDir = await Directory(p.join(fake.root.path, 'logs')).create();
+      final old = DateTime.now().subtract(const Duration(days: 8));
+      File file(String name, {bool stale = true}) {
+        final created = File(p.join(logsDir.path, name))
+          ..writeAsStringSync('{}');
+        if (stale) created.setLastModifiedSync(old);
+        return created;
+      }
+
+      final oldLog = file('codex-acp-2026-01-02T03-04-05-123456.jsonl');
+      final oldAuthLog = file('kimi-auth-2026-01-02T03-04-05-123.jsonl');
+      final recentLog = file(
+        'codex-acp-2026-10-13T03-04-05-123456.jsonl',
+        stale: false,
+      );
+      final notes = file('notes.txt');
+      final otherJsonl = file('codex.jsonl');
+
+      await AcpLocalAgentGenerator(
+        model: 'codex',
+        registryQuery: 'codex',
+        registryLoader: fake.registryLoader,
+        environment: fake.environment,
+        workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+      ).analyzeChanges('diff --git a/a b/a', Language.english);
+
+      expect(oldLog.existsSync(), isFalse);
+      expect(oldAuthLog.existsSync(), isFalse);
+      expect(recentLog.existsSync(), isTrue);
+      expect(notes.existsSync(), isTrue);
+      expect(otherJsonl.existsSync(), isTrue);
+    });
+  });
+
+  group('ACP terminal authentication', () {
+    test(
+      'shows the exact login command and asks before running it',
+      () async {
+        final fake = await FakeAuthAcpAgent.create();
+        addTearDown(fake.dispose);
+        final shown = <String>[];
+        final questions = <String>[];
+
+        final message = await AcpLocalAgentGenerator(
+          model: 'kimi',
+          registryQuery: 'kimi',
+          registryLoader: fake.registryLoader,
+          environment: fake.environment,
+          workingDirectory: fake.workingDirectory,
+          agentLauncher: fake.launcher,
+          debugLogs: fake.debugLogs(),
+          prompter: AcpConsentPrompter(
+            logger: _RecordingLogger(shown),
+            isInteractive: () => true,
+            confirm: (question) {
+              questions.add(question);
+              return true;
+            },
+          ),
+        ).generateCommitMessage('diff', Language.english);
+
+        expect(message, 'feat: add ACP auth retry');
+        expect(questions, ['Run this login command now?']);
+        expect(shown, contains('  npx -y kimi login'));
+      },
+      skip: Platform.isWindows ? 'POSIX fake agent only' : null,
+    );
+
+    for (final interactive in <bool>[true, false]) {
+      test(
+        'does not run the login command when '
+        '${interactive ? 'declined' : 'there is no terminal'}',
+        () async {
+          final fake = await FakeAuthAcpAgent.create();
+          addTearDown(fake.dispose);
+
+          await expectLater(
+            AcpLocalAgentGenerator(
+              model: 'kimi',
+              registryQuery: 'kimi',
+              registryLoader: fake.registryLoader,
+              environment: fake.environment,
+              workingDirectory: fake.workingDirectory,
+              agentLauncher: fake.launcher,
+              debugLogs: fake.debugLogs(),
+              prompter: AcpConsentPrompter(
+                logger: _RecordingLogger(<String>[]),
+                isInteractive: () => interactive,
+                confirm: (_) => false,
+              ),
+            ).generateCommitMessage('diff', Language.english),
+            throwsA(
+              isA<AcpException>().having(
+                (error) => error.message,
+                'message',
+                allOf(
+                  contains('requires authentication'),
+                  contains('npx -y kimi login'),
+                ),
+              ),
+            ),
+          );
+
+          expect(fake.authMarkerFile.existsSync(), isFalse);
+          final invocations = await fake.readInvocations();
+          expect(
+            invocations.map((invocation) => invocation.args),
+            [
+              ['-y', 'kimi'],
+            ],
+          );
+        },
+        skip: Platform.isWindows ? 'POSIX fake agent only' : null,
+      );
+    }
+  });
+}
+
+/// A launcher whose cache and approvals live under [root] and that approves
+/// every agent, so tests never touch the real ~/.gitwhisper.
+AcpAgentLauncher _testLauncher(Directory root) {
+  final cache = Directory(p.join(root.path, 'agents'));
+  return AcpAgentLauncher(
+    cacheDirectory: cache,
+    approvals: AcpAgentApprovals.inCacheDirectory(
+      cache,
+      prompter: AcpConsentPrompter(
+        logger: _RecordingLogger(<String>[]),
+        isInteractive: () => true,
+        confirm: (_) => true,
+      ),
+    ),
+  );
+}
+
+AcpDebugLogs _testDebugLogs(Directory root, {bool enabled = false}) {
+  return AcpDebugLogs(
+    directory: Directory(p.join(root.path, 'logs')),
+    enabled: enabled,
+  );
+}
+
+AcpConsentPrompter _approvingPrompter() {
+  return AcpConsentPrompter(
+    logger: _RecordingLogger(<String>[]),
+    isInteractive: () => true,
+    confirm: (_) => true,
+  );
+}
+
+class _RecordingLogger extends Logger {
+  _RecordingLogger(this.lines) : super(level: Level.quiet);
+
+  final List<String> lines;
+
+  @override
+  void info(String? message, {LogStyle? style}) => lines.add(message ?? '');
 }
 
 class FakeAcpAgent {
@@ -244,6 +510,13 @@ class FakeAcpAgent {
   final String workingDirectory;
   final AcpRegistryLoader registryLoader;
   final bool requestPermission;
+
+  late final AcpAgentLauncher launcher = _testLauncher(root);
+
+  AcpDebugLogs debugLogs({bool enabled = false}) =>
+      _testDebugLogs(root, enabled: enabled);
+
+  AcpConsentPrompter get prompter => _approvingPrompter();
 
   Map<String, String> get environment => {
         'PATH': '${binDir.path}${Platform.isWindows ? ';' : ':'}'
@@ -366,6 +639,13 @@ class FakeAuthAcpAgent {
   final File authMarkerFile;
   final String workingDirectory;
   final AcpRegistryLoader registryLoader;
+
+  late final AcpAgentLauncher launcher = _testLauncher(root);
+
+  AcpDebugLogs debugLogs({bool enabled = false}) =>
+      _testDebugLogs(root, enabled: enabled);
+
+  AcpConsentPrompter get prompter => _approvingPrompter();
 
   Map<String, String> get environment => {
         'PATH': '${binDir.path}${Platform.isWindows ? ';' : ':'}'
