@@ -24,7 +24,7 @@ try {
 }
 
 $baseUrl = "https://github.com/$repo/releases/download/$version"
-$tmpDir = "$env:TEMP\gitwhisper-install"
+$tmpDir = Join-Path $env:TEMP ("gitwhisper-install-" + [guid]::NewGuid().ToString("N"))
 $installDir = "$env:ProgramFiles\GitWhisper"
 
 Write-Host "⬇️  Downloading GitWhisper $version..."
@@ -36,11 +36,13 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 # Download
 $asset = "gitwhisper-windows-x64.tar.gz"
+$legacy = $false
 try {
   Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile "$tmpDir\$asset" -Headers $headers
 } catch {
   # Releases up to v1.0.8 used a single Windows asset name.
   $asset = "gitwhisper-windows.tar.gz"
+  $legacy = $true
   Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile "$tmpDir\$asset" -Headers $headers
 }
 
@@ -61,8 +63,12 @@ if ($hasChecksum) {
     exit 1
   }
   Write-Host "🔒 Verified checksum for $asset"
-} else {
+} elseif ($legacy) {
+  # Releases up to v1.0.8 published no checksums.
   Write-Warning "$version has no published checksum for $asset; skipping verification."
+} else {
+  Write-Error "❌ Could not download the checksum for $asset; refusing to install an unverified binary."
+  exit 1
 }
 
 # Extract

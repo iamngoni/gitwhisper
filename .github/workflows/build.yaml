@@ -38,6 +38,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
 
@@ -90,7 +92,8 @@ jobs:
 
   publish-apt:
     needs: build
-    runs-on: [self-hosted, Linux]
+    # The X64 Linux runner has dpkg-dev installed.
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Build and publish .deb packages
         shell: bash
@@ -153,7 +156,9 @@ jobs:
           git config user.email "github-actions@github.com"
           git add .
           git commit -m "Publish gitwhisper ${version} (amd64 and arm64)"
-          git push "https://x-access-token:${TAP_TOKEN}@github.com/iamngoni/gitwhisper-apt" gh-pages
+          git -c credential.helper= \
+            -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${TAP_TOKEN}"; }; f' \
+            push https://github.com/iamngoni/gitwhisper-apt gh-pages
 
   update-homebrew:
     needs: build
@@ -216,4 +221,6 @@ jobs:
           git config user.email "github-actions@github.com"
           git add Formula/gitwhisper.rb
           git commit -m "Update formula to ${GITHUB_REF_NAME}"
-          git push "https://x-access-token:${TAP_TOKEN}@github.com/iamngoni/homebrew-gitwhisper" HEAD:main
+          git -c credential.helper= \
+            -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${TAP_TOKEN}"; }; f' \
+            push https://github.com/iamngoni/homebrew-gitwhisper HEAD:main

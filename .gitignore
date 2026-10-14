@@ -20,3 +20,6 @@ gitwhisper
 gw-test
 IssueanceWPF 1.zip
 *.log
+
+# Claude Code agent worktrees
+.claude/worktrees/

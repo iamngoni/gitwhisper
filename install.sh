@@ -53,7 +53,7 @@ latest_version() {
 }
 
 install_binary() {
-  local os arch base asset expected actual
+  local os arch base asset expected actual legacy=false
   os=$(detect_os)
   arch=$(detect_arch "$os")
 
@@ -76,7 +76,10 @@ install_binary() {
     # Releases up to v1.0.8 shipped one build per OS: linux was x64 and
     # macos was arm64.
     case "${os}-${arch}" in
-      linux-x64 | macos-arm64) asset="gitwhisper-${os}.tar.gz" ;;
+      linux-x64 | macos-arm64)
+        asset="gitwhisper-${os}.tar.gz"
+        legacy=true
+        ;;
       *)
         echo "GitWhisper $VERSION has no ${os}-${arch} build." >&2
         exit 1
@@ -93,8 +96,12 @@ install_binary() {
       exit 1
     fi
     echo "Verified checksum for $asset"
-  else
+  elif [[ "$legacy" == true ]]; then
+    # Releases up to v1.0.8 published no checksums.
     echo "Warning: $VERSION has no published checksum for $asset; skipping verification." >&2
+  else
+    echo "Could not download the checksum for $asset; refusing to install an unverified binary." >&2
+    exit 1
   fi
 
   tar -xzf "$TMP_DIR/$asset" -C "$TMP_DIR"

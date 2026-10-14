@@ -124,10 +124,10 @@ class ListVariantsCommand extends Command<int> {
     switch (model) {
       case 'claude-code':
         lines.add(
-          '  Reads Claude Code local credentials; override with --variant.',
+          '  Reads Claude Code local credentials; override with --model-variant.',
         );
       case 'codex':
-        lines.add('  Reads Codex config/auth; override with --variant.');
+        lines.add('  Reads Codex config/auth; override with --model-variant.');
       case 'ollama':
         final url = link(
           message: 'here.',
