@@ -989,6 +989,16 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       return _fileDescriptorCredentialCache[envVar];
     }
 
+    final fdValue = _nonBlank(_env[envVar]);
+    // The well-known files belong to Claude Code's remote environment. Outside
+    // it, /home/claude may be another local user's home, and its contents
+    // must not override the user's own credentials.
+    final readWellKnownFile = _isRemoteEnvironment;
+    if (fdValue == null && !readWellKnownFile) {
+      _fileDescriptorCredentialCache[envVar] = null;
+      return null;
+    }
+
     final injectedReader = _readFileDescriptorCredential;
     if (injectedReader != null) {
       final value = _nonBlank(injectedReader(envVar, wellKnownPath));
@@ -996,7 +1006,6 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       return value;
     }
 
-    final fdValue = _nonBlank(_env[envVar]);
     String? value;
     if (fdValue != null) {
       final fd = int.tryParse(fdValue);
@@ -1008,7 +1017,9 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       }
     }
 
-    value ??= _readCredentialFile(wellKnownPath);
+    if (value == null && readWellKnownFile) {
+      value = _readCredentialFile(wellKnownPath);
+    }
     _fileDescriptorCredentialCache[envVar] = value;
     return value;
   }
@@ -1501,9 +1512,11 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   bool get _isManagedOAuthContext {
-    return _isEnvTruthy(_env['CLAUDE_CODE_REMOTE']) ||
+    return _isRemoteEnvironment ||
         _env['CLAUDE_CODE_ENTRYPOINT'] == 'claude-desktop';
   }
+
+  bool get _isRemoteEnvironment => _isEnvTruthy(_env['CLAUDE_CODE_REMOTE']);
 
   bool get _isBareMode => _isEnvTruthy(_env['CLAUDE_CODE_SIMPLE']);
 

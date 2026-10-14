@@ -502,6 +502,50 @@ void main() {
       expect(headers['anthropic-beta'], 'claude-code-20250219');
     });
 
+    test('ignores remote credential files outside Claude Code remote',
+        () async {
+      await _writeCredentials(tempDir, 'stored-token');
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        readFileDescriptorCredential: (envVar, wellKnownPath) {
+          fail('should not read $wellKnownPath outside a remote session');
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer stored-token');
+    });
+
+    test('reads remote credential files in Claude Code remote sessions',
+        () async {
+      await _writeCredentials(tempDir, 'stored-token');
+      final readPaths = <String>[];
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: tempDir.path,
+        environment: const <String, String>{'CLAUDE_CODE_REMOTE': 'true'},
+        readFileDescriptorCredential: (envVar, wellKnownPath) {
+          readPaths.add(wellKnownPath);
+          if (envVar == 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR') {
+            return 'remote-oauth-token';
+          }
+          return null;
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(readPaths, <String>[
+        '/home/claude/.claude/remote/.api_key',
+        '/home/claude/.claude/remote/.oauth_token',
+      ]);
+      expect(headers['Authorization'], 'Bearer remote-oauth-token');
+    });
+
     test('managed Claude context prefers Claude Code OAuth env token',
         () async {
       await File(pathFor(tempDir, 'settings.json')).writeAsString(
