@@ -18,7 +18,7 @@ class ModelVariants {
   static const String claudeDefault = 'claude-sonnet-5-5';
 
   /// Default Claude Code model variant for the direct Anthropic harness.
-  static const String claudeCodeDefault = 'claude-sonnet-4-5-20250929';
+  static const String claudeCodeDefault = 'claude-sonnet-5-5';
 
   /// Default Codex model variant for the direct Responses API harness.
   static const String codexDefault = 'gpt-5.5';

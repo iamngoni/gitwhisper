@@ -271,7 +271,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       final content = await _postStreamingMessages(
         <String, dynamic>{
           'model': actualVariant,
-          'max_tokens': 1000,
+          'max_tokens': agentTurnMaxTokens,
           'stream': true,
           'system': _systemPrompt,
           'messages': messages,
