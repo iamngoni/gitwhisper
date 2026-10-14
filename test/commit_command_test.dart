@@ -297,6 +297,59 @@ void main() {
     });
   });
 
+  group('commit confirm edit', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    Future<(int, _ScriptedLogger)> runEdit(CommitMessageEditor editor) async {
+      final logger = _ScriptedLogger(answers: ['edit', 'commit']);
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        logger: logger,
+        messageEditor: editor,
+      );
+      return (exit, logger);
+    }
+
+    test('commits the edited message, editing in the repository', () async {
+      String? editedIn;
+      final (exit, _) = await runEdit((message, {folderPath}) async {
+        editedIn = folderPath;
+        return 'feat: Edited by hand';
+      });
+
+      expect(exit, ExitCode.success.code);
+      expect(editedIn, repo.path);
+      expect(await _lastSubject(repo), 'feat: Edited by hand');
+    });
+
+    test('keeps the message when the editor cannot be started', () async {
+      final (exit, logger) = await runEdit((message, {folderPath}) async {
+        throw const ProcessException('/bin/sh', [], 'not found', 2);
+      });
+
+      expect(exit, ExitCode.success.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(logger.errors, contains(startsWith('Could not open the editor')));
+    });
+
+    test('keeps the message when the editor returns nothing', () async {
+      final (exit, logger) = await runEdit(
+        (message, {folderPath}) async => null,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(logger.warnings, isNotEmpty);
+    });
+  });
+
   group('commit always_add', () {
     test('stages a repo whose only changes are untracked files', () async {
       final repo = await _createRepo(sandbox, 'repo');
@@ -468,6 +521,7 @@ Future<int> _runCommit(
   Logger? logger,
   ConfigManager? config,
   List<String>? builtModels,
+  CommitMessageEditor? messageEditor,
 }) async {
   final runner = CommandRunner<int>('gitwhisper', 'test')
     ..addCommand(
@@ -480,6 +534,10 @@ Future<int> _runCommit(
         },
         configManager: config ?? _TestConfigManager(),
         workingDirectory: workingDirectory,
+        // Never launch a real editor from tests.
+        messageEditor: messageEditor ??
+            (message, {folderPath}) =>
+                throw StateError('Unexpected editor launch'),
       ),
     );
   return await runner.run(['commit', ...args]) ?? 0;

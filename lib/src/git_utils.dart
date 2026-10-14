@@ -334,10 +334,20 @@ class GitUtils {
   /// 3. Opens the editor for the user to edit the message
   /// 4. Reads back the edited message and cleans it up
   ///
-  /// Returns the edited message, or null if the user left it empty or the editor failed.
-  static Future<String?> openGitEditor(String initialMessage) async {
+  /// Returns the edited message, or null if the user left it empty or the
+  /// editor exited with an error. Throws if the editor cannot be started.
+  ///
+  /// [folderPath] is the repository whose `core.editor` applies.
+  static Future<String?> openGitEditor(
+    String initialMessage, {
+    String? folderPath,
+  }) async {
     // Get the configured Git editor
-    final editorResult = await Process.run('git', ['var', 'GIT_EDITOR']);
+    final editorResult = await Process.run(
+      'git',
+      ['var', 'GIT_EDITOR'],
+      workingDirectory: folderPath,
+    );
     String editor;
 
     if (editorResult.exitCode == 0 &&
@@ -345,7 +355,8 @@ class GitUtils {
       editor = (editorResult.stdout as String).trim();
     } else {
       // Fall back to EDITOR environment variable or vi
-      editor = Platform.environment['EDITOR'] ?? 'vi';
+      editor = Platform.environment['EDITOR'] ??
+          (Platform.isWindows ? 'notepad' : 'vi');
     }
 
     // Create a temporary file for the commit message
@@ -358,9 +369,14 @@ class GitUtils {
       await tempFile.writeAsString(initialMessage);
 
       // Open the editor (use Process.start to allow interactive editing)
+      final (executable, arguments) = editorCommand(
+        editor,
+        tempFile.path,
+        windows: Platform.isWindows,
+      );
       final process = await Process.start(
-        '/bin/sh',
-        ['-c', '$editor "${tempFile.path}"'],
+        executable,
+        arguments,
         mode: ProcessStartMode.inheritStdio,
       );
 
@@ -389,6 +405,64 @@ class GitUtils {
         await tempFile.delete();
       }
     }
+  }
+
+  /// Builds the process that opens [editor] (a `GIT_EDITOR` command line such
+  /// as `code --wait`) on [filePath].
+  ///
+  /// Elsewhere the editor runs through `/bin/sh -c`, as git does. On Windows
+  /// there is no `/bin/sh`, so the editor runs through `cmd /c`, which also
+  /// resolves `.cmd` shims such as `code`. An editor whose executable path
+  /// contains spaces is started directly instead, because cmd strips the
+  /// quotes around such a path.
+  static (String, List<String>) editorCommand(
+    String editor,
+    String filePath, {
+    required bool windows,
+  }) {
+    if (!windows) {
+      return ('/bin/sh', ['-c', '$editor "$filePath"']);
+    }
+
+    final parts = _splitCommandLine(editor);
+    if (parts.isEmpty) return ('notepad', [filePath]);
+    if (parts.first.contains(' ')) {
+      return (parts.first, [...parts.skip(1), filePath]);
+    }
+    return ('cmd', ['/c', ...parts, filePath]);
+  }
+
+  /// Splits a command line on whitespace outside quotes. Backslashes are kept
+  /// literally so Windows paths survive.
+  static List<String> _splitCommandLine(String commandLine) {
+    final parts = <String>[];
+    final current = StringBuffer();
+    String? quote;
+    var inToken = false;
+
+    for (final char in commandLine.split('')) {
+      if (quote != null) {
+        if (char == quote) {
+          quote = null;
+        } else {
+          current.write(char);
+        }
+      } else if (char == '"' || char == "'") {
+        quote = char;
+        inToken = true;
+      } else if (char.trim().isEmpty) {
+        if (inToken) {
+          parts.add(current.toString());
+          current.clear();
+          inToken = false;
+        }
+      } else {
+        current.write(char);
+        inToken = true;
+      }
+    }
+    if (inToken) parts.add(current.toString());
+    return parts;
   }
 
   /// Removes Markdown-style code block markers (``` or ```dart) from a string.

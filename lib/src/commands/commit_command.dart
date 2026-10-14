@@ -35,19 +35,29 @@ typedef CommitGeneratorBuilder = CommitGenerator Function(
   String? baseUrl,
 });
 
+/// Opens [message] for editing in the repository at [folderPath] and returns
+/// the result, or null when it was left empty or the editor failed.
+typedef CommitMessageEditor = Future<String?> Function(
+  String message, {
+  String? folderPath,
+});
+
 class CommitCommand extends Command<int> {
   /// [configManager] and [workingDirectory] default to the user's config file
   /// and the process working directory; tests inject both so a run never
   /// reads the developer's config or touches the checkout it runs from.
+  /// [messageEditor] defaults to the user's git editor.
   CommitCommand({
     required Logger logger,
     CommitGeneratorBuilder? generatorBuilder,
     ConfigManager? configManager,
     String? workingDirectory,
+    CommitMessageEditor? messageEditor,
   })  : _logger = logger,
         _generatorBuilder = generatorBuilder ?? CommitGeneratorFactory.create,
         _configManager = configManager,
-        _workingDirectory = workingDirectory {
+        _workingDirectory = workingDirectory,
+        _messageEditor = messageEditor ?? GitUtils.openGitEditor {
     argParser
       ..addOption(
         'model',
@@ -117,6 +127,7 @@ class CommitCommand extends Command<int> {
   final CommitGeneratorBuilder _generatorBuilder;
   final ConfigManager? _configManager;
   final String? _workingDirectory;
+  final CommitMessageEditor _messageEditor;
   final AgentToolActivityFormatter _agentToolFormatter =
       const AgentToolActivityFormatter();
 
@@ -855,7 +866,17 @@ class CommitCommand extends Command<int> {
 
         case 'edit':
           _logger.info('Opening editor...');
-          final editedMessage = await GitUtils.openGitEditor(currentMessage);
+          final String? editedMessage;
+          try {
+            editedMessage = await _messageEditor(
+              currentMessage,
+              folderPath: folderPath,
+            );
+          } on Exception catch (e) {
+            // Keep the current message so the user can still commit it.
+            _logger.err('Could not open the editor: $e');
+            continue;
+          }
           if (editedMessage != null && editedMessage.trim().isNotEmpty) {
             currentMessage = editedMessage;
             continue;

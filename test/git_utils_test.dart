@@ -51,6 +51,61 @@ void main() {
     });
   });
 
+  group('GitUtils.editorCommand', () {
+    const tempFile = r'C:\Users\Jane Doe\AppData\Local\Temp\GITWHISPER_MSG';
+
+    // Flattens (executable, arguments) so lists compare by value.
+    List<String> command(String editor, String file, {required bool windows}) {
+      final (executable, arguments) =
+          GitUtils.editorCommand(editor, file, windows: windows);
+      return [executable, ...arguments];
+    }
+
+    test('runs the editor through /bin/sh outside Windows', () {
+      expect(
+        command('code --wait', '/tmp/msg', windows: false),
+        ['/bin/sh', '-c', 'code --wait "/tmp/msg"'],
+      );
+    });
+
+    test('runs the editor through cmd /c on Windows', () {
+      expect(
+        command('code --wait', tempFile, windows: true),
+        ['cmd', '/c', 'code', '--wait', tempFile],
+      );
+    });
+
+    test('starts a quoted Windows editor path with spaces directly', () {
+      expect(
+        command(
+          r'"C:\Program Files\Notepad++\notepad++.exe" -multiInst -nosession',
+          tempFile,
+          windows: true,
+        ),
+        [
+          r'C:\Program Files\Notepad++\notepad++.exe',
+          '-multiInst',
+          '-nosession',
+          tempFile,
+        ],
+      );
+    });
+
+    test('keeps a quoted Windows editor path without spaces in cmd', () {
+      expect(
+        command(r"'C:\tools\vim.exe'", tempFile, windows: true),
+        ['cmd', '/c', r'C:\tools\vim.exe', tempFile],
+      );
+    });
+
+    test('falls back to notepad for an empty Windows editor', () {
+      expect(
+        command('  ', tempFile, windows: true),
+        ['notepad', tempFile],
+      );
+    });
+  });
+
   group('GitUtils.sanitizeGeneratedCommitMessage', () {
     test('keeps plain commit messages unchanged', () {
       expect(
