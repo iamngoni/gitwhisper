@@ -188,6 +188,58 @@ void main() {
     });
   });
 
+  group('commit --key', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    test('still works but warns about shell history', () async {
+      final logger = _ScriptedLogger();
+      String? usedKey;
+
+      final runner = CommandRunner<int>('gitwhisper', 'test')
+        ..addCommand(
+          CommitCommand(
+            logger: logger,
+            generatorBuilder: (model, apiKey, {variant, baseUrl}) {
+              usedKey = apiKey;
+              return _FakeGenerator('feat: Add a');
+            },
+            configManager: _TestConfigManager(),
+            workingDirectory: repo.path,
+          ),
+        );
+      final exit = await runner.run(
+        ['commit', '--model', 'openai', '--key', 'sk-cli', '--dry-run'],
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(usedKey, 'sk-cli');
+      expect(
+        logger.warnings,
+        contains(
+          allOf(contains('shell history'), contains('gw save-key')),
+        ),
+      );
+    });
+
+    test('does not warn when the key comes from config', () async {
+      final logger = _ScriptedLogger();
+
+      await _runCommit(
+        ['--model', 'openai', '--dry-run'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(logger.warnings.where((w) => w.contains('--key')), isEmpty);
+    });
+  });
+
   group('commit always_add', () {
     test('stages a repo whose only changes are untracked files', () async {
       final repo = await _createRepo(sandbox, 'repo');

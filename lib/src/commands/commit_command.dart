@@ -57,7 +57,8 @@ class CommitCommand extends Command<int> {
       ..addOption(
         'key',
         abbr: 'k',
-        help: 'API key for the selected model',
+        help: 'API key for the selected model. Prefer `gw save-key`: keys '
+            'passed here can end up in your shell history.',
       )
       ..addOption(
         'prefix',
@@ -295,12 +296,20 @@ class CommitCommand extends Command<int> {
 
     // Get API key (from args, config, or environment)
     var apiKey = argResults?['key'] as String?;
+    if (apiKey != null && apiKey.isNotEmpty) {
+      _logger.warn(
+        'Passing an API key with --key can leave it in your shell history. '
+        'Save it once with `gw save-key --model $modelName` instead.',
+      );
+    }
     apiKey ??=
         configManager.getApiKey(modelName) ?? _getEnvironmentApiKey(modelName);
 
     if ((apiKey == null || apiKey.isEmpty) && _requiresApiKey(modelName)) {
       _logger.err(
-        'No API key provided for $modelName. Please provide an API key using --key.',
+        'No API key provided for $modelName. Save one with '
+        '`gw save-key --model $modelName` or set the provider API key '
+        'environment variable.',
       );
       return ExitCode.usage.code;
     }
