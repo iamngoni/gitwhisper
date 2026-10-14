@@ -17,8 +17,12 @@ import 'constants.dart';
 class GitUtils {
   /// Returns a list of subdirectories (1 level down) that are git repositories.
   /// If current directory is a git repo, returns an empty list.
-  static Future<List<String>> findGitReposInSubfolders() async {
-    final dir = Directory.current;
+  ///
+  /// Searches [folderPath] instead of the current directory when given.
+  static Future<List<String>> findGitReposInSubfolders({
+    String? folderPath,
+  }) async {
+    final dir = folderPath != null ? Directory(folderPath) : Directory.current;
     final subdirs =
         dir.listSync(followLinks: false).whereType<Directory>().toList();
 
@@ -159,10 +163,13 @@ class GitUtils {
     return result;
   }
 
-  /// Check if the current directory is a Git repository
-  static Future<bool> isGitRepository() async {
-    final result =
-        await Process.run('git', ['rev-parse', '--is-inside-work-tree']);
+  /// Check if the current directory (or [folderPath]) is a Git repository
+  static Future<bool> isGitRepository({String? folderPath}) async {
+    final result = await Process.run(
+      'git',
+      ['rev-parse', '--is-inside-work-tree'],
+      workingDirectory: folderPath,
+    );
     return result.exitCode == 0 && (result.stdout as String).trim() == 'true';
   }
 

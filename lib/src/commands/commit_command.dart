@@ -36,11 +36,18 @@ typedef CommitGeneratorBuilder = CommitGenerator Function(
 });
 
 class CommitCommand extends Command<int> {
+  /// [configManager] and [workingDirectory] default to the user's config file
+  /// and the process working directory; tests inject both so a run never
+  /// reads the developer's config or touches the checkout it runs from.
   CommitCommand({
     required Logger logger,
     CommitGeneratorBuilder? generatorBuilder,
+    ConfigManager? configManager,
+    String? workingDirectory,
   })  : _logger = logger,
-        _generatorBuilder = generatorBuilder ?? CommitGeneratorFactory.create {
+        _generatorBuilder = generatorBuilder ?? CommitGeneratorFactory.create,
+        _configManager = configManager,
+        _workingDirectory = workingDirectory {
     argParser
       ..addOption(
         'model',
@@ -100,6 +107,8 @@ class CommitCommand extends Command<int> {
 
   final Logger _logger;
   final CommitGeneratorBuilder _generatorBuilder;
+  final ConfigManager? _configManager;
+  final String? _workingDirectory;
   final AgentToolActivityFormatter _agentToolFormatter =
       const AgentToolActivityFormatter();
 
@@ -108,16 +117,21 @@ class CommitCommand extends Command<int> {
   @override
   Future<int> run() async {
     // Initialize config manager
-    final configManager = ConfigManager();
+    final configManager = _configManager ?? ConfigManager();
     await configManager.load();
+
+    // Null means the process working directory.
+    final workingDirectory = _workingDirectory;
 
     List<String>? subGitRepos;
 
     // Check if we're in a git repository
-    if (!await GitUtils.isGitRepository()) {
+    if (!await GitUtils.isGitRepository(folderPath: workingDirectory)) {
       _logger.warn('Not a git repository. Checking subfolders...');
 
-      subGitRepos = await GitUtils.findGitReposInSubfolders();
+      subGitRepos = await GitUtils.findGitReposInSubfolders(
+        folderPath: workingDirectory,
+      );
       if (subGitRepos.isEmpty) {
         _logger.err(
           'No git repository found in subfolders. Please run in a git repository, '
@@ -143,7 +157,7 @@ class CommitCommand extends Command<int> {
     }
 
     final bool hasStagedChanges = !hasSubGitRepos
-        ? await GitUtils.hasStagedChanges()
+        ? await GitUtils.hasStagedChanges(folderPath: workingDirectory)
         : (await GitUtils.foldersWithStagedChanges(subGitRepos)).isNotEmpty;
 
     // Check if there are staged changes
@@ -152,7 +166,7 @@ class CommitCommand extends Command<int> {
       if (configManager.shouldAlwaysAdd()) {
         // Check for unstaged changes
         final hasUnstagedChanges = !hasSubGitRepos
-            ? await GitUtils.hasUnstagedChanges()
+            ? await GitUtils.hasUnstagedChanges(folderPath: workingDirectory)
             : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
                 .isNotEmpty;
 
@@ -162,7 +176,9 @@ class CommitCommand extends Command<int> {
           );
           if (!hasSubGitRepos) {
             final int stagedFiles =
-                await GitUtils.stageAllUnstagedFilesAndCount();
+                await GitUtils.stageAllUnstagedFilesAndCount(
+              folderPath: workingDirectory,
+            );
             _logger.success('$stagedFiles files have been staged.');
           } else {
             final List<String> foldersWithUnstagedChanges =
@@ -183,12 +199,12 @@ class CommitCommand extends Command<int> {
       } else {
         // Check for unstaged or untracked changes
         final hasUnstagedChanges = !hasSubGitRepos
-            ? await GitUtils.hasUnstagedChanges()
+            ? await GitUtils.hasUnstagedChanges(folderPath: workingDirectory)
             : (await GitUtils.foldersWithUnstagedChanges(subGitRepos))
                 .isNotEmpty;
 
         final hasUntrackedFiles = !hasSubGitRepos
-            ? await GitUtils.hasUntrackedFiles()
+            ? await GitUtils.hasUntrackedFiles(folderPath: workingDirectory)
             : (await GitUtils.foldersWithUntrackedFiles(subGitRepos))
                 .isNotEmpty;
 
@@ -203,7 +219,9 @@ class CommitCommand extends Command<int> {
             _logger.info('Staging all changes and new files...');
             if (!hasSubGitRepos) {
               final int stagedFiles =
-                  await GitUtils.stageAllUnstagedFilesAndCount();
+                  await GitUtils.stageAllUnstagedFilesAndCount(
+                folderPath: workingDirectory,
+              );
               _logger.success('$stagedFiles files have been staged.');
             } else {
               final List<String> foldersWithChanges = <String>[];
@@ -308,20 +326,25 @@ class CommitCommand extends Command<int> {
     // --- Single repo flow ---
     if (!hasSubGitRepos) {
       // Check for large files before proceeding
-      final largeFileResult = await _checkForLargeFiles(configManager);
+      final largeFileResult = await _checkForLargeFiles(
+        configManager,
+        folderPath: workingDirectory,
+      );
       if (largeFileResult != null) {
         return largeFileResult;
       }
 
       var updatedDiff = '';
       if (agentMode) {
-        if (!await GitUtils.hasStagedChanges()) {
+        if (!await GitUtils.hasStagedChanges(folderPath: workingDirectory)) {
           _logger.err('No changes detected in staged files.');
           return ExitCode.usage.code;
         }
       } else {
         // Get the diff after large-file handling in case files were unstaged.
-        updatedDiff = await GitUtils.getStagedDiff();
+        updatedDiff = await GitUtils.getStagedDiff(
+          folderPath: workingDirectory,
+        );
         if (updatedDiff.isEmpty) {
           _logger.err('No changes detected in staged files.');
           return ExitCode.usage.code;
@@ -350,6 +373,8 @@ class CommitCommand extends Command<int> {
             dryRun: dryRun,
             modelName: modelName,
             modelVariant: modelVariant,
+            configManager: configManager,
+            folderPath: workingDirectory,
           );
         }
       }
@@ -372,6 +397,7 @@ class CommitCommand extends Command<int> {
           prefix: prefix,
           withEmoji: withEmoji,
           agentMode: agentMode,
+          folderPath: workingDirectory,
         );
 
         try {
@@ -407,6 +433,7 @@ class CommitCommand extends Command<int> {
             configManager: configManager,
             withEmoji: withEmoji,
             agentMode: agentMode,
+            folderPath: workingDirectory,
           );
 
           if (finalMessage == null) {
@@ -432,6 +459,7 @@ class CommitCommand extends Command<int> {
           await GitUtils.runGitCommit(
             message: commitMessage,
             autoPush: autoPush,
+            folderPath: workingDirectory,
             tag: tag,
           );
         } catch (e) {
@@ -1003,6 +1031,8 @@ class CommitCommand extends Command<int> {
     bool dryRun = false,
     required String modelName,
     required String modelVariant,
+    required ConfigManager configManager,
+    String? folderPath,
   }) async {
     final hunks = GitUtils.splitDiffIntoHunks(diff);
     final fileGroups = GitUtils.groupHunksByFile(hunks);
@@ -1074,9 +1104,6 @@ class CommitCommand extends Command<int> {
       }
 
       // Handle confirmation workflow if enabled
-      final configManager = ConfigManager();
-      await configManager.load();
-
       if (confirm && !dryRun) {
         final finalMessage = await _handleCommitConfirmation(
           commitMessage: commitMessage,
@@ -1089,6 +1116,7 @@ class CommitCommand extends Command<int> {
           ollamaBaseUrl: null,
           configManager: configManager,
           withEmoji: withEmoji,
+          folderPath: folderPath,
         );
 
         if (finalMessage == null) {
@@ -1113,6 +1141,7 @@ class CommitCommand extends Command<int> {
         await GitUtils.runGitCommit(
           message: commitMessage,
           autoPush: autoPush,
+          folderPath: folderPath,
           tag: tag,
         );
       } catch (e) {
