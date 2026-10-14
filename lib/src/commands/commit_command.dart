@@ -264,20 +264,22 @@ class CommitCommand extends Command<int> {
       }
     }
 
-    // Get the model name and variant from args, config, or defaults
+    // Get the model name and variant from args, config, or defaults. An empty
+    // --model-variant counts as not passed.
     String? modelName = argResults?['model'] as String?;
-    String? modelVariant = argResults?['model-variant'] as String? ?? '';
+    String modelVariant =
+        (argResults?['model-variant'] as String?)?.trim() ?? '';
 
-    // If modelName is not provided, use config or fallback to openai
+    // If modelName is not provided, use config or fallback to openai. The
+    // configured default variant only applies when no variant was passed.
     if (modelName == null) {
       final (String, String)? defaults =
           configManager.getDefaultModelAndVariant();
       if (defaults != null) {
         modelName = defaults.$1;
-        modelVariant = defaults.$2;
+        if (modelVariant.isEmpty) modelVariant = defaults.$2;
       } else {
         modelName = 'openai';
-        modelVariant = '';
       }
     }
 

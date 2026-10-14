@@ -131,6 +131,63 @@ void main() {
     });
   });
 
+  group('commit model selection', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    Future<List<String>> buildFor(
+      List<String> args, {
+      (String, String?)? defaults,
+    }) async {
+      final built = <String>[];
+      await _runCommit(
+        [...args, '--dry-run'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        config: _TestConfigManager(defaults: defaults),
+        builtModels: built,
+      );
+      return built;
+    }
+
+    test('--model-variant applies to the configured default model', () async {
+      expect(
+        await buildFor(
+          ['--model-variant', 'opus-x'],
+          defaults: ('claude', 'sonnet-y'),
+        ),
+        ['claude:opus-x'],
+      );
+    });
+
+    test('the configured default variant applies when none is passed',
+        () async {
+      expect(
+        await buildFor([], defaults: ('claude', 'sonnet-y')),
+        ['claude:sonnet-y'],
+      );
+    });
+
+    test('an empty --model-variant counts as not passed', () async {
+      expect(
+        await buildFor(
+          ['--model-variant', ''],
+          defaults: ('claude', 'sonnet-y'),
+        ),
+        ['claude:sonnet-y'],
+      );
+    });
+
+    test('--model-variant applies without --model or configured defaults',
+        () async {
+      expect(await buildFor(['--model-variant', 'gpt-x']), ['openai:gpt-x']);
+    });
+  });
+
   group('commit cancellation exit codes', () {
     final cancelled = CommitCommand.cancelledExitCode.code;
 
@@ -367,8 +424,10 @@ class _TestConfigManager extends ConfigManager {
     throw StateError('Tests must not write the user config file.');
   }
 
+  /// A dummy key for every provider, so the command never falls back to the
+  /// developer's *_API_KEY environment variables. Fake generators ignore it.
   @override
-  String? getApiKey(String model) => null;
+  String? getApiKey(String model) => 'test-api-key';
 }
 
 /// Logger that records output and answers prompts from a script, so tests can
