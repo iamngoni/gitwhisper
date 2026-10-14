@@ -8,6 +8,7 @@
 
 import '../acp/acp_client.dart';
 import '../constants.dart';
+import '../user_home.dart';
 import 'api_exception.dart';
 import 'api_exceptions.dart';
 
@@ -36,6 +37,11 @@ class ErrorHandler {
       $logger
         ..err('ACP agent error$contextMsg:')
         ..err(error.message);
+      return;
+    }
+
+    if (error is UserHomeException) {
+      $logger.err(error.message);
       return;
     }
 
