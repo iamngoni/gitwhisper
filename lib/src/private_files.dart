@@ -109,8 +109,9 @@ Future<void> createPrivateFile(File file) async {
 
 /// Replaces [target] with [contents] atomically, as an owner-only file.
 ///
-/// The new content is written to a temp file inside a private `mkdtemp`
-/// directory next to [target], restricted to 0600, flushed, and then renamed
+/// The new content is written to a temp file inside a fresh directory next
+/// to [target] that is restricted to 0700 before anything is created in it.
+/// The file is restricted to 0600, written, flushed, and then renamed
 /// over [target]. Readers see either the old file or the complete new one.
 /// A failed write never leaves [target] empty or truncated. If [target] is a
 /// symlink (for example a dotfile managed elsewhere), the file it points to
