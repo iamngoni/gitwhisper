@@ -1053,6 +1053,108 @@ void main() {
       expect(refreshCalls, 1);
     });
 
+    test('passes keychain credentials to security on stdin, not argv',
+        () async {
+      final calls = <({List<String> arguments, String? stdin})>[];
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{'USER': 'gw-test'},
+        readMacOsKeychainService: (service) async => _credentialsJson(
+          'expired-token',
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+        runSecurityCommand: (arguments, {stdin}) async {
+          calls.add((arguments: arguments, stdin: stdin));
+          return 0;
+        },
+        refreshToken: (endpoint, body) async => _refreshResponse(),
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer fresh-token');
+      expect(calls, hasLength(1));
+      expect(calls.single.arguments, <String>['-i']);
+      final command = calls.single.stdin!;
+      expect(
+        command,
+        startsWith(
+          'add-generic-password -U -a "gw-test" '
+          '-s "Claude Code-credentials" -X "',
+        ),
+      );
+      expect(command, endsWith('"\n'));
+      final hexValue =
+          RegExp('-X "([0-9a-f]+)"').firstMatch(command)!.group(1)!;
+      expect(_unhex(hexValue), contains('fresh-refresh-token'));
+    });
+
+    test('falls back to argv for keychain payloads too long for stdin',
+        () async {
+      final calls = <({List<String> arguments, String? stdin})>[];
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{'USER': 'gw-test'},
+        readMacOsKeychainService: (service) async => jsonEncode(
+          <String, dynamic>{
+            ...jsonDecode(
+              _credentialsJson(
+                'expired-token',
+                expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+              ),
+            ) as Map<String, dynamic>,
+            'mcpOAuth': <String, dynamic>{'padding': 'x' * 3000},
+          },
+        ),
+        runSecurityCommand: (arguments, {stdin}) async {
+          calls.add((arguments: arguments, stdin: stdin));
+          return 0;
+        },
+        refreshToken: (endpoint, body) async => _refreshResponse(),
+      );
+
+      await generator.resolveHeaders();
+
+      expect(calls, hasLength(1));
+      expect(calls.single.stdin, isNull);
+      expect(
+        calls.single.arguments.take(7),
+        <String>[
+          'add-generic-password',
+          '-U',
+          '-a',
+          'gw-test',
+          '-s',
+          'Claude Code-credentials',
+          '-X',
+        ],
+      );
+    });
+
+    test('treats a failed security write as a failed save', () async {
+      var refreshCalls = 0;
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{'USER': 'gw-test'},
+        readMacOsKeychainService: (service) async => _credentialsJson(
+          'expired-token',
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+        runSecurityCommand: (arguments, {stdin}) async => 45,
+        refreshToken: (endpoint, body) async {
+          refreshCalls += 1;
+          return _refreshResponse();
+        },
+      );
+
+      final first = await generator.resolveHeaders();
+      final second = await generator.resolveHeaders();
+
+      expect(first['Authorization'], 'Bearer fresh-token');
+      expect(second['Authorization'], 'Bearer fresh-token');
+      expect(refreshCalls, 1);
+    });
+
     test(
       'writes a private recovery copy when saving the credentials file fails',
       () async {
@@ -1315,6 +1417,13 @@ String _hex(String value) {
       .join();
 }
 
+String _unhex(String value) {
+  return utf8.decode(<int>[
+    for (var index = 0; index < value.length; index += 2)
+      int.parse(value.substring(index, index + 2), radix: 16),
+  ]);
+}
+
 String _configDirHash(String value) {
   return crypto.sha256.convert(utf8.encode(value)).toString().substring(0, 8);
 }
@@ -1344,6 +1453,7 @@ ClaudeCodeDirectGenerator _sandboxedGenerator(
   bool? useMacOsKeychain,
   ClaudeCodeKeychainReader? readMacOsKeychainService,
   ClaudeCodeKeychainWriter? writeMacOsKeychainService,
+  ClaudeCodeSecurityCommandRunner? runSecurityCommand,
   ClaudeCodeFileDescriptorCredentialReader? readFileDescriptorCredential,
   ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
   ClaudeCodeLoginRunner? runLogin,
@@ -1363,9 +1473,17 @@ ClaudeCodeDirectGenerator _sandboxedGenerator(
     useMacOsKeychain: useMacOsKeychain ?? readMacOsKeychainService != null,
     readMacOsKeychainService:
         readMacOsKeychainService ?? (service) async => null,
+    // A test that injects a `security` runner exercises the real keychain
+    // write logic against that fake instead of a fake writer.
     writeMacOsKeychainService: writeMacOsKeychainService ??
-        (service, value) async {
-          throw StateError('Keychain writes are disabled in tests.');
+        (runSecurityCommand != null
+            ? null
+            : (service, value) async {
+                throw StateError('Keychain writes are disabled in tests.');
+              }),
+    runSecurityCommand: runSecurityCommand ??
+        (arguments, {stdin}) async {
+          throw StateError('The security command is disabled in tests.');
         },
     readFileDescriptorCredential:
         readFileDescriptorCredential ?? (envVar, wellKnownPath) => null,

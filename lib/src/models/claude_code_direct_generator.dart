@@ -39,6 +39,13 @@ typedef ClaudeCodeKeychainWriter = Future<void> Function(
   String value,
 );
 
+/// Runs macOS `security` with [arguments], writing [stdin] to it when given,
+/// and returns its exit code.
+typedef ClaudeCodeSecurityCommandRunner = Future<int> Function(
+  List<String> arguments, {
+  String? stdin,
+});
+
 typedef ClaudeCodeFileDescriptorCredentialReader = String? Function(
   String envVar,
   String wellKnownPath,
@@ -63,13 +70,16 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     ClaudeCodeTokenRefresher? refreshToken,
     ClaudeCodeKeychainReader? readMacOsKeychainService,
     ClaudeCodeKeychainWriter? writeMacOsKeychainService,
+    ClaudeCodeSecurityCommandRunner? runSecurityCommand,
     ClaudeCodeFileDescriptorCredentialReader? readFileDescriptorCredential,
     ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
     Duration? apiKeyHelperTimeout,
     this.loginExecutable = 'claude',
     this.loginArguments = const <String>['setup-token'],
     this.useMacOsKeychain = true,
+    String? macOsKeychainPath,
   })  : _explicitApiKey = apiKey,
+        _macOsKeychainPath = _nonBlank(macOsKeychainPath),
         _claudeConfigDir = claudeConfigDir,
         _projectDirectory = projectDirectory,
         _managedSettingsPathOverride = managedSettingsPath,
@@ -79,6 +89,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _refreshToken = refreshToken,
         _readMacOsKeychain = readMacOsKeychainService,
         _writeMacOsKeychain = writeMacOsKeychainService,
+        _runSecurityCommand = runSecurityCommand,
         _readFileDescriptorCredential = readFileDescriptorCredential,
         _runApiKeyHelper = runApiKeyHelper ?? _defaultRunApiKeyHelper,
         _apiKeyHelperTimeout =
@@ -105,6 +116,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   static const Duration _apiKeyHelperDefaultTtl = Duration(minutes: 5);
   static const Duration _defaultApiKeyHelperTimeout = Duration(minutes: 10);
   static const int _helperStderrNoteLength = 80;
+
+  /// `security -i` reads each command into a fixed-size line buffer and
+  /// splits longer lines; Claude Code uses the same limit.
+  static const int _securityInteractiveMaxLength = 4032;
   static const Duration _credentialLockTimeout = Duration(seconds: 30);
   static const String _credentialLockFileName =
       '.gitwhisper-oauth-refresh.lock';
@@ -142,12 +157,17 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   final ClaudeCodeTokenRefresher? _refreshToken;
   final ClaudeCodeKeychainReader? _readMacOsKeychain;
   final ClaudeCodeKeychainWriter? _writeMacOsKeychain;
+  final ClaudeCodeSecurityCommandRunner? _runSecurityCommand;
   final ClaudeCodeFileDescriptorCredentialReader? _readFileDescriptorCredential;
   final ClaudeCodeApiKeyHelperRunner _runApiKeyHelper;
   final Duration _apiKeyHelperTimeout;
   final String loginExecutable;
   final List<String> loginArguments;
   final bool useMacOsKeychain;
+
+  /// Keychain file to read and write instead of the default keychain search
+  /// list, e.g. a throwaway keychain when testing.
+  final String? _macOsKeychainPath;
   final Map<String, String?> _fileDescriptorCredentialCache =
       <String, String?>{};
   _ClaudeCodeApiKeyHelperCache? _apiKeyHelperCache;
@@ -991,6 +1011,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     final account = _nonBlank(_env['USER']) ?? _nonBlank(_env['LOGNAME']);
     if (account == null) return null;
 
+    final keychainPath = _macOsKeychainPath;
     try {
       final result = await Process.run(
         'security',
@@ -1001,6 +1022,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           '-w',
           '-s',
           service,
+          if (keychainPath != null) keychainPath,
         ],
       );
 
@@ -1568,15 +1590,35 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       return;
     }
 
-    if (!Platform.isMacOS) return;
+    final injectedRunner = _runSecurityCommand;
+    if (injectedRunner == null && !Platform.isMacOS) return;
+    final runSecurity = injectedRunner ?? _defaultRunSecurityCommand;
 
     final account = _nonBlank(_env['USER']) ?? _nonBlank(_env['LOGNAME']);
     if (account == null) return;
 
+    final hexValue = _hexEncode(value);
+    final keychainPath = _macOsKeychainPath;
+    final interactiveCommand = _securityAddGenericPasswordCommand(
+      account: account,
+      service: service,
+      hexValue: hexValue,
+      keychainPath: keychainPath,
+    );
+
     try {
-      final result = await Process.run(
-        'security',
-        <String>[
+      final int exitCode;
+      if (interactiveCommand != null) {
+        // Pass the credentials on stdin: process listings show argv to every
+        // local user.
+        exitCode = await runSecurity(
+          const <String>['-i'],
+          stdin: interactiveCommand,
+        );
+      } else {
+        // Too long (or not safely quotable) for `security -i`, so fall back to
+        // argv like Claude Code does.
+        exitCode = await runSecurity(<String>[
           'add-generic-password',
           '-U',
           '-a',
@@ -1584,13 +1626,16 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           '-s',
           service,
           '-X',
-          _hexEncode(value),
-        ],
-      );
-      if (result.exitCode != 0) {
+          hexValue,
+          if (keychainPath != null) keychainPath,
+        ]);
+      }
+
+      if (exitCode != 0) {
         throw AuthenticationException(
-          message: 'Failed to save refreshed Claude Code credentials.',
-          statusCode: result.exitCode,
+          message: 'Failed to save refreshed Claude Code credentials '
+              '(security exited with code $exitCode).',
+          statusCode: exitCode,
         );
       }
     } on ProcessException catch (error) {
@@ -1599,6 +1644,52 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
             '${error.message}',
       );
     }
+  }
+
+  /// The `add-generic-password` command line for `security -i`, or null when
+  /// it must go through argv instead: values containing quotes, backslashes
+  /// or line breaks cannot be quoted safely, and long lines get split.
+  static String? _securityAddGenericPasswordCommand({
+    required String account,
+    required String service,
+    required String hexValue,
+    String? keychainPath,
+  }) {
+    final quotedValues = <String>[
+      account,
+      service,
+      if (keychainPath != null) keychainPath,
+    ];
+    final unsafe = RegExp(r'["\\\r\n]');
+    if (quotedValues.any(unsafe.hasMatch)) return null;
+
+    final command = 'add-generic-password -U -a "$account" -s "$service" '
+        '-X "$hexValue"${keychainPath == null ? '' : ' "$keychainPath"'}\n';
+    if (command.length > _securityInteractiveMaxLength) return null;
+    return command;
+  }
+
+  static Future<int> _defaultRunSecurityCommand(
+    List<String> arguments, {
+    String? stdin,
+  }) async {
+    if (stdin == null) {
+      final result = await Process.run('security', arguments);
+      return result.exitCode;
+    }
+
+    final process = await Process.start('security', arguments);
+    final stdoutDone = process.stdout.drain<void>();
+    final stderrDone = process.stderr.drain<void>();
+    try {
+      process.stdin.write(stdin);
+      await process.stdin.close();
+    } on Object {
+      // `security` exited before reading the command; its exit code says why.
+    }
+    final exitCode = await process.exitCode;
+    await Future.wait(<Future<void>>[stdoutDone, stderrDone]);
+    return exitCode;
   }
 
   DateTime? _parseExpiresAt(Object? value) {
