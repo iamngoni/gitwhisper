@@ -12,6 +12,7 @@ import '../commit_utils.dart';
 import '../constants.dart';
 import '../exceptions/exceptions.dart';
 import 'claude_generator.dart';
+import 'commit_generator.dart';
 import 'language.dart';
 import 'model_variants.dart';
 
@@ -55,6 +56,13 @@ typedef ClaudeCodeApiKeyHelperRunner = Future<String> Function(
   String command,
   Duration timeout,
 );
+
+/// One streamed Claude response: its content blocks, and whether it was cut
+/// off at the output token limit.
+typedef _ClaudeCodeTurn = ({
+  List<Map<String, dynamic>> content,
+  bool truncated
+});
 
 class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   ClaudeCodeDirectGenerator({
@@ -201,48 +209,47 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     Language language, {
     String? prefix,
     bool withEmoji = true,
-  }) async {
-    final content = await _postStreamingMessages(
-      <String, dynamic>{
-        'model': actualVariant,
-        'max_tokens': maxTokens,
-        'stream': true,
-        'system': _systemPrompt,
-        'messages': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'role': 'user',
-            'content': getCommitPrompt(
-              diff,
-              language,
-              prefix: prefix,
-              withEmoji: withEmoji,
-            ),
-          },
-        ],
-      },
+  }) {
+    final prompt = getCommitPrompt(
+      diff,
+      language,
+      prefix: prefix,
+      withEmoji: withEmoji,
     );
 
-    return _extractClaudeText(content).trim();
+    return requestCommitMessage(
+      'Claude Code',
+      (limit) => _completeStreaming(prompt, limit),
+    );
   }
 
   @override
-  Future<String> analyzeChanges(String diff, Language language) async {
-    final content = await _postStreamingMessages(
+  Future<String> analyzeChanges(String diff, Language language) {
+    final prompt = getAnalysisPrompt(diff, language);
+
+    return requestAnalysis(
+      'Claude Code',
+      (limit) => _completeStreaming(prompt, limit),
+    );
+  }
+
+  Future<GeneratedText> _completeStreaming(String prompt, int limit) async {
+    final turn = await _postStreamingMessages(
       <String, dynamic>{
         'model': actualVariant,
-        'max_tokens': maxAnalysisTokens,
+        'max_tokens': limit,
         'stream': true,
         'system': _systemPrompt,
         'messages': <Map<String, dynamic>>[
           <String, dynamic>{
             'role': 'user',
-            'content': getAnalysisPrompt(diff, language),
+            'content': prompt,
           },
         ],
       },
     );
 
-    return _extractClaudeText(content).trim();
+    return (text: _extractClaudeText(turn.content), truncated: turn.truncated);
   }
 
   @override
@@ -268,7 +275,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       // disabled. Otherwise let the model choose: current models reject a
       // forced tool_choice, and the prompt already asks it to inspect first.
       final toolsDisabled = remainingToolCalls <= 0;
-      final content = await _postStreamingMessages(
+      final turn = await _postStreamingMessages(
         <String, dynamic>{
           'model': actualVariant,
           'max_tokens': agentTurnMaxTokens,
@@ -281,7 +288,15 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
           },
         },
       );
+      if (turn.truncated) {
+        // A cut-off message or tool input must not be used as if complete.
+        throw ResponseTruncatedException(
+          message: 'Claude Code stopped at the $agentTurnMaxTokens-token '
+              'output limit before finishing its response.',
+        );
+      }
 
+      final content = turn.content;
       final toolUses = _extractClaudeToolUses(content);
       if (toolUses.isEmpty) {
         return _extractClaudeText(content).trim();
@@ -329,7 +344,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _postStreamingMessages(
+  Future<_ClaudeCodeTurn> _postStreamingMessages(
     Map<String, dynamic> body,
   ) async {
     var auth = await _loadAuth();
@@ -353,7 +368,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _sendStreamingMessages(
+  Future<_ClaudeCodeTurn> _sendStreamingMessages(
     _ClaudeCodeAuth auth,
     Map<String, dynamic> body,
   ) async {
@@ -365,7 +380,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
     final streamMessages = _streamMessages;
     if (streamMessages != null) {
-      return streamMessages(endpoint, headers, body);
+      return (
+        content: await streamMessages(endpoint, headers, body),
+        truncated: false,
+      );
     }
 
     final Response<ResponseBody> response = await $dio.postUri<ResponseBody>(
@@ -426,7 +444,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _readStreamingResponse(
+  /// Reads a streamed Messages response. A response cut off at the output
+  /// token limit is returned with `truncated` set, for the caller to retry,
+  /// annotate or reject.
+  Future<_ClaudeCodeTurn> _readStreamingResponse(
     ResponseBody responseBody,
   ) async {
     final blocks = <int, Map<String, dynamic>>{};
@@ -486,22 +507,30 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         'Claude response stream closed before message_stop.',
       );
     }
-    if (stopReason == 'max_tokens') {
-      // A cut-off message (or tool input) must not be used as if complete.
-      throw const FormatException(
-        'Claude stopped at the max_tokens limit before finishing its '
-        'response.',
-      );
-    }
+    final truncated = stopReason == 'max_tokens' ||
+        stopReason == 'model_context_window_exceeded';
 
-    return (blocks.keys.toList()..sort()).map((index) {
+    final content = (blocks.keys.toList()..sort()).map((index) {
       final block = blocks[index]!;
       final inputJson = inputJsonBuffers[index]?.toString();
       if (inputJson != null && inputJson.trim().isNotEmpty) {
-        block['input'] = _decodeClaudeToolInput(inputJson);
+        // Cut-off tool input is not valid JSON; the caller rejects the turn.
+        block['input'] = truncated
+            ? _tryDecodeClaudeToolInput(inputJson)
+            : _decodeClaudeToolInput(inputJson);
       }
       return block;
     }).toList();
+
+    return (content: content, truncated: truncated);
+  }
+
+  static Map<String, dynamic> _tryDecodeClaudeToolInput(String input) {
+    try {
+      return _decodeClaudeToolInput(input);
+    } on FormatException {
+      return <String, dynamic>{};
+    }
   }
 
   static void _consumeSseEvent({

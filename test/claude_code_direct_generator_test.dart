@@ -754,10 +754,46 @@ void main() {
       );
     });
 
-    test('rejects Claude responses cut off at max_tokens', () async {
+    test('retries a commit message cut off at max_tokens with more room',
+        () async {
+      final requests = <Map<String, dynamic>>[];
       final interceptor = _claudeSseInterceptor(
-        text: 'fix: Cut off mid',
-        stopReason: 'max_tokens',
+        const <({String text, String stopReason})>[
+          (text: 'fix: Cut off mid', stopReason: 'max_tokens'),
+          (text: 'fix: Finish the message', stopReason: 'end_turn'),
+        ],
+        requests: requests,
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        useHttpTransport: true,
+      );
+
+      final message = await generator.generateCommitMessage(
+        'diff --git a/a.txt b/a.txt',
+        Language.english,
+      );
+
+      expect(message, 'fix: Finish the message');
+      expect(
+        requests.map((body) => body['max_tokens']),
+        <int>[generator.maxTokens, generator.truncationRetryMaxTokens],
+      );
+    });
+
+    test('reports a commit message cut off twice as truncated', () async {
+      final requests = <Map<String, dynamic>>[];
+      final interceptor = _claudeSseInterceptor(
+        const <({String text, String stopReason})>[
+          (text: 'fix: Cut off mid', stopReason: 'max_tokens'),
+        ],
+        requests: requests,
       );
       $dio.interceptors.add(interceptor);
       addTearDown(() => $dio.interceptors.remove(interceptor));
@@ -776,19 +812,88 @@ void main() {
           Language.english,
         ),
         throwsA(
-          isA<FormatException>().having(
+          isA<ResponseTruncatedException>().having(
             (error) => error.message,
             'message',
-            contains('max_tokens'),
+            contains('${generator.truncationRetryMaxTokens}-token'),
           ),
         ),
       );
+      expect(requests, hasLength(2));
+    });
+
+    test('returns an analysis cut off at max_tokens with a note', () async {
+      final requests = <Map<String, dynamic>>[];
+      final interceptor = _claudeSseInterceptor(
+        const <({String text, String stopReason})>[
+          (text: 'The change adds', stopReason: 'max_tokens'),
+        ],
+        requests: requests,
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        useHttpTransport: true,
+      );
+
+      final analysis = await generator.analyzeChanges(
+        'diff --git a/a.txt b/a.txt',
+        Language.english,
+      );
+
+      expect(analysis, startsWith('The change adds'));
+      expect(
+        analysis,
+        endsWith(
+          '[Analysis truncated: Claude Code reached the '
+          '${generator.maxAnalysisTokens}-token output limit.]',
+        ),
+      );
+      expect(requests.single['max_tokens'], generator.maxAnalysisTokens);
+    });
+
+    test('rejects agent turns cut off at max_tokens', () async {
+      final requests = <Map<String, dynamic>>[];
+      final interceptor = _claudeSseInterceptor(
+        const <({String text, String stopReason})>[
+          (text: 'fix: Cut off mid', stopReason: 'max_tokens'),
+        ],
+        requests: requests,
+      );
+      $dio.interceptors.add(interceptor);
+      addTearDown(() => $dio.interceptors.remove(interceptor));
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: const <String, String>{
+          'CLAUDE_CODE_OAUTH_TOKEN': 'oauth-token',
+        },
+        useHttpTransport: true,
+      );
+
+      await expectLater(
+        generator.generateAgentCommitMessage(
+          AgentCommitRequest(
+            tools: GitAgentTools(folderPath: tempDir.path),
+            language: Language.english,
+            maxToolCalls: 3,
+          ),
+        ),
+        throwsA(isA<ResponseTruncatedException>()),
+      );
+      expect(requests, hasLength(1));
     });
 
     test('accepts streamed Claude responses that end normally', () async {
       final interceptor = _claudeSseInterceptor(
-        text: 'fix: Stream a complete message',
-        stopReason: 'end_turn',
+        const <({String text, String stopReason})>[
+          (text: 'fix: Stream a complete message', stopReason: 'end_turn'),
+        ],
       );
       $dio.interceptors.add(interceptor);
       addTearDown(() => $dio.interceptors.remove(interceptor));
@@ -1421,17 +1526,44 @@ Map<String, dynamic> _toolUse(String id, String name) {
   };
 }
 
-/// Answers Claude Messages requests with a streamed text block that stops
-/// with [stopReason].
-InterceptorsWrapper _claudeSseInterceptor({
-  required String text,
-  required String stopReason,
+/// Answers Claude Messages requests in turn with [responses], each a
+/// streamed text block that stops with its stop reason; the last one answers
+/// any further requests. Request bodies are added to [requests].
+InterceptorsWrapper _claudeSseInterceptor(
+  List<({String text, String stopReason})> responses, {
+  List<Map<String, dynamic>>? requests,
 }) {
+  var answered = 0;
+  return InterceptorsWrapper(
+    onRequest: (options, handler) {
+      requests?.add(
+        jsonDecode(jsonEncode(options.data)) as Map<String, dynamic>,
+      );
+      final response = responses[answered.clamp(0, responses.length - 1)];
+      answered += 1;
+      handler.resolve(
+        Response<ResponseBody>(
+          requestOptions: options,
+          statusCode: 200,
+          data: ResponseBody.fromString(
+            _claudeSseBody(
+              text: response.text,
+              stopReason: response.stopReason,
+            ),
+            200,
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String _claudeSseBody({required String text, required String stopReason}) {
   String event(String name, Map<String, dynamic> data) {
     return 'event: $name\ndata: ${jsonEncode(data)}\n\n';
   }
 
-  final body = [
+  return [
     event('message_start', <String, dynamic>{
       'type': 'message_start',
       'message': <String, dynamic>{'id': 'msg_1', 'content': <Object>[]},
@@ -1456,18 +1588,6 @@ InterceptorsWrapper _claudeSseInterceptor({
     }),
     event('message_stop', <String, dynamic>{'type': 'message_stop'}),
   ].join();
-
-  return InterceptorsWrapper(
-    onRequest: (options, handler) {
-      handler.resolve(
-        Response<ResponseBody>(
-          requestOptions: options,
-          statusCode: 200,
-          data: ResponseBody.fromString(body, 200),
-        ),
-      );
-    },
-  );
 }
 
 Map<String, dynamic> _refreshResponse() {
