@@ -9,6 +9,8 @@
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+import '../models/model_variants.dart';
+
 class ListVariantsCommand extends Command<int> {
   ListVariantsCommand({
     required Logger logger,
@@ -17,20 +19,69 @@ class ListVariantsCommand extends Command<int> {
       'model',
       abbr: 'm',
       help: 'Model to list variants for',
-      allowed: [
-        'claude',
-        'claude-code',
-        'codex',
-        'openai',
-        'gemini',
-        'grok',
-        'llama',
-        'deepseek',
-        'github',
-        'ollama',
-      ],
+      allowed: models,
     );
   }
+
+  /// Models this command lists, in display order.
+  static const List<String> models = <String>[
+    'claude',
+    'claude-code',
+    'codex',
+    'openai',
+    'gemini',
+    'grok',
+    'llama',
+    'deepseek',
+    'github',
+    'ollama',
+  ];
+
+  /// Known variants other than the default, each with an optional note.
+  ///
+  /// Only models the provider documents as available are listed. The
+  /// default comes from [ModelVariants] so the label can't drift.
+  static const Map<String, List<(String, String?)>> _variants =
+      <String, List<(String, String?)>>{
+    'openai': <(String, String?)>[
+      ('gpt-5.6-sol', null),
+      ('gpt-5.6-luna', null),
+      ('gpt-5.5', null),
+      ('gpt-6-astra', null),
+      ('gpt-6.1-sol', 'no agent mode: no tool calls on Chat Completions'),
+      ('gpt-6-luna', 'no agent mode: tool calls need reasoning effort none'),
+    ],
+    'claude': <(String, String?)>[
+      ('claude-opus-5-5', null),
+      ('claude-fable-5-1', 'demanding reasoning'),
+      ('claude-haiku-5-5', 'fastest'),
+      ('claude-opus-4-8', null),
+      ('claude-sonnet-4-6', null),
+    ],
+    'gemini': <(String, String?)>[
+      ('gemini-3.8-flash', null),
+      ('gemini-4-argon', 'most capable'),
+      ('gemini-3.5-flash-lite', null),
+      ('gemini-3.1-flash-lite', null),
+      ('gemini-2.5-pro', 'only for accounts that already used it'),
+      ('gemini-2.5-flash', 'only for accounts that already used it'),
+    ],
+    'grok': <(String, String?)>[
+      ('grok-4.7', 'most capable'),
+      ('grok-4.6', null),
+      ('grok-4.5', null),
+      ('grok-4.20-0309-reasoning', null),
+      ('grok-4.20-0309-non-reasoning', null),
+      ('grok-build-0.1', 'agentic coding'),
+    ],
+    'llama': <(String, String?)>[
+      ('muse-spark-1.2', null),
+      ('muse-spark-1.1', null),
+    ],
+    'deepseek': <(String, String?)>[
+      ('deepseek-v4-pro', null),
+    ],
+  };
 
   @override
   String get description => 'List available variants for AI models';
@@ -53,128 +104,49 @@ class ListVariantsCommand extends Command<int> {
     return ExitCode.success.code;
   }
 
-  void _listVariantsForModel(String model) {
-    _logger.info('Available variants for $model:');
+  /// The lines printed for [model], starting with its heading.
+  static List<String> variantLines(String model) {
+    final lines = <String>['Available variants for $model:'];
+
+    if (model == 'github') {
+      return lines
+        ..add('  GitHub Models was retired on July 30, 2026. '
+            'Use another provider.');
+    }
+
+    final defaultVariant = ModelVariants.getDefault(model);
+    lines.add('  - $defaultVariant (default)');
+    for (final (variant, note) in _variants[model] ?? <(String, String?)>[]) {
+      if (variant == defaultVariant) continue;
+      lines.add(note == null ? '  - $variant' : '  - $variant ($note)');
+    }
 
     switch (model) {
-      case 'openai':
-        _logger.info('  - gpt-4o (default)');
-        _logger.info('  - gpt-5');
-        _logger.info('  - gpt-5-mini');
-        _logger.info('  - gpt-5-nano');
-        _logger.info('  - gpt-5-pro');
-        _logger.info('  - gpt-4.1');
-        _logger.info('  - gpt-4.1-mini');
-        _logger.info('  - gpt-4.1-nano');
-        _logger.info('  - gpt-4.5-preview');
-        _logger.info('  - gpt-4o');
-        _logger.info('  - gpt-4o-mini');
-        _logger.info('  - gpt-realtime');
-        _logger.info('  - gpt-realtime-mini');
-        _logger.info('  - o1-preview');
-        _logger.info('  - o1-mini');
-        _logger.info('  - o3-mini');
-      case 'claude':
-        _logger.info('  - claude-sonnet-4-20250514 (default)');
-        _logger.info('  - claude-sonnet-4-5-20250929');
-        _logger.info('  - claude-opus-4-1-20250805');
-        _logger.info('  - claude-opus-4-20250514');
-        _logger.info('  - claude-3-7-sonnet-20250219');
-        _logger.info('  - claude-3-7-sonnet-latest');
-        _logger.info('  - claude-3-5-sonnet-latest');
-        _logger.info('  - claude-3-5-sonnet-20241022');
-        _logger.info('  - claude-3-5-sonnet-20240620');
-        _logger.info('  - claude-3-opus-20240307');
-        _logger.info('  - claude-3-sonnet-20240307');
-        _logger.info('  - claude-3-haiku-20240307');
       case 'claude-code':
-        _logger.info('  - claude-sonnet-4-5-20250929 (default)');
-        _logger.info(
+        lines.add(
           '  Reads Claude Code local credentials; override with --variant.',
         );
       case 'codex':
-        _logger.info('  - gpt-5.5 (default)');
-        _logger.info(
-          '  Reads Codex config/auth; override with --variant.',
-        );
-      case 'gemini':
-        _logger.info('  - gemini-2.0-flash (default)');
-        _logger.info('  - gemini-2.5-pro (advanced reasoning with thinking)');
-        _logger.info('  - gemini-2.5-flash (updated Sep 2025)');
-        _logger.info('  - gemini-2.5-flash-lite (most cost-efficient)');
-        _logger.info('  - gemini-2.5-flash-image (image generation)');
-        _logger.info('  - gemini-2.5-computer-use (agent interaction)');
-        _logger.info('  - gemini-1.5-pro-002 (2M tokens)');
-        _logger.info('  - gemini-1.5-flash-002 (1M tokens)');
-        _logger.info('  - gemini-1.5-flash-8b (cost effective)');
-      case 'grok':
-        _logger.info('  - grok-2-latest (default)');
-        _logger.info('  - grok-4 (most intelligent)');
-        _logger.info('  - grok-4-heavy (most powerful)');
-        _logger.info('  - grok-4-fast (efficient reasoning)');
-        _logger.info('  - grok-code-fast-1 (agentic coding)');
-        _logger.info('  - grok-3 (reasoning capabilities)');
-        _logger.info('  - grok-3-mini (faster responses)');
-      case 'llama':
-        _logger.info('  - llama-3-70b-instruct (default)');
-        _logger.info('  - llama-3-8b-instruct');
-        _logger.info('  - llama-3.1-8b-instruct');
-        _logger.info('  - llama-3.1-70b-instruct');
-        _logger.info('  - llama-3.1-405b-instruct');
-        _logger.info('  - llama-3.2-1b-instruct');
-        _logger.info('  - llama-3.2-3b-instruct');
-        _logger.info('  - llama-3.3-70b-instruct');
-      case 'deepseek':
-        _logger.info('  - deepseek-chat (default)');
-        _logger.info('  - deepseek-v3.2-exp (latest experimental)');
-        _logger.info('  - deepseek-v3.1 (hybrid reasoning)');
-        _logger.info('  - deepseek-v3.1-terminus');
-        _logger.info('  - deepseek-r1-0528 (upgraded reasoning)');
-        _logger.info('  - deepseek-v3-0324 (improved post-training)');
-        _logger.info('  - deepseek-reasoner');
-      case 'github':
-        _logger.info('  - gpt-4o (default)');
-        _logger.info('  - DeepSeek-R1');
-        _logger.info('  - Llama-3.3-70B-Instruct');
-        _logger.info('  - Deepseek-V3');
-        _logger.info('  - Phi-4-mini-instruct');
-        _logger.info('  - Codestral 25.01');
-        _logger.info('  - Mistral Large 24.11');
-        final url = link(
-          message: 'https://github.com/marketplace?type=models',
-          uri: Uri.parse('https://github.com/marketplace?type=models'),
-        );
-        _logger.info(
-          '  - etc. Check more on $url',
-        );
+        lines.add('  Reads Codex config/auth; override with --variant.');
       case 'ollama':
         final url = link(
           message: 'here.',
           uri: Uri.parse('https://ollama.com/search'),
         );
-        _logger.info('Check Ollama models $url');
+        lines.add('  Check Ollama models $url');
     }
+
+    return lines;
+  }
+
+  void _listVariantsForModel(String model) {
+    variantLines(model).forEach(_logger.info);
   }
 
   void _listAllVariants() {
-    _listVariantsForModel('openai');
-    _logger.info('');
-    _listVariantsForModel('claude');
-    _logger.info('');
-    _listVariantsForModel('claude-code');
-    _logger.info('');
-    _listVariantsForModel('codex');
-    _logger.info('');
-    _listVariantsForModel('gemini');
-    _logger.info('');
-    _listVariantsForModel('grok');
-    _logger.info('');
-    _listVariantsForModel('llama');
-    _logger.info('');
-    _listVariantsForModel('deepseek');
-    _logger.info('');
-    _listVariantsForModel('github');
-    _logger.info('');
-    _listVariantsForModel('ollama');
+    for (final (index, model) in models.indexed) {
+      if (index > 0) _logger.info('');
+      _listVariantsForModel(model);
+    }
   }
 }

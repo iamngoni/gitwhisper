@@ -36,9 +36,9 @@ class ListModelsCommand extends Command<int> {
       ..info('  - openai (OpenAI GPT models)')
       ..info('  - gemini (Google Gemini)')
       ..info('  - grok (xAI Grok)')
-      ..info('  - llama (Meta Llama)')
+      ..info('  - llama (Meta Model API)')
       ..info('  - deepseek (DeepSeek, Inc.)')
-      ..info('  - github (GitHub)')
+      ..info('  - github (GitHub Models, retired July 30, 2026)')
       ..info('  - ollama (Ollama)');
     return ExitCode.success.code;
   }

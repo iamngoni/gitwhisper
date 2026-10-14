@@ -8,11 +8,14 @@
 
 /// Default model variants for each AI model provider
 class ModelVariants {
-  /// Default OpenAI model variant
-  static const String openaiDefault = 'gpt-4o';
+  /// Default OpenAI model variant.
+  ///
+  /// GPT-6 Sol and Luna can't call tools over Chat Completions with default
+  /// settings, so agent mode needs a GPT-5.6 model there.
+  static const String openaiDefault = 'gpt-5.6-terra';
 
   /// Default Claude model variant
-  static const String claudeDefault = 'claude-sonnet-4-5-20250929';
+  static const String claudeDefault = 'claude-sonnet-5-5';
 
   /// Default Claude Code model variant for the direct Anthropic harness.
   static const String claudeCodeDefault = 'claude-sonnet-4-5-20250929';
@@ -21,18 +24,19 @@ class ModelVariants {
   static const String codexDefault = 'gpt-5.5';
 
   /// Default Gemini model variant
-  static const String geminiDefault = 'gemini-2.0-flash';
+  static const String geminiDefault = 'gemini-3.6-flash';
 
   /// Default Grok model variant
-  static const String grokDefault = 'grok-2-latest';
+  static const String grokDefault = 'grok-4.3';
 
-  /// Default Llama model variant
-  static const String llamaDefault = 'llama-3-70b-instruct';
+  /// Default model variant for the `llama` provider (Meta Model API)
+  static const String llamaDefault = 'muse-spark-1.3';
 
-  /// Default Deekseek model variant
-  static const String deepseekDefault = 'deepseek-chat';
+  /// Default DeepSeek model variant
+  static const String deepseekDefault = 'deepseek-flash';
 
-  /// Default Github model variant
+  /// Default GitHub Models variant. GitHub retired the service on
+  /// July 30, 2026.
   static const String githubDefault = 'gpt-4o';
 
   /// Default Ollama model variant
