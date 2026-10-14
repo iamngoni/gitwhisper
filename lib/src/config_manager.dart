@@ -12,12 +12,16 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:yaml/yaml.dart';
 
-import 'constants.dart';
 import 'models/language.dart';
+import 'private_files.dart';
 
 /// Manages configuration and API keys for the application
 class ConfigManager {
+  /// Uses `~/.git_whisper.yaml`, or [configPath] when given (for tests).
+  ConfigManager({String? configPath}) : _configPathOverride = configPath;
+
   static const String _configFileName = '.git_whisper.yaml';
+  final String? _configPathOverride;
   Map<String, dynamic> _config = {};
 
   /// Loads configuration from the config file
@@ -34,19 +38,13 @@ class ConfigManager {
   }
 
   /// Saves the current configuration to the config file
+  ///
+  /// The file holds API keys, so it is written as a private (0600) temp file
+  /// and renamed into place. It is never readable by other users, and a failed
+  /// write cannot truncate the existing keys.
   Future<void> save() async {
-    final configFile = File(_getConfigPath());
     final yamlString = json.encode(_config);
-    await configFile.writeAsString(yamlString);
-
-    // Set file permissions on Unix-like systems only
-    if (!Platform.isWindows) {
-      try {
-        await Process.run('chmod', ['600', _getConfigPath()]);
-      } catch (e) {
-        $logger.warn('Warning: Failed to set file permissions: $e');
-      }
-    }
+    await writePrivateFileAtomically(File(_getConfigPath()), yamlString);
   }
 
   /// Gets the API key for the specified model
@@ -196,6 +194,9 @@ class ConfigManager {
 
   /// Gets the path to the config file
   String _getConfigPath() {
+    final override = _configPathOverride;
+    if (override != null) return override;
+
     String? home;
 
     if (Platform.isMacOS || Platform.isLinux) {

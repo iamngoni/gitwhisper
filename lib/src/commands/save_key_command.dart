@@ -14,7 +14,9 @@ import '../config_manager.dart';
 class SaveKeyCommand extends Command<int> {
   SaveKeyCommand({
     required Logger logger,
-  }) : _logger = logger {
+    ConfigManager? configManager,
+  })  : _logger = logger,
+        _configManager = configManager {
     argParser
       ..addOption(
         'model',
@@ -44,7 +46,9 @@ class SaveKeyCommand extends Command<int> {
       ..addOption(
         'key',
         abbr: 'k',
-        help: 'API key to save',
+        help: 'API key to save. Prefer omitting this to enter the key at a '
+            'hidden prompt, which keeps it out of shell history and process '
+            'listings.',
       );
   }
 
@@ -55,6 +59,7 @@ class SaveKeyCommand extends Command<int> {
   String get name => 'save-key';
 
   final Logger _logger;
+  final ConfigManager? _configManager;
 
   @override
   Future<int> run() async {
@@ -77,7 +82,17 @@ class SaveKeyCommand extends Command<int> {
 
     // Get API key from args or prompt user to enter
     String? apiKey = argResults?['key'] as String?;
-    if (apiKey == null) {
+    if (apiKey != null) {
+      _logger.warn(
+        'Passing an API key with --key can leave it in your shell history '
+        'and visible to other processes. Run `gw save-key` without --key to '
+        'enter it at a hidden prompt instead.',
+      );
+      if (apiKey.trim().isEmpty) {
+        _logger.err('API key cannot be empty.');
+        return ExitCode.usage.code;
+      }
+    } else {
       if (modelName == 'ollama') {
         final bool needsKey = _logger.confirm(
           'Ollama typically runs locally and doesn\'t require an API key. Do you still want to set one?',
@@ -101,7 +116,7 @@ class SaveKeyCommand extends Command<int> {
     }
 
     // Initialize config manager
-    final configManager = ConfigManager();
+    final configManager = _configManager ?? ConfigManager();
     await configManager.load();
 
     // Save the API key
