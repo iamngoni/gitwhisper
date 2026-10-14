@@ -108,12 +108,20 @@ ${getAgentCommitPrompt(
     )}
 ''';
 
-    return _runPrompt(prompt, requireConventionalCommit: true);
+    return _runPrompt(
+      prompt,
+      requireConventionalCommit: true,
+      repoPath: request.tools.folderPath,
+    );
   }
 
+  /// Runs [prompt] through the ACP agent. [repoPath] is the repository the
+  /// agent and its git tools work in; it defaults to [workingDirectory] or the
+  /// current directory.
   Future<String> _runPrompt(
     String prompt, {
     bool requireConventionalCommit = false,
+    String? repoPath,
   }) async {
     AcpDebugLog.lastLogPath = null;
     await _pruneDebugLogs();
@@ -152,6 +160,7 @@ ${getAgentCommitPrompt(
           prompt,
           logFile,
           requireConventionalCommit: requireConventionalCommit,
+          repoPath: repoPath,
         ),
       );
     } on AcpAuthenticationRequiredException catch (error) {
@@ -163,6 +172,7 @@ ${getAgentCommitPrompt(
           prompt,
           logFile,
           requireConventionalCommit: requireConventionalCommit,
+          repoPath: repoPath,
         ),
       );
     }
@@ -212,14 +222,17 @@ ${getAgentCommitPrompt(
     String prompt,
     File? logFile, {
     bool requireConventionalCommit = false,
+    String? repoPath,
   }) {
+    final repoDirectory =
+        repoPath ?? workingDirectory ?? Directory.current.path;
     return AcpClient(
       executable: launch.executable,
       arguments: launch.arguments,
       environment: mergedEnvironment.isEmpty ? null : mergedEnvironment,
-      workingDirectory: launch.workingDirectory ?? workingDirectory,
+      workingDirectory: launch.workingDirectory ?? repoPath ?? workingDirectory,
       mcpServers: <Map<String, dynamic>>[
-        GitToolsMcpConfig.forCwd(workingDirectory ?? Directory.current.path),
+        GitToolsMcpConfig.forCwd(repoDirectory),
       ],
       logFile: logFile,
       timeout: timeout,
@@ -227,7 +240,7 @@ ${getAgentCommitPrompt(
       onStatus: _logStatus,
       startProcess: startProcess,
     ).prompt(
-      cwd: workingDirectory ?? Directory.current.path,
+      cwd: repoDirectory,
       text: prompt,
       retryPrompts: requireConventionalCommit
           ? const <String>[_commitRetryPrompt]

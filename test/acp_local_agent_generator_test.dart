@@ -66,6 +66,39 @@ void main() {
       );
     });
 
+    test('agent mode points the git tools at the repo being committed',
+        () async {
+      final fake = await FakeAcpAgent.create();
+      addTearDown(fake.dispose);
+      final repo = await Directory.systemTemp.createTemp('gw_acp_repo_');
+      addTearDown(() => repo.delete(recursive: true));
+
+      final generator = AcpLocalAgentGenerator(
+        model: 'codex',
+        registryQuery: 'codex',
+        registryLoader: fake.registryLoader,
+        environment: fake.environment,
+        workingDirectory: fake.workingDirectory,
+        agentLauncher: fake.launcher,
+        debugLogs: fake.debugLogs(),
+        prompter: fake.prompter,
+      );
+
+      await generator.generateAgentCommitMessage(
+        AgentCommitRequest(
+          tools: GitAgentTools(folderPath: repo.path),
+          language: Language.english,
+        ),
+      );
+
+      final invocation = await fake.readInvocation();
+      expect(invocation.mcpServers.single['args'], contains(repo.path));
+      expect(
+        invocation.mcpServers.single['args'],
+        isNot(contains(fake.workingDirectory)),
+      );
+    });
+
     test('claude-code resolves claude-acp from registry', () async {
       final fake = await FakeAcpAgent.create();
       addTearDown(fake.dispose);
