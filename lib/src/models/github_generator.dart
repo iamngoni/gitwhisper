@@ -6,25 +6,29 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
-import 'package:dio/dio.dart';
-
 import '../agent/agent_commit_generator.dart';
-import '../agent/openai_compatible_agent_runner.dart';
-import '../commit_utils.dart';
-import '../constants.dart';
 import '../exceptions/exceptions.dart';
-import 'commit_generator.dart';
 import 'language.dart';
-import 'model_variants.dart';
+import 'openai_compatible_generator.dart';
 
-class GithubGenerator extends CommitGenerator implements AgentCommitGenerator {
-  GithubGenerator(super.apiKey, {super.variant});
+/// Generator for GitHub Models, which GitHub retired on July 30, 2026.
+///
+/// Requests fail fast with a [ProviderRetiredException] instead of calling
+/// an inference API that no longer serves requests.
+class GithubGenerator extends OpenAiCompatibleGenerator {
+  GithubGenerator(super.apiKey, {super.variant})
+      : super(
+          provider: const OpenAiCompatibleProvider(
+            name: 'github',
+            displayName: 'GitHub Models',
+            endpoint: 'https://models.github.ai/inference/chat/completions',
+          ),
+        );
 
-  @override
-  String get modelName => 'github';
-
-  @override
-  String get defaultVariant => ModelVariants.getDefault(modelName);
+  static const ProviderRetiredException retiredError = ProviderRetiredException(
+    message: 'GitHub Models was retired on July 30, 2026, and its inference '
+        'API no longer accepts requests.',
+  );
 
   @override
   Future<String> generateCommitMessage(
@@ -32,97 +36,17 @@ class GithubGenerator extends CommitGenerator implements AgentCommitGenerator {
     Language language, {
     String? prefix,
     bool withEmoji = true,
-  }) async {
-    final prompt = getCommitPrompt(
-      diff,
-      language,
-      prefix: prefix,
-      withEmoji: withEmoji,
-    );
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://models.github.ai/inference/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_completion_tokens': maxTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from GitHub API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('github', e);
-    }
+  }) {
+    return Future<String>.error(retiredError);
   }
 
   @override
-  Future<String> analyzeChanges(String diff, Language language) async {
-    final prompt = getAnalysisPrompt(diff, language);
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://models.inference.ai.azure.com/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_completion_tokens': maxAnalysisTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from GitHub API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('github', e);
-    }
+  Future<String> analyzeChanges(String diff, Language language) {
+    return Future<String>.error(retiredError);
   }
 
   @override
-  Future<String> generateAgentCommitMessage(
-    AgentCommitRequest request,
-  ) {
-    return OpenAiCompatibleAgentRunner(
-      providerName: 'github',
-      endpoint: 'https://models.github.ai/inference/chat/completions',
-      model: actualVariant,
-      apiKey: apiKey,
-      maxTokensKey: 'max_completion_tokens',
-      includeStore: true,
-    ).generate(request);
+  Future<String> generateAgentCommitMessage(AgentCommitRequest request) {
+    return Future<String>.error(retiredError);
   }
 }

@@ -11,7 +11,6 @@ import 'package:gitwhisper/src/exceptions/error_handler.dart';
 import 'package:gitwhisper/src/models/claude_generator.dart';
 import 'package:gitwhisper/src/models/deepseek_generator.dart';
 import 'package:gitwhisper/src/models/gemini_generator.dart';
-import 'package:gitwhisper/src/models/github_generator.dart';
 import 'package:gitwhisper/src/models/grok_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:gitwhisper/src/models/llama_generator.dart';
@@ -488,14 +487,9 @@ void main() {
           endpointFragment: 'api.deepseek.com',
         ),
         (
-          label: 'GitHub',
-          generator: GithubGenerator('test-key', variant: 'github-test'),
-          endpointFragment: 'models.github.ai',
-        ),
-        (
           label: 'Llama',
           generator: LlamaGenerator('test-key', variant: 'llama-test'),
-          endpointFragment: 'api.llama.api',
+          endpointFragment: 'api.meta.ai',
         ),
       ]) {
         final repo = await _createRepoWithStagedFile();

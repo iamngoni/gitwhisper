@@ -6,123 +6,16 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
-import 'package:dio/dio.dart';
+import 'openai_compatible_generator.dart';
 
-import '../agent/agent_commit_generator.dart';
-import '../agent/openai_compatible_agent_runner.dart';
-import '../commit_utils.dart';
-import '../constants.dart';
-import '../exceptions/exceptions.dart';
-import 'commit_generator.dart';
-import 'language.dart';
-import 'model_variants.dart';
-
-class OpenAIGenerator extends CommitGenerator implements AgentCommitGenerator {
-  OpenAIGenerator(super.apiKey, {super.variant});
-
-  @override
-  String get modelName => 'openai';
-
-  @override
-  String get defaultVariant => ModelVariants.getDefault(modelName);
-
-  @override
-  Future<String> generateCommitMessage(
-    String diff,
-    Language language, {
-    String? prefix,
-    bool withEmoji = true,
-  }) async {
-    final prompt = getCommitPrompt(
-      diff,
-      language,
-      prefix: prefix,
-      withEmoji: withEmoji,
-    );
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.openai.com/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_completion_tokens': maxTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from OpenAI API',
-          statusCode: response.statusCode ?? 500,
+class OpenAIGenerator extends OpenAiCompatibleGenerator {
+  OpenAIGenerator(super.apiKey, {super.variant})
+      : super(
+          provider: const OpenAiCompatibleProvider(
+            name: 'openai',
+            displayName: 'OpenAI',
+            endpoint: 'https://api.openai.com/v1/chat/completions',
+            maxTokensKey: 'max_completion_tokens',
+          ),
         );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('openai', e);
-    }
-  }
-
-  @override
-  Future<String> analyzeChanges(String diff, Language language) async {
-    final prompt = getAnalysisPrompt(diff, language);
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.openai.com/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_completion_tokens': maxAnalysisTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from OpenAI API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('openai', e);
-    }
-  }
-
-  @override
-  Future<String> generateAgentCommitMessage(
-    AgentCommitRequest request,
-  ) {
-    return OpenAiCompatibleAgentRunner(
-      providerName: 'openai',
-      endpoint: 'https://api.openai.com/v1/chat/completions',
-      model: actualVariant,
-      apiKey: apiKey,
-      maxTokensKey: 'max_completion_tokens',
-      includeStore: true,
-    ).generate(request);
-  }
 }

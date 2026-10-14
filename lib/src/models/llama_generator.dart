@@ -6,119 +6,25 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
-import 'package:dio/dio.dart';
+import 'openai_compatible_generator.dart';
 
-import '../agent/agent_commit_generator.dart';
-import '../agent/openai_compatible_agent_runner.dart';
-import '../commit_utils.dart';
-import '../constants.dart';
-import '../exceptions/exceptions.dart';
-import 'commit_generator.dart';
-import 'language.dart';
-import 'model_variants.dart';
-
-class LlamaGenerator extends CommitGenerator implements AgentCommitGenerator {
-  LlamaGenerator(super.apiKey, {super.variant});
-
-  @override
-  String get modelName => 'llama';
-
-  @override
-  String get defaultVariant => ModelVariants.getDefault(modelName);
-
-  @override
-  Future<String> generateCommitMessage(
-    String diff,
-    Language language, {
-    String? prefix,
-    bool withEmoji = true,
-  }) async {
-    final prompt = getCommitPrompt(
-      diff,
-      language,
-      prefix: prefix,
-      withEmoji: withEmoji,
-    );
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.llama.api/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_tokens': maxTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from Llama API',
-          statusCode: response.statusCode ?? 500,
+/// Generator for Meta's hosted model API.
+///
+/// Meta's documentation now covers the Meta Model API, which serves
+/// OpenAI-compatible chat completions for its Muse models, in place of the
+/// Llama API preview.
+class LlamaGenerator extends OpenAiCompatibleGenerator {
+  LlamaGenerator(super.apiKey, {super.variant})
+      : super(
+          provider: const OpenAiCompatibleProvider(
+            name: 'llama',
+            displayName: 'Meta Model API',
+            endpoint: 'https://api.meta.ai/v1/chat/completions',
+            maxTokensKey: 'max_completion_tokens',
+            // Only `tool_choice: auto` is accepted; `required` and `none`
+            // return HTTP 400.
+            forceFirstToolCall: false,
+            supportsToolChoiceNone: false,
+          ),
         );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('llama', e);
-    }
-  }
-
-  @override
-  Future<String> analyzeChanges(String diff, Language language) async {
-    final prompt = getAnalysisPrompt(diff, language);
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.llama.api/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_tokens': maxAnalysisTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from Llama API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('llama', e);
-    }
-  }
-
-  @override
-  Future<String> generateAgentCommitMessage(
-    AgentCommitRequest request,
-  ) {
-    return OpenAiCompatibleAgentRunner(
-      providerName: 'llama',
-      endpoint: 'https://api.llama.api/v1/chat/completions',
-      model: actualVariant,
-      apiKey: apiKey,
-    ).generate(request);
-  }
 }

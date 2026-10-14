@@ -1,128 +1,23 @@
 //
 //  gitwhisper
-//  openai_generator.dart
+//  deepseek_generator.dart
 //
 //  Created by Ngonidzashe Mangudya on 2025/03/01.
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
-import 'package:dio/dio.dart';
+import 'openai_compatible_generator.dart';
 
-import '../agent/agent_commit_generator.dart';
-import '../agent/openai_compatible_agent_runner.dart';
-import '../commit_utils.dart';
-import '../constants.dart';
-import '../exceptions/exceptions.dart';
-import 'commit_generator.dart';
-import 'language.dart';
-import 'model_variants.dart';
-
-class DeepseekGenerator extends CommitGenerator
-    implements AgentCommitGenerator {
-  DeepseekGenerator(super.apiKey, {super.variant});
-
-  @override
-  String get modelName => 'deepseek';
-
-  @override
-  String get defaultVariant => ModelVariants.getDefault(modelName);
-
-  @override
-  Future<String> generateCommitMessage(
-    String diff,
-    Language language, {
-    String? prefix,
-    bool withEmoji = true,
-  }) async {
-    final prompt = getCommitPrompt(
-      diff,
-      language,
-      prefix: prefix,
-      withEmoji: withEmoji,
-    );
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_tokens': maxTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from DeepSeek API',
-          statusCode: response.statusCode ?? 500,
+class DeepseekGenerator extends OpenAiCompatibleGenerator {
+  DeepseekGenerator(super.apiKey, {super.variant})
+      : super(
+          provider: const OpenAiCompatibleProvider(
+            name: 'deepseek',
+            displayName: 'DeepSeek',
+            endpoint: 'https://api.deepseek.com/chat/completions',
+            // DeepSeek models think by default, and thinking mode rejects a
+            // required tool choice.
+            forceFirstToolCall: false,
+          ),
         );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('deepseek', e);
-    }
-  }
-
-  @override
-  Future<String> analyzeChanges(String diff, Language language) async {
-    final prompt = getAnalysisPrompt(diff, language);
-
-    try {
-      final Response<Map<String, dynamic>> response = await $dio.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
-          },
-        ),
-        data: {
-          'model': actualVariant,
-          'store': true,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-          'max_tokens': maxAnalysisTokens,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        return response.data!['choices'][0]['message']['content']
-            .toString()
-            .trim();
-      } else {
-        throw ServerException(
-          message: 'Unexpected response from DeepSeek API',
-          statusCode: response.statusCode ?? 500,
-        );
-      }
-    } on DioException catch (e) {
-      throw ErrorParser.parseProviderError('deepseek', e);
-    }
-  }
-
-  @override
-  Future<String> generateAgentCommitMessage(
-    AgentCommitRequest request,
-  ) {
-    return OpenAiCompatibleAgentRunner(
-      providerName: 'deepseek',
-      endpoint: 'https://api.deepseek.com/v1/chat/completions',
-      model: actualVariant,
-      apiKey: apiKey,
-      includeStore: true,
-    ).generate(request);
-  }
 }
