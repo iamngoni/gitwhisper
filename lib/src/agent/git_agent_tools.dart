@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as path;
 
@@ -42,9 +43,9 @@ class GitAgentTools {
         ),
         _openAiTool(
           name: 'get_file_content',
-          description: 'Return the current working-tree content for one '
-              'staged file path when extra context is needed. The path must '
-              'come from list_staged_files. Deleted files may not have '
+          description: 'Return the staged (index) content for one staged '
+              'file path when extra context is needed. The path must come '
+              'from list_staged_files. Files staged for deletion have no '
               'content.',
           parameters: _pathParameters(),
         ),
@@ -63,13 +64,13 @@ class GitAgentTools {
         ),
         _openAiTool(
           name: 'get_file_content_chunk',
-          description: 'Return a bounded line range from the current '
-              'working-tree content for one staged file path.',
+          description: 'Return a bounded line range from the staged '
+              '(index) content for one staged file path.',
           parameters: _lineRangeParameters(),
         ),
         _openAiTool(
           name: 'search_file_content',
-          description: 'Search current working-tree content for a staged file '
+          description: 'Search the staged (index) content of a staged file '
               'path and return matching line numbers with previews.',
           parameters: _searchParameters(),
         ),
@@ -89,7 +90,7 @@ class GitAgentTools {
         _openAiTool(
           name: 'get_blame',
           description: 'Return git blame metadata for a bounded line range '
-              'from one staged file path.',
+              'of the staged (index) content of one staged file path.',
           parameters: _lineRangeParameters(),
         ),
       ];
@@ -120,9 +121,9 @@ class GitAgentTools {
         ),
         _claudeTool(
           name: 'get_file_content',
-          description: 'Return the current working-tree content for one '
-              'staged file path when extra context is needed. The path must '
-              'come from list_staged_files. Deleted files may not have '
+          description: 'Return the staged (index) content for one staged '
+              'file path when extra context is needed. The path must come '
+              'from list_staged_files. Files staged for deletion have no '
               'content.',
           inputSchema: _pathParameters(),
         ),
@@ -141,13 +142,13 @@ class GitAgentTools {
         ),
         _claudeTool(
           name: 'get_file_content_chunk',
-          description: 'Return a bounded line range from the current '
-              'working-tree content for one staged file path.',
+          description: 'Return a bounded line range from the staged '
+              '(index) content for one staged file path.',
           inputSchema: _lineRangeParameters(),
         ),
         _claudeTool(
           name: 'search_file_content',
-          description: 'Search current working-tree content for a staged file '
+          description: 'Search the staged (index) content of a staged file '
               'path and return matching line numbers with previews.',
           inputSchema: _searchParameters(),
         ),
@@ -167,7 +168,7 @@ class GitAgentTools {
         _claudeTool(
           name: 'get_blame',
           description: 'Return git blame metadata for a bounded line range '
-              'from one staged file path.',
+              'of the staged (index) content of one staged file path.',
           inputSchema: _lineRangeParameters(),
         ),
       ];
@@ -179,13 +180,46 @@ class GitAgentTools {
         'name': function['name'],
         'description': function['description'],
         'inputSchema': _mcpSchema(function['parameters']),
+        // Every GitWhisper tool only reads staged git data. Agents that honor
+        // MCP tool annotations can run them without asking for permission.
+        'annotations': <String, dynamic>{
+          'readOnlyHint': true,
+          'destructiveHint': false,
+          'idempotentHint': true,
+          'openWorldHint': false,
+        },
       };
     }).toList();
   }
 
+  /// Most lines get_file_content_chunk returns in one call.
+  static const maxChunkLines = 400;
+
+  /// Most lines get_blame returns in one call.
+  static const maxBlameLines = 200;
+
+  /// Longest line preview (search matches, changed-line previews) returned.
+  static const maxPreviewLineCharacters = 240;
+
+  static const _maxSearchMatches = 25;
+
+  /// Largest staged blob GitWhisper reads into memory for content tools.
+  static const int _maxStagedBlobBytes = 10 * 1024 * 1024;
+
+  /// Hard ceiling applied to every tool result.
+  ///
+  /// Each tool already bounds its payload to [maxOutputCharacters]. The extra
+  /// room covers JSON envelopes and escaping, and anything that slips past is
+  /// cut here.
+  int get _maxResultCharacters => maxOutputCharacters * 2 + 2048;
+
   Future<String> execute(String name, Map<String, dynamic> input) async {
     _logToolUse(name, input);
 
+    return _capResult(await _executeTool(name, input));
+  }
+
+  Future<String> _executeTool(String name, Map<String, dynamic> input) {
     return switch (name) {
       'list_staged_files' => _listStagedFiles(),
       'get_diff_stat' => _getDiffStat(),
@@ -252,7 +286,24 @@ class GitAgentTools {
         ..['isLockfile'] = _isLockfile(filePath);
     }
 
-    return jsonEncode(<String, dynamic>{'files': files});
+    // Huge commits (vendored code, generated assets) can stage thousands of
+    // files; return as many entries as fit in the output budget.
+    final returned = <Map<String, dynamic>>[];
+    var characters = 0;
+    for (final file in files) {
+      characters += jsonEncode(file).length + 1;
+      if (characters > maxOutputCharacters && returned.isNotEmpty) break;
+      returned.add(file);
+    }
+
+    return jsonEncode(<String, dynamic>{
+      'files': returned,
+      if (returned.length < files.length) ...<String, dynamic>{
+        'truncated': true,
+        'totalFiles': files.length,
+        'returnedFiles': returned.length,
+      },
+    });
   }
 
   Future<String> _getDiffStat() async {
@@ -273,30 +324,18 @@ class GitAgentTools {
 
   Future<String> _getFileContent(Map<String, dynamic> input) async {
     final stagedPath = await _validateStagedPath(input);
-    final root =
-        path.normalize(path.absolute(folderPath ?? Directory.current.path));
-    final fullPath = path.normalize(
-      path.joinAll(<String>[root, ...stagedPath.split('/')]),
+    final bytes = await _readStagedBlob(stagedPath);
+    if (bytes == null) {
+      return 'File $stagedPath has no staged content (it may be staged for '
+          'deletion).';
+    }
+    if (_looksBinary(bytes)) return 'File $stagedPath is binary.';
+
+    return _boundedTextJson(
+      value: _decodeLenient(bytes),
+      path: stagedPath,
+      nextTools: <String>['get_file_content_chunk', 'search_file_content'],
     );
-
-    if (!path.equals(root, fullPath) && !path.isWithin(root, fullPath)) {
-      throw ArgumentError.value(stagedPath, 'path', 'Path escapes repository');
-    }
-
-    final file = File(fullPath);
-    if (!file.existsSync()) {
-      return 'File $stagedPath does not exist in the working tree.';
-    }
-
-    try {
-      return _boundedTextJson(
-        value: await file.readAsString(),
-        path: stagedPath,
-        nextTools: <String>['get_file_content_chunk', 'search_file_content'],
-      );
-    } on FormatException {
-      return 'File $stagedPath is not valid UTF-8 text.';
-    }
   }
 
   Future<String> _getFileDiffHunks(Map<String, dynamic> input) async {
@@ -304,19 +343,27 @@ class GitAgentTools {
     final diff = await _fileDiff(stagedPath);
     final hunks = _splitDiffHunks(diff);
 
+    final entries = <Map<String, dynamic>>[];
+    var characters = 0;
+    for (var i = 0; i < hunks.length; i++) {
+      final stats = _diffStats(hunks[i]);
+      final entry = <String, dynamic>{
+        'index': i,
+        'header': _clipLine(_hunkHeader(hunks[i])),
+        'additions': stats['additions'],
+        'deletions': stats['deletions'],
+        'preview': _previewChangedLines(hunks[i], limit: 4),
+      };
+      characters += jsonEncode(entry).length + 1;
+      if (characters > maxOutputCharacters && entries.isNotEmpty) break;
+      entries.add(entry);
+    }
+
     return jsonEncode(<String, dynamic>{
       'path': stagedPath,
       'hunkCount': hunks.length,
-      'hunks': [
-        for (var i = 0; i < hunks.length; i++)
-          <String, dynamic>{
-            'index': i,
-            'header': _hunkHeader(hunks[i]),
-            'additions': _diffStats(hunks[i])['additions'],
-            'deletions': _diffStats(hunks[i])['deletions'],
-            'preview': _previewChangedLines(hunks[i], limit: 4),
-          },
-      ],
+      'hunks': entries,
+      if (entries.length < hunks.length) 'truncated': true,
     });
   }
 
@@ -346,9 +393,11 @@ class GitAgentTools {
     final stagedPath = await _validateStagedPath(input);
     final lines = await _readTextFileLines(stagedPath);
     final startLine = _readPositiveInt(input, 'startLine', defaultValue: 1);
-    final maxLines = _readPositiveInt(input, 'maxLines', defaultValue: 80);
+    final maxLines = _readPositiveInt(input, 'maxLines', defaultValue: 80)
+        .clamp(1, maxChunkLines);
     final startIndex = (startLine - 1).clamp(0, lines.length);
     final endIndex = (startIndex + maxLines).clamp(0, lines.length);
+    final content = lines.sublist(startIndex, endIndex).join('\n');
 
     return jsonEncode(<String, dynamic>{
       'path': stagedPath,
@@ -356,7 +405,8 @@ class GitAgentTools {
       'endLine': endIndex,
       'totalLines': lines.length,
       'hasMore': endIndex < lines.length,
-      'content': lines.sublist(startIndex, endIndex).join('\n'),
+      if (content.length > maxOutputCharacters) 'truncated': true,
+      'content': _capText(content),
     });
   }
 
@@ -371,20 +421,23 @@ class GitAgentTools {
     final lines = await _readTextFileLines(stagedPath);
     final matches = <Map<String, dynamic>>[];
     for (var i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().contains(normalizedQuery)) {
+      final matchIndex = lines[i].toLowerCase().indexOf(normalizedQuery);
+      if (matchIndex >= 0) {
         matches.add(<String, dynamic>{
           'line': i + 1,
-          'content': lines[i],
+          'content': _clipLine(lines[i], around: matchIndex),
+          if (lines[i].length > maxPreviewLineCharacters)
+            'lineCharacters': lines[i].length,
         });
       }
-      if (matches.length >= 25) break;
+      if (matches.length >= _maxSearchMatches) break;
     }
 
     return jsonEncode(<String, dynamic>{
       'path': stagedPath,
-      'query': query,
+      'query': _clipLine(query),
       'matches': matches,
-      'truncated': matches.length >= 25,
+      'truncated': matches.length >= _maxSearchMatches,
     });
   }
 
@@ -442,10 +495,36 @@ class GitAgentTools {
   Future<String> _getBlame(Map<String, dynamic> input) async {
     final stagedPath = await _validateStagedPath(input);
     final startLine = _readPositiveInt(input, 'startLine', defaultValue: 1);
-    final maxLines = _readPositiveInt(input, 'maxLines', defaultValue: 20);
-    final endLine = startLine + maxLines - 1;
+    final maxLines = _readPositiveInt(input, 'maxLines', defaultValue: 20)
+        .clamp(1, maxBlameLines);
+    final staged = await _readStagedBlob(stagedPath);
+    if (staged == null) {
+      return 'File $stagedPath has no staged content to blame (it may be '
+          'staged for deletion).';
+    }
+    final lineCount = _countLines(staged);
+    if (startLine > lineCount) {
+      throw ArgumentError.value(
+        startLine,
+        'startLine',
+        'File has only $lineCount staged lines',
+      );
+    }
+    final endLine = (startLine + maxLines - 1).clamp(startLine, lineCount);
+
+    // Blame the staged content, not the working tree, so unstaged edits are
+    // never attributed or shown.
     final output = await _runGit(
-      <String>['blame', '-L', '$startLine,$endLine', '--', stagedPath],
+      <String>[
+        'blame',
+        '--contents',
+        '-',
+        '-L',
+        '$startLine,$endLine',
+        '--',
+        stagedPath,
+      ],
+      stdinBytes: staged,
     );
 
     return jsonEncode(<String, dynamic>{
@@ -456,9 +535,19 @@ class GitAgentTools {
           .split('\n')
           .where((value) => value.trim().isNotEmpty)
           .take(maxLines)
+          .map(
+            (line) => _clipLine(
+              line.replaceFirst(_blameContentsLabel, _blameStagedLabel),
+            ),
+          )
           .toList(),
     });
   }
+
+  // `git blame --contents` labels lines that differ from HEAD with this
+  // author; report them as staged instead.
+  static const _blameContentsLabel = 'External file (--contents)';
+  static const _blameStagedLabel = 'Staged, not committed';
 
   Future<String> _validateStagedPath(Map<String, dynamic> input) async {
     final rawPath = input['path'];
@@ -522,24 +611,91 @@ class GitAgentTools {
   }
 
   Future<List<String>> _readTextFileLines(String stagedPath) async {
-    final root =
-        path.normalize(path.absolute(folderPath ?? Directory.current.path));
-    final fullPath = path.normalize(
-      path.joinAll(<String>[root, ...stagedPath.split('/')]),
+    final bytes = await _readStagedBlob(stagedPath);
+    if (bytes == null) return <String>[];
+    if (_looksBinary(bytes)) {
+      throw ArgumentError.value(stagedPath, 'path', 'File is binary');
+    }
+    return _decodeLenient(bytes).split('\n');
+  }
+
+  /// Reads the staged (index) version of [stagedPath] as raw bytes, or null
+  /// when the path has no blob in the index (for example a staged deletion).
+  ///
+  /// Content tools read from the index, never the working tree. Unstaged
+  /// edits are not reported as staged, and a staged symlink yields its link
+  /// text instead of the content of whatever it points to (such as a key
+  /// outside the repository). `:<path>` names the index entry literally,
+  /// relative to the repository root, the same form `git diff --cached
+  /// --name-only` reports.
+  Future<List<int>?> _readStagedBlob(String stagedPath) async {
+    final object = ':$stagedPath';
+    final type = await _runGitProcess(<String>['cat-file', '-t', object]);
+    if (type.exitCode != 0) return null;
+
+    final objectType = _decodeLenient(type.stdout as List<int>).trim();
+    if (objectType != 'blob') {
+      throw ArgumentError.value(
+        stagedPath,
+        'path',
+        'Staged entry is a $objectType, not a file',
+      );
+    }
+
+    final size = int.tryParse(
+      _decodeLenient(
+        (await _runGitProcess(<String>['cat-file', '-s', object])).stdout
+            as List<int>,
+      ).trim(),
     );
-
-    if (!path.equals(root, fullPath) && !path.isWithin(root, fullPath)) {
-      throw ArgumentError.value(stagedPath, 'path', 'Path escapes repository');
+    if (size == null || size > _maxStagedBlobBytes) {
+      throw ArgumentError.value(
+        stagedPath,
+        'path',
+        'Staged file is too large to read (${size ?? 'unknown'} bytes)',
+      );
     }
 
-    final file = File(fullPath);
-    if (!file.existsSync()) return <String>[];
+    final blob = await _runGitProcess(<String>['cat-file', 'blob', object]);
+    if (blob.exitCode != 0) return null;
+    return blob.stdout as List<int>;
+  }
 
-    try {
-      return (await file.readAsString()).split('\n');
-    } on FormatException {
-      throw ArgumentError.value(stagedPath, 'path', 'File is not UTF-8 text');
+  /// Git's own heuristic: content with a NUL byte near the start is binary.
+  bool _looksBinary(List<int> bytes) {
+    final end = bytes.length < 8000 ? bytes.length : 8000;
+    for (var i = 0; i < end; i++) {
+      if (bytes[i] == 0) return true;
     }
+    return false;
+  }
+
+  int _countLines(List<int> bytes) {
+    if (bytes.isEmpty) return 0;
+    var lines = 0;
+    for (final byte in bytes) {
+      if (byte == 0x0A) lines++;
+    }
+    return bytes.last == 0x0A ? lines : lines + 1;
+  }
+
+  /// Decodes git output leniently: invalid UTF-8 becomes U+FFFD instead of
+  /// throwing, matching how GitUtils reads diffs.
+  String _decodeLenient(List<int> bytes) {
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  /// Shortens one line to [maxPreviewLineCharacters]. The kept window starts
+  /// a little before [around] (for example a search match) so the relevant
+  /// part stays visible.
+  String _clipLine(String line, {int around = 0}) {
+    if (line.length <= maxPreviewLineCharacters) return line;
+    final start = (around - maxPreviewLineCharacters ~/ 4)
+        .clamp(0, line.length - maxPreviewLineCharacters);
+    final end = start + maxPreviewLineCharacters;
+    final prefix = start > 0 ? '…' : '';
+    final suffix = end < line.length ? '…' : '';
+    return '$prefix${line.substring(start, end)}$suffix';
   }
 
   String _normalizeGitPath(String rawPath) {
@@ -554,35 +710,88 @@ class GitAgentTools {
     return normalized;
   }
 
-  Future<String> _runGit(List<String> args) async {
-    // Capture stdout/stderr as raw bytes and decode leniently. Git diff output
-    // can contain binary or non-UTF-8 content, and the default UTF-8 stream
-    // decoding used by Process.run throws "Unexpected extension byte" on the
-    // first invalid byte. allowMalformed swaps those bytes for U+FFFD instead.
-    final result = await Process.run(
-      'git',
-      args,
-      workingDirectory: folderPath,
-      stdoutEncoding: null,
-      stderrEncoding: null,
-    );
+  Future<String> _runGit(List<String> args, {List<int>? stdinBytes}) async {
+    final result = await _runGitProcess(args, stdinBytes: stdinBytes);
 
     if (result.exitCode != 0) {
       throw ProcessException(
         'git',
         args,
-        utf8.decode(result.stderr as List<int>, allowMalformed: true),
+        _decodeLenient(result.stderr as List<int>),
         result.exitCode,
       );
     }
 
-    return utf8.decode(result.stdout as List<int>, allowMalformed: true);
+    return _decodeLenient(result.stdout as List<int>);
+  }
+
+  /// Runs git and captures stdout/stderr as raw bytes (`List<int>`).
+  ///
+  /// Git output can contain binary or non-UTF-8 content, and the default UTF-8
+  /// stream decoding used by Process.run throws "Unexpected extension byte" on
+  /// the first invalid byte. Callers decode with [_decodeLenient] instead.
+  Future<ProcessResult> _runGitProcess(
+    List<String> args, {
+    List<int>? stdinBytes,
+  }) async {
+    if (stdinBytes == null) {
+      return Process.run(
+        'git',
+        args,
+        workingDirectory: folderPath,
+        stdoutEncoding: null,
+        stderrEncoding: null,
+      );
+    }
+
+    final process = await Process.start(
+      'git',
+      args,
+      workingDirectory: folderPath,
+    );
+    final stdoutBytes = _collectBytes(process.stdout);
+    final stderrBytes = _collectBytes(process.stderr);
+    process.stdin.add(stdinBytes);
+    await process.stdin.close();
+    final exitCode = await process.exitCode;
+    return ProcessResult(
+      process.pid,
+      exitCode,
+      await stdoutBytes,
+      await stderrBytes,
+    );
+  }
+
+  static Future<List<int>> _collectBytes(Stream<List<int>> stream) {
+    return stream
+        .fold<BytesBuilder>(
+          BytesBuilder(copy: false),
+          (builder, chunk) => builder..add(chunk),
+        )
+        .then((builder) => builder.takeBytes());
   }
 
   String _truncate(String value) {
     if (value.length <= maxOutputCharacters) return value.trim();
 
     return '${value.substring(0, maxOutputCharacters)}\n\n'
+        '[Output truncated by GitWhisper.]';
+  }
+
+  /// Like [_truncate], but keeps leading and trailing whitespace (file content
+  /// indentation matters).
+  String _capText(String value) {
+    if (value.length <= maxOutputCharacters) return value;
+
+    return '${value.substring(0, maxOutputCharacters)}\n\n'
+        '[Output truncated by GitWhisper.]';
+  }
+
+  String _capResult(String result) {
+    final limit = _maxResultCharacters;
+    if (result.length <= limit) return result;
+
+    return '${result.substring(0, limit)}\n\n'
         '[Output truncated by GitWhisper.]';
   }
 
@@ -660,6 +869,7 @@ class GitAgentTools {
               (line.startsWith('-') && !line.startsWith('---')),
         )
         .take(limit)
+        .map(_clipLine)
         .toList();
   }
 
@@ -789,7 +999,8 @@ class GitAgentTools {
       },
       'maxLines': <String, dynamic>{
         'type': 'integer',
-        'description': 'Maximum number of lines to return.',
+        'description': 'Maximum number of lines to return. Large values '
+            'are capped.',
       },
     });
     return parameters;
