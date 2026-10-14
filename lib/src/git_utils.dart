@@ -15,11 +15,6 @@ import 'constants.dart';
 
 /// Utility class for Git operations
 class GitUtils {
-  // Get the full path of the current working directory
-  String getCurrentDirectoryPath() {
-    return Directory.current.path;
-  }
-
   /// Returns a list of subdirectories (1 level down) that are git repositories.
   /// If current directory is a git repo, returns an empty list.
   static Future<List<String>> findGitReposInSubfolders() async {
@@ -528,46 +523,6 @@ class GitUtils {
     return hunks;
   }
 
-  /// Stages only specific hunks interactively
-  static Future<void> stageHunk(DiffHunk hunk, {String? folderPath}) async {
-    // Create a patch file from the hunk
-    final patchContent = (hunk.header + hunk.lines).join('\n');
-    final patchFile =
-        File('${Directory.systemTemp.path}/gitwhisper_hunk.patch');
-
-    try {
-      await patchFile.writeAsString(patchContent);
-
-      // Apply the patch to staging area
-      final result = await Process.run(
-        'git',
-        ['apply', '--cached', patchFile.path],
-        workingDirectory: folderPath,
-      );
-
-      if (result.exitCode != 0) {
-        throw Exception('Failed to stage hunk: ${result.stderr}');
-      }
-    } finally {
-      if (await patchFile.exists()) {
-        await patchFile.delete();
-      }
-    }
-  }
-
-  /// Unstages all currently staged changes
-  static Future<void> unstageAll({String? folderPath}) async {
-    final result = await Process.run(
-      'git',
-      ['reset', 'HEAD'],
-      workingDirectory: folderPath,
-    );
-
-    if (result.exitCode != 0) {
-      throw Exception('Failed to unstage changes: ${result.stderr}');
-    }
-  }
-
   /// Returns staged files that exceed the size threshold
   /// Returns a list of tuples (filePath, sizeInBytes)
   static Future<List<(String, int)>> getLargeFiles(
@@ -699,21 +654,4 @@ class DiffHunk {
     required this.header,
     required this.lines,
   });
-
-  /// Gets a human-readable description of what this hunk changes
-  String get description {
-    final addedLines = lines.where((line) => line.startsWith('+')).length;
-    final removedLines = lines.where((line) => line.startsWith('-')).length;
-
-    final parts = <String>[];
-    if (addedLines > 0) parts.add('$addedLines added');
-    if (removedLines > 0) parts.add('$removedLines removed');
-
-    return '$fileName (${parts.isEmpty ? 'no changes' : parts.join(', ')})';
-  }
-
-  /// Estimates the complexity/size of this hunk
-  int get complexity {
-    return lines.length;
-  }
 }
