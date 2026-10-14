@@ -52,12 +52,14 @@ Or locally via:
 dart pub global activate --source=path <path to this package>
 ```
 
-Or on Mac using Homebrew:
+Or using Homebrew on Apple Silicon Macs or Linux:
 
 ```bash
 brew tap iamngoni/homebrew-gitwhisper
 brew install gitwhisper
 ```
+
+There is no prebuilt binary for Intel Macs; use `dart pub global activate gitwhisper` there.
 
 Or on Debian/Ubuntu using APT (supports amd64 and arm64):
 

@@ -57,6 +57,12 @@ install_binary() {
   os=$(detect_os)
   arch=$(detect_arch "$os")
 
+  if [[ "${os}-${arch}" == "macos-x64" ]]; then
+    echo "There is no prebuilt GitWhisper for Intel Macs. Install it with Dart instead:" >&2
+    echo "  dart pub global activate gitwhisper" >&2
+    exit 1
+  fi
+
   if [[ "$VERSION" == "latest" ]]; then
     VERSION=$(latest_version)
     if [[ -z "$VERSION" ]]; then

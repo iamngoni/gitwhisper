@@ -4,15 +4,29 @@ on:
   push:
     tags:
       - "v*"
+  # Rebuilds an existing release tag with this version of the workflow, for
+  # when a tag's own workflow can no longer build it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v1.0.10
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
     name: build (${{ matrix.asset }})
     runs-on: ${{ matrix.runner }}
     strategy:
+      # Let the other platforms finish and upload when one fails, so only the
+      # failed build has to be re-run.
+      fail-fast: false
       matrix:
         include:
           # `legacy` re-publishes the build under the pre-1.0.9 asset name so
@@ -28,9 +42,6 @@ jobs:
             legacy: macos
             runner: [self-hosted, macOS, ARM64]
             binary: gitwhisper
-          - asset: macos-x64
-            runner: [self-hosted, macOS, X64]
-            binary: gitwhisper
           - asset: windows-x64
             legacy: windows
             runner: [self-hosted, Windows, X64]
@@ -39,9 +50,48 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        if: runner.os != 'Windows'
+
+      # setup-dart unpacks the SDK under the runner's work directory, which is
+      # deep enough on our Windows runners to push some SDK files past the
+      # 260-character path limit. Install the same stable SDK into a short
+      # directory instead.
+      - name: Install Dart (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $curl = "$env:SystemRoot\System32\curl.exe"
+          $tar = "$env:SystemRoot\System32\tar.exe"
+          $channel = 'https://storage.googleapis.com/dart-archive/channels/stable/release'
+          $zipName = 'dartsdk-windows-x64-release.zip'
+          $root = Join-Path $env:LOCALAPPDATA "gw-dart-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "GW_DART_ROOT=$root`n")
+
+          function Get-Url($url, $outFile) {
+            & $curl -fsSL --retry 3 -o $outFile $url
+            if ($LASTEXITCODE -ne 0) { throw "Download failed: $url" }
+          }
+
+          Get-Url "$channel/latest/VERSION" "$root\VERSION"
+          $version = (Get-Content -Raw "$root\VERSION" | ConvertFrom-Json).version
+          Get-Url "$channel/$version/sdk/$zipName" "$root\$zipName"
+          Get-Url "$channel/$version/sdk/$zipName.sha256sum" "$root\$zipName.sha256sum"
+          $expected = ((Get-Content -Raw "$root\$zipName.sha256sum").Trim() -split '\s+')[0].ToLower()
+          $actual = (Get-FileHash "$root\$zipName" -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) {
+            throw "Checksum mismatch for Dart $version (expected $expected, got $actual)"
+          }
+          & $tar -xf "$root\$zipName" -C $root
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract Dart $version" }
+          Remove-Item "$root\$zipName", "$root\$zipName.sha256sum", "$root\VERSION"
+          [IO.File]::AppendAllText($env:GITHUB_PATH, "$root\dart-sdk\bin`n")
+          Write-Host "Installed Dart $version in $root"
 
       - run: dart pub get
 
@@ -66,9 +116,10 @@ jobs:
             fi
           done
 
+      # Windows PowerShell, since the Windows runners have no PowerShell 7.
       - name: Archive and checksum (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $archive = "gitwhisper-${{ matrix.asset }}.tar.gz"
@@ -85,10 +136,21 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             gitwhisper-*.tar.gz
             gitwhisper-*.tar.gz.sha256
           fail_on_unmatched_files: true
+
+      - name: Remove Dart (Windows)
+        if: always() && runner.os == 'Windows' && env.GW_DART_ROOT != ''
+        shell: powershell
+        run: |
+          try {
+            Remove-Item -LiteralPath $env:GW_DART_ROOT -Recurse -Force
+          } catch {
+            Write-Warning "Could not remove $($env:GW_DART_ROOT): $_"
+          }
 
   publish-apt:
     needs: build
@@ -101,8 +163,8 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          version="${RELEASE_TAG#v}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
           cd "$work"
@@ -155,6 +217,10 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add .
+          if git diff --cached --quiet; then
+            echo "gitwhisper ${version} is already published."
+            exit 0
+          fi
           git commit -m "Publish gitwhisper ${version} (amd64 and arm64)"
           git -c credential.helper= \
             -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${TAP_TOKEN}"; }; f' \
@@ -170,31 +236,46 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
         run: |
           set -euo pipefail
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
           cd "$work"
 
-          for asset in macos-arm64 macos-x64 linux-arm64 linux-x64; do
+          git clone https://github.com/iamngoni/homebrew-gitwhisper.git tap
+
+          # Never move the formula back to an older release, for example when
+          # an older tag is rebuilt or its run finishes last.
+          current=$(sed -n 's/^[[:space:]]*version "\(.*\)"$/\1/p' tap/Formula/gitwhisper.rb | head -n 1)
+          newest=$(printf '%s\n%s\n' "${current#v}" "${RELEASE_TAG#v}" | sort -V | tail -n 1)
+          if [[ -n "$current" && "$current" != "$RELEASE_TAG" && "$newest" == "${current#v}" ]]; then
+            echo "The formula is already at $current; leaving it there instead of $RELEASE_TAG."
+            exit 0
+          fi
+
+          for asset in macos-arm64 linux-arm64 linux-x64; do
             curl -fsSL -o "$asset.tar.gz" "$base/gitwhisper-$asset.tar.gz"
           done
           sum() { shasum -a 256 "$1.tar.gz" | cut -d ' ' -f1; }
 
-          git clone https://github.com/iamngoni/homebrew-gitwhisper.git tap
           cat > tap/Formula/gitwhisper.rb <<EOF
           class Gitwhisper < Formula
             desc "AI-assisted git commit CLI"
             homepage "https://github.com/iamngoni/gitwhisper"
-            version "${GITHUB_REF_NAME}"
+            version "${RELEASE_TAG}"
 
             on_macos do
+              # There is no Intel Mac build. Intel Macs get the arm64 URL only
+              # so the formula loads and this requirement can refuse them with
+              # a clear message.
+              depends_on arch: :arm64
+
               on_arm do
                 url "${base}/gitwhisper-macos-arm64.tar.gz"
                 sha256 "$(sum macos-arm64)"
               end
               on_intel do
-                url "${base}/gitwhisper-macos-x64.tar.gz"
-                sha256 "$(sum macos-x64)"
+                url "${base}/gitwhisper-macos-arm64.tar.gz"
+                sha256 "$(sum macos-arm64)"
               end
             end
 
@@ -220,7 +301,11 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add Formula/gitwhisper.rb
-          git commit -m "Update formula to ${GITHUB_REF_NAME}"
+          if git diff --cached --quiet; then
+            echo "The formula is already at ${RELEASE_TAG}."
+            exit 0
+          fi
+          git commit -m "Update formula to ${RELEASE_TAG}"
           git -c credential.helper= \
             -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${TAP_TOKEN}"; }; f' \
             push https://github.com/iamngoni/homebrew-gitwhisper HEAD:main

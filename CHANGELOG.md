@@ -6,6 +6,10 @@
 
 ### Fixed
 - The version-verify test allows up to 5 minutes, since build_runner's first compile can take longer than 30 seconds on a fresh CI runner.
+- Windows release builds install the Dart SDK in a short directory, since the SDK's longest paths broke the 260-character limit under the runner's work directory.
+
+### Changed
+- There is no Intel Mac build. On Intel Macs the Homebrew formula refuses to install, and `install.sh` points to `dart pub global activate gitwhisper` instead.
 
 ## 1.0.9
 
@@ -49,7 +53,7 @@
 - ACP agents in agent mode work on the repository being committed when committing several repositories at once.
 - `gw set-defaults` runs from scripts without a terminal and no longer re-enables emojis unless `--allow-emojis` is passed.
 - On Windows, a failed config save no longer loses the new contents.
-- The release ships separate linux-arm64 and macos-x64 builds (the arm64 `.deb` previously contained an x64 binary), the Homebrew formula picks the right build for each CPU, and `install.sh` works on macOS.
+- The release ships a separate linux-arm64 build (the arm64 `.deb` previously contained an x64 binary), the Homebrew formula picks the right build for each CPU, and `install.sh` works on macOS.
 
 ### Changed
 - `--[no-]agent`: agent mode stays the default; `--no-agent` sends the staged diff in the prompt, summarised file by file above `max_diff_size`. API models that reject tool use fall back to it automatically.
