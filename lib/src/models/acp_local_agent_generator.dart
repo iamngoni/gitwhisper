@@ -106,6 +106,9 @@ ${getAgentCommitPrompt(
     final registry = await (registryLoader ?? AcpRegistryLoader()).load();
     final agent = registry.resolveSupported(registryQuery);
     final launcher = agentLauncher ?? AcpAgentLauncher();
+    // Ask before the first launch of this agent version, before any spinner
+    // starts, so the prompt is readable.
+    await launcher.ensureLaunchApproved(agent);
     final logFile = _createLogFile(agent.id);
     final launchProgress = $logger.progress('Preparing ACP agent ${agent.id}');
 

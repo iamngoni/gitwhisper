@@ -100,15 +100,18 @@ class AcpBinaryDistribution {
     required this.command,
     this.arguments = const <String>[],
     this.environment = const <String, String>{},
+    this.sha256,
   });
 
   factory AcpBinaryDistribution.fromJson(Map<String, dynamic> json) {
     final rawArgs = json['args'];
     final rawEnv = json['env'];
+    final rawSha256 = json['sha256']?.toString().trim().toLowerCase();
 
     return AcpBinaryDistribution(
       archive: json['archive'].toString(),
       command: json['cmd'].toString(),
+      sha256: rawSha256 == null || rawSha256.isEmpty ? null : rawSha256,
       arguments: rawArgs is List<dynamic>
           ? rawArgs.map((arg) => arg.toString()).toList()
           : const <String>[],
@@ -124,6 +127,14 @@ class AcpBinaryDistribution {
   final String command;
   final List<String> arguments;
   final Map<String, String> environment;
+
+  /// Lowercase hex SHA-256 of [archive] published by the registry, when it
+  /// publishes one. Downloads that do not match are rejected.
+  final String? sha256;
+
+  /// Whether [sha256] is a well-formed SHA-256 hex digest.
+  bool get hasValidSha256 =>
+      sha256 != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256!);
 }
 
 class AcpLaunchCommand {
@@ -171,77 +182,105 @@ class AcpRegistry {
     return _resolveFrom(query, supportedCommitAgents);
   }
 
+  /// Resolves [query] to an agent by exact id (case-insensitive) or a known
+  /// alias. Near misses fail with "did you mean" suggestions instead of
+  /// silently picking a different agent, because the resolved agent is
+  /// downloaded and run.
   AcpAgentDefinition _resolveFrom(
     String query,
     List<AcpAgentDefinition> candidates, {
     bool includeUnsupportedMessage = true,
   }) {
-    final normalizedQuery = _normalize(query);
-    final alias = _knownAliases[normalizedQuery];
+    final alias = _knownAliases[_normalize(query)];
     if (alias != null) {
-      return _findExact(alias, candidates) ??
+      return _findById(alias, candidates) ??
           (throw AcpRegistryException(
             'ACP registry did not include "$alias" for "$query". File an '
             'issue if this agent should be supported: $acpSupportIssueUrl',
           ));
     }
 
-    final exact = _findExact(query, candidates);
+    final exact = _findById(query, candidates);
     if (exact != null) return exact;
 
-    final matches = candidates.where((agent) {
-      final id = _normalize(agent.id);
-      final name = _normalize(agent.name);
-      return id.contains(normalizedQuery) || name.contains(normalizedQuery);
-    }).toList();
-
-    if (matches.length == 1) return matches.single;
-
-    if (matches.length > 1) {
-      final choices = matches.map((agent) => agent.id).join(', ');
-      throw AcpRegistryException(
-        'Found multiple ACP agents matching "$query": $choices. Use the exact '
-        'agent id, or file an issue if GitWhisper should support an alias: '
-        '$acpSupportIssueUrl',
-      );
-    }
-
     if (includeUnsupportedMessage) {
-      final unsupportedMatches = agents.where((agent) {
-        if (agent.isSupportedCommitAgent) return false;
-        final id = _normalize(agent.id);
-        final name = _normalize(agent.name);
-        return id.contains(normalizedQuery) || name.contains(normalizedQuery);
-      }).toList();
-      if (unsupportedMatches.isNotEmpty) {
-        final choices = unsupportedMatches.map((agent) => agent.id).join(', ');
+      final unsupported = _findById(query, agents);
+      if (unsupported != null && !unsupported.isSupportedCommitAgent) {
         throw AcpRegistryException(
           'Found "$query" in the ACP registry, but GitWhisper does not target '
-          'generic or unsupported ACP entries for commit generation: $choices. '
-          'Use a first-party/product-backed agent, or file an issue if this '
-          'agent should be supported: $acpSupportIssueUrl',
+          'generic or unsupported ACP entries for commit generation: '
+          '${unsupported.id}. Use a first-party/product-backed agent, or file '
+          'an issue if this agent should be supported: $acpSupportIssueUrl',
         );
       }
     }
 
+    final suggestions = _suggestionsFor(query, candidates);
+    final hint = suggestions.isEmpty
+        ? ''
+        : ' Did you mean ${suggestions.map((id) => '"$id"').join(' or ')}?';
     throw AcpRegistryException(
-      'Could not find an ACP agent matching "$query". File an issue if this '
-      'agent should be supported: $acpSupportIssueUrl',
+      'Could not find an ACP agent with id "$query".$hint Run `gw acp list` '
+      'to see agent ids. File an issue if this agent should be supported: '
+      '$acpSupportIssueUrl',
     );
   }
 
-  AcpAgentDefinition? _findExact(
+  AcpAgentDefinition? _findById(
+    String id,
+    List<AcpAgentDefinition> candidates,
+  ) {
+    final wanted = id.trim().toLowerCase();
+    for (final agent in candidates) {
+      if (agent.id.toLowerCase() == wanted) return agent;
+    }
+    return null;
+  }
+
+  /// Up to three agent ids close to [query]: a small edit distance, a
+  /// matching display name, or an id or name containing the query.
+  static List<String> _suggestionsFor(
     String query,
     List<AcpAgentDefinition> candidates,
   ) {
     final normalizedQuery = _normalize(query);
+    if (normalizedQuery.isEmpty) return const <String>[];
+
+    final scored = <(int, String)>[];
     for (final agent in candidates) {
-      if (_normalize(agent.id) == normalizedQuery ||
-          _normalize(agent.name) == normalizedQuery) {
-        return agent;
+      final id = _normalize(agent.id);
+      final name = _normalize(agent.name);
+      final distance = _editDistance(normalizedQuery, id);
+      final maxDistance = (id.length ~/ 3).clamp(1, 3);
+      final related = normalizedQuery.length >= 3 &&
+          (id.contains(normalizedQuery) || name.contains(normalizedQuery));
+      if (distance <= maxDistance || related || name == normalizedQuery) {
+        scored.add((distance, agent.id));
       }
     }
-    return null;
+
+    scored.sort((a, b) {
+      final byDistance = a.$1.compareTo(b.$1);
+      return byDistance != 0 ? byDistance : a.$2.compareTo(b.$2);
+    });
+    return scored.take(3).map((entry) => entry.$2).toList();
+  }
+
+  static int _editDistance(String a, String b) {
+    var previous = List<int>.generate(b.length + 1, (index) => index);
+    for (var i = 1; i <= a.length; i++) {
+      final current = List<int>.filled(b.length + 1, 0)..[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final substitution = a[i - 1] == b[j - 1] ? 0 : 1;
+        current[j] = <int>[
+          previous[j] + 1,
+          current[j - 1] + 1,
+          previous[j - 1] + substitution,
+        ].reduce((x, y) => x < y ? x : y);
+      }
+      previous = current;
+    }
+    return previous[b.length];
   }
 
   static String _normalize(String value) {

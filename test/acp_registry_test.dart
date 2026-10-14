@@ -133,6 +133,91 @@ void main() {
       throwsA(isA<AcpRegistryException>()),
     );
   });
+
+  group('exact agent id matching', () {
+    final registry = AcpRegistry(<AcpAgentDefinition>[
+      _agent('codex-acp', 'Codex CLI'),
+      _agent('claude-acp', 'Claude Agent'),
+      _agent('qoder', 'Qoder CLI'),
+      _agent('kimi', 'Kimi CLI'),
+    ]);
+
+    test('resolves exact ids case-insensitively and known aliases', () {
+      expect(registry.resolveSupported('qoder').id, 'qoder');
+      expect(registry.resolveSupported('Kimi').id, 'kimi');
+      expect(registry.resolveSupported('claude-code').id, 'claude-acp');
+    });
+
+    test('no longer resolves partial ids or display names', () {
+      for (final query in <String>['qod', 'code', 'Codex CLI', 'acp']) {
+        expect(
+          () => registry.resolveSupported(query),
+          throwsA(isA<AcpRegistryException>()),
+          reason: query,
+        );
+      }
+    });
+
+    test('suggests close ids on a near miss', () {
+      expect(
+        () => registry.resolveSupported('qodr'),
+        throwsA(
+          isA<AcpRegistryException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('Could not find an ACP agent with id "qodr"'),
+              contains('Did you mean "qoder"?'),
+            ),
+          ),
+        ),
+      );
+      expect(
+        () => registry.resolve('Codex CLI'),
+        throwsA(
+          isA<AcpRegistryException>().having(
+            (error) => error.message,
+            'message',
+            contains('"codex-acp"'),
+          ),
+        ),
+      );
+    });
+  });
+
+  test('parses binary sha256 checksums from the registry', () {
+    final registry = AcpRegistry.fromJson(<String, dynamic>{
+      'agents': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'kimi',
+          'name': 'Kimi CLI',
+          'version': '1.50.0',
+          'distribution': <String, dynamic>{
+            'binary': <String, dynamic>{
+              'darwin-aarch64': <String, dynamic>{
+                'archive': 'https://example.com/kimi.tar.gz',
+                'cmd': './kimi',
+                'sha256': '5684F903cfc1ca1be4135a2634f7db108c787827c084b41df6a'
+                    '98eb01c9012df',
+              },
+              'linux-x86_64': <String, dynamic>{
+                'archive': 'https://example.com/kimi-linux.tar.gz',
+                'cmd': './kimi',
+              },
+            },
+          },
+        },
+      ],
+    });
+    final binaries = registry.agents.single.binaryDistributions;
+
+    expect(
+      binaries['darwin-aarch64']!.sha256,
+      '5684f903cfc1ca1be4135a2634f7db108c787827c084b41df6a98eb01c9012df',
+    );
+    expect(binaries['darwin-aarch64']!.hasValidSha256, isTrue);
+    expect(binaries['linux-x86_64']!.sha256, isNull);
+  });
 }
 
 AcpAgentDefinition _agent(String id, String name) {

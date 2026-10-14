@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
 import 'acp_client.dart';
+import 'acp_consent.dart';
 import 'acp_registry.dart';
 
 typedef AcpBinaryInstaller = Future<void> Function(
@@ -27,26 +29,110 @@ class AcpAgentLauncher {
     Dio? dio,
     AcpBinaryInstaller? installBinary,
     AcpNpmInstaller? installNpm,
+    AcpAgentApprovals? approvals,
   })  : _cacheDirectory = cacheDirectory ?? _defaultAgentCacheDirectory(),
         _platformKey = platformKey ?? currentPlatformKey(),
         _dio = dio ?? Dio(),
         _installBinary = installBinary,
-        _installNpm = installNpm;
+        _installNpm = installNpm,
+        _approvalsOverride = approvals;
 
   final Directory _cacheDirectory;
   final String _platformKey;
   final Dio _dio;
   final AcpBinaryInstaller? _installBinary;
   final AcpNpmInstaller? _installNpm;
+  final AcpAgentApprovals? _approvalsOverride;
+
+  /// Agent launches the user has approved. By default these are stored in
+  /// the agent cache directory.
+  late final AcpAgentApprovals approvals =
+      _approvalsOverride ?? AcpAgentApprovals.inCacheDirectory(_cacheDirectory);
 
   Directory get cacheDirectory => _cacheDirectory;
 
   String get platformKey => _platformKey;
 
+  /// Describes exactly what launching [agent] runs on this platform: the npm
+  /// package, or the binary archive, its checksum and the command. Throws
+  /// [AcpRegistryException] when the agent cannot be launched here or its
+  /// registry entry is unsafe (non-HTTPS download, malformed checksum,
+  /// command outside the archive).
+  AcpLaunchSource launchSourceFor(AcpAgentDefinition agent) {
+    _validatePathSegment(agent.id, 'id', agent);
+    _validatePathSegment(agent.version, 'version', agent);
+
+    final package = agent.npxPackage;
+    if (package != null && package.isNotEmpty) {
+      final command = <String>['npx', '-y', package, ...agent.npxArgs];
+      return AcpLaunchSource(
+        fingerprint: jsonEncode(<String, dynamic>{
+          'npx': package,
+          'args': agent.npxArgs,
+          'env': agent.npxEnv,
+        }),
+        details: <String>[
+          'npm package: $package',
+          'Command: ${formatCommandLine(command)}',
+          ..._environmentDetails(agent.npxEnv),
+        ],
+      );
+    }
+
+    final binary = agent.binaryDistributions[_platformKey];
+    if (binary == null) {
+      final supported = agent.binaryDistributions.keys.join(', ');
+      throw AcpRegistryException(
+        'ACP agent "${agent.id}" does not publish an npx package or a binary '
+        'for $_platformKey. Supported binary platforms: $supported',
+      );
+    }
+
+    _validateArchiveUrl(agent, binary.archive);
+    if (binary.sha256 != null && !binary.hasValidSha256) {
+      throw AcpRegistryException(
+        'ACP registry entry for "${agent.id}" has a malformed sha256 '
+        '("${binary.sha256}"), so its download cannot be verified.',
+      );
+    }
+    _validateCommandPath(agent, binary.command);
+
+    final checksum = binary.sha256 != null
+        ? 'SHA-256: ${binary.sha256} (verified after download)'
+        : 'SHA-256: not published by the ACP registry, so the download '
+            'cannot be verified';
+    final command = formatCommandLine(
+      <String>[binary.command, ...binary.arguments],
+    );
+    return AcpLaunchSource(
+      fingerprint: jsonEncode(<String, dynamic>{
+        'archive': binary.archive,
+        'sha256': binary.sha256,
+        'cmd': binary.command,
+        'args': binary.arguments,
+        'env': binary.environment,
+      }),
+      details: <String>[
+        'Download: ${binary.archive}',
+        checksum,
+        'Command: $command',
+        ..._environmentDetails(binary.environment),
+      ],
+    );
+  }
+
+  /// Returns when [agent] may run, asking the user on its first launch.
+  /// Throws [AcpLaunchNotApprovedException] when it may not.
+  Future<void> ensureLaunchApproved(AcpAgentDefinition agent) {
+    return approvals.ensureApproved(agent, launchSourceFor(agent));
+  }
+
   Future<AcpLaunchCommand> launchCommandFor(
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
   }) async {
+    await ensureLaunchApproved(agent);
+
     final installedNpmCommand = _installedNpmLaunchCommand(agent);
     if (installedNpmCommand != null) {
       onStatus?.call('Using installed npm package ${agent.npxPackage}');
@@ -85,11 +171,16 @@ class AcpAgentLauncher {
     );
   }
 
+  /// Resolves the command for an agent's terminal login. The caller must show
+  /// the result to the user and ask before running it. A fallback login
+  /// command can come from the agent's error text.
   Future<AcpLaunchCommand> authLaunchCommandFor(
     AcpAgentDefinition agent,
     AcpAuthMethod method, {
     AcpInstallStatusCallback? onStatus,
   }) async {
+    await ensureLaunchApproved(agent);
+
     if (method.command.isNotEmpty) {
       final package = agent.npxPackage;
       if (package != null && package.isNotEmpty) {
@@ -222,28 +313,29 @@ class AcpAgentLauncher {
     return 'no launch distribution';
   }
 
-  Future<void> install(
+  /// Installs [agent] into the cache. Running `gw acp install` is explicit
+  /// consent, so this also records the agent as approved to launch.
+  Future<AcpLaunchSource> install(
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
   }) async {
+    final source = launchSourceFor(agent);
+    await approvals.approve(agent, source);
+
     final package = agent.npxPackage;
     if (package != null && package.isNotEmpty) {
       await _installNpmIfNeeded(agent, onStatus: onStatus);
-      return;
+      return source;
     }
 
-    final binary = agent.binaryDistributions[_platformKey];
-    if (binary == null) {
-      await launchCommandFor(agent);
-      return;
-    }
-
+    final binary = agent.binaryDistributions[_platformKey]!;
     final installDirectory = _installDirectoryFor(agent);
     await _installBinaryIfNeeded(
       binary,
       installDirectory,
       onStatus: onStatus,
     );
+    return source;
   }
 
   AcpLaunchCommand? _npxLaunchCommand(AcpAgentDefinition agent) {
@@ -292,6 +384,57 @@ class AcpAgentLauncher {
     return Directory(path.join(_installDirectoryFor(agent).path, 'npm'));
   }
 
+  /// Registry ids and versions become cache directory names, so they must be
+  /// plain path segments.
+  void _validatePathSegment(
+    String value,
+    String field,
+    AcpAgentDefinition agent,
+  ) {
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9._@+-]*$').hasMatch(value) ||
+        value.contains('..')) {
+      throw AcpRegistryException(
+        'ACP registry entry "${agent.id}" has an unsafe $field "$value".',
+      );
+    }
+  }
+
+  void _validateArchiveUrl(AcpAgentDefinition agent, String url) {
+    if (!_isHttpsUrl(url)) {
+      throw AcpRegistryException(
+        'ACP agent "${agent.id}" publishes its binary over a non-HTTPS URL '
+        '($url). GitWhisper only downloads agents over HTTPS.',
+      );
+    }
+  }
+
+  /// The binary's command must point inside its extracted archive.
+  void _validateCommandPath(AcpAgentDefinition agent, String command) {
+    final probe = Directory(path.join(_cacheDirectory.path, '.probe'));
+    final resolved = path.normalize(_resolveCommandPath(probe, command));
+    if (path.isAbsolute(_stripDotSlash(command)) ||
+        !path.isWithin(probe.path, resolved)) {
+      throw AcpRegistryException(
+        'ACP agent "${agent.id}" has a command outside its archive '
+        '("$command").',
+      );
+    }
+  }
+
+  static bool _isHttpsUrl(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
+  }
+
+  static List<String> _environmentDetails(Map<String, String> environment) {
+    if (environment.isEmpty) return const <String>[];
+    return <String>[
+      'Environment: ${environment.entries.map(
+            (entry) => '${entry.key}=${entry.value}',
+          ).join(' ')}',
+    ];
+  }
+
   Future<void> _installNpmIfNeeded(
     AcpAgentDefinition agent, {
     AcpInstallStatusCallback? onStatus,
@@ -335,6 +478,13 @@ class AcpAgentLauncher {
       return;
     }
 
+    if (!_isHttpsUrl(binary.archive)) {
+      throw AcpRegistryException(
+        'Refusing to download ACP binary archive over a non-HTTPS URL: '
+        '${binary.archive}',
+      );
+    }
+
     final installBinary = _installBinary;
     if (installBinary != null) {
       onStatus?.call('Installing test binary');
@@ -354,15 +504,24 @@ class AcpAgentLauncher {
         '${installDirectory.basename}.tmp',
       ),
     );
-    onStatus?.call('Downloading ${path.basename(binary.archive)}');
-    await _downloadArchive(
-      binary.archive,
-      archiveFile,
-      onStatus: onStatus,
-    );
-    onStatus?.call('Extracting archive');
-    await _extractArchive(archiveFile, installDirectory);
-    await archiveFile.deleteIfExists();
+    try {
+      onStatus?.call('Downloading ${path.basename(binary.archive)}');
+      await _downloadArchive(
+        binary,
+        archiveFile,
+        onStatus: onStatus,
+      );
+      onStatus?.call('Extracting archive');
+      await _extractArchive(archiveFile, installDirectory);
+    } on Object {
+      // Never leave a partial install that a later launch would trust.
+      if (installDirectory.existsSync()) {
+        await installDirectory.delete(recursive: true);
+      }
+      rethrow;
+    } finally {
+      await archiveFile.deleteIfExists();
+    }
 
     if (!Platform.isWindows && File(commandPath).existsSync()) {
       onStatus?.call('Marking binary executable');
@@ -370,11 +529,15 @@ class AcpAgentLauncher {
     }
   }
 
+  /// Downloads [binary]'s archive over HTTPS into [destination], verifying
+  /// the registry's sha256 when it publishes one. Nothing is written when
+  /// verification fails.
   Future<void> _downloadArchive(
-    String url,
+    AcpBinaryDistribution binary,
     File destination, {
     AcpInstallStatusCallback? onStatus,
   }) async {
+    final url = binary.archive;
     var lastPercent = -1;
     var lastStatusAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -416,7 +579,28 @@ class AcpAgentLauncher {
     if (response.statusCode != 200 || bytes == null) {
       throw AcpRegistryException('Failed to download ACP binary archive: $url');
     }
-    await destination.writeAsBytes(bytes);
+
+    final finalUrl = response.realUri.toString();
+    if (!_isHttpsUrl(finalUrl)) {
+      throw AcpRegistryException(
+        'ACP binary archive download for $url was redirected to a non-HTTPS '
+        'URL ($finalUrl). The download was discarded.',
+      );
+    }
+
+    final expected = binary.sha256;
+    if (expected != null) {
+      final actual = crypto.sha256.convert(bytes).toString();
+      if (actual != expected) {
+        throw AcpRegistryException(
+          'Checksum mismatch for ACP binary archive $url: the registry '
+          'publishes sha256 $expected but the download is $actual. The '
+          'download was discarded.',
+        );
+      }
+    }
+
+    await destination.writeAsBytes(bytes, flush: true);
   }
 
   Future<void> _installNpmPackage(
@@ -554,13 +738,15 @@ class AcpAgentLauncher {
   }
 
   String _resolveCommandPath(Directory directory, String command) {
-    final normalizedCommand = command.startsWith('./')
-        ? command.substring(2)
-        : command.startsWith(r'.\')
-            ? command.substring(2)
-            : command;
+    final normalizedCommand = _stripDotSlash(command);
     if (path.isAbsolute(normalizedCommand)) return normalizedCommand;
     return path.join(directory.path, normalizedCommand);
+  }
+
+  static String _stripDotSlash(String command) {
+    return command.startsWith('./') || command.startsWith(r'.\')
+        ? command.substring(2)
+        : command;
   }
 
   static String currentPlatformKey() {

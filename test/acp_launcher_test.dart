@@ -1,9 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:dio/dio.dart';
 import 'package:gitwhisper/src/acp/acp_client.dart';
+import 'package:gitwhisper/src/acp/acp_consent.dart';
 import 'package:gitwhisper/src/acp/acp_launcher.dart';
 import 'package:gitwhisper/src/acp/acp_registry.dart';
+import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -26,6 +31,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         installBinary: (_, __) async => fail('npx should not install'),
       );
       final statuses = <String>[];
@@ -59,6 +65,7 @@ void main() {
       final statuses = <String>[];
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installNpm: (packageSpec, directory) async {
           expect(packageSpec, '@zed-industries/codex-acp@0.15.0');
@@ -124,6 +131,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installBinary: (binary, directory) async {
           await File(p.join(directory.path, 'vtcode')).writeAsString('fake');
@@ -166,6 +174,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installBinary: (binary, directory) async {
           await File(p.join(directory.path, 'junie')).writeAsString('fake');
@@ -224,6 +233,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installBinary: (binary, directory) async {
           await File(
@@ -274,6 +284,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         installBinary: (_, __) async => fail('npx should not install'),
       );
 
@@ -311,6 +322,7 @@ void main() {
       }).resolve('auggie');
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installNpm: (packageSpec, directory) async {
           await _writeFakeNpmPackage(
@@ -360,6 +372,7 @@ void main() {
 
       final launcher = AcpAgentLauncher(
         cacheDirectory: temp,
+        approvals: _autoApprove(temp),
         platformKey: 'darwin-aarch64',
         installBinary: (binary, directory) async {
           await Directory(
@@ -397,6 +410,390 @@ void main() {
       expect(command.arguments, ['login']);
     });
   });
+
+  group('ACP launch approvals', () {
+    late Directory temp;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('gitwhisper_acp_approve_');
+    });
+
+    tearDown(() => temp.delete(recursive: true));
+
+    AcpAgentDefinition npxAgent({String version = '0.15.0'}) {
+      return _registryFromAgent(<String, dynamic>{
+        'id': 'codex-acp',
+        'name': 'Codex CLI',
+        'version': version,
+        'distribution': <String, dynamic>{
+          'npx': <String, dynamic>{
+            'package': '@zed-industries/codex-acp@$version',
+            'args': <String>['--acp'],
+          },
+        },
+      }).resolve('codex-acp');
+    }
+
+    test('asks once on first launch, showing the package that will run',
+        () async {
+      final questions = <String>[];
+      final shown = <String>[];
+      final logger = _RecordingLogger(shown);
+      AcpAgentLauncher launcher() => AcpAgentLauncher(
+            cacheDirectory: temp,
+            approvals: AcpAgentApprovals.inCacheDirectory(
+              temp,
+              prompter: AcpConsentPrompter(
+                logger: logger,
+                isInteractive: () => true,
+                confirm: (question) {
+                  questions.add(question);
+                  return true;
+                },
+              ),
+            ),
+          );
+
+      final command = await launcher().launchCommandFor(npxAgent());
+      await launcher().launchCommandFor(npxAgent());
+
+      expect(command.executable, 'npx');
+      expect(questions, ['Run ACP agent codex-acp v0.15.0?']);
+      expect(
+        shown,
+        contains('  Command: npx -y @zed-industries/codex-acp@0.15.0 --acp'),
+      );
+      expect(
+        File(p.join(temp.path, '.approved-agents.json')).readAsStringSync(),
+        contains('codex-acp@0.15.0'),
+      );
+    });
+
+    test('asks again for a new agent version', () async {
+      var asked = 0;
+      final launcher = AcpAgentLauncher(
+        cacheDirectory: temp,
+        approvals: AcpAgentApprovals.inCacheDirectory(
+          temp,
+          prompter: AcpConsentPrompter(
+            logger: _RecordingLogger(<String>[]),
+            isInteractive: () => true,
+            confirm: (_) {
+              asked++;
+              return true;
+            },
+          ),
+        ),
+      );
+
+      await launcher.launchCommandFor(npxAgent());
+      await launcher.launchCommandFor(npxAgent(version: '0.16.0'));
+
+      expect(asked, 2);
+    });
+
+    test('fails closed without a terminal and explains how to approve',
+        () async {
+      final launcher = AcpAgentLauncher(
+        cacheDirectory: temp,
+        approvals: AcpAgentApprovals.inCacheDirectory(
+          temp,
+          prompter: AcpConsentPrompter(
+            isInteractive: () => false,
+            confirm: (_) => fail('must not prompt without a terminal'),
+          ),
+        ),
+      );
+
+      await expectLater(
+        launcher.launchCommandFor(npxAgent()),
+        throwsA(
+          isA<AcpLaunchNotApprovedException>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('gw acp install codex-acp'),
+              contains('@zed-industries/codex-acp@0.15.0'),
+            ),
+          ),
+        ),
+      );
+      expect(
+        File(p.join(temp.path, '.approved-agents.json')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a declined prompt does not run or remember the agent', () async {
+      final launcher = AcpAgentLauncher(
+        cacheDirectory: temp,
+        approvals: AcpAgentApprovals.inCacheDirectory(
+          temp,
+          prompter: AcpConsentPrompter(
+            logger: _RecordingLogger(<String>[]),
+            isInteractive: () => true,
+            confirm: (_) => false,
+          ),
+        ),
+      );
+
+      await expectLater(
+        launcher.launchCommandFor(npxAgent()),
+        throwsA(isA<AcpLaunchNotApprovedException>()),
+      );
+      expect(
+        launcher.approvals.isApproved(
+          npxAgent(),
+          launcher.launchSourceFor(npxAgent()),
+        ),
+        isFalse,
+      );
+    });
+
+    test('gw acp install counts as approval for later non-interactive runs',
+        () async {
+      final launcher = AcpAgentLauncher(
+        cacheDirectory: temp,
+        platformKey: 'darwin-aarch64',
+        approvals: AcpAgentApprovals.inCacheDirectory(
+          temp,
+          prompter: AcpConsentPrompter(
+            isInteractive: () => false,
+            confirm: (_) => fail('install must not prompt'),
+          ),
+        ),
+        installNpm: (packageSpec, directory) => _writeFakeNpmPackage(
+          directory: directory,
+          packageName: '@zed-industries/codex-acp',
+          binName: 'codex-acp',
+        ),
+      );
+
+      final source = await launcher.install(npxAgent());
+      final command = await launcher.launchCommandFor(npxAgent());
+
+      expect(
+        source.details,
+        contains('npm package: @zed-industries/codex-acp@0.15.0'),
+      );
+      expect(command.executable, isNot('npx'));
+    });
+
+    test('a registry change for the same version needs a new approval',
+        () async {
+      final launcher = AcpAgentLauncher(
+        cacheDirectory: temp,
+        approvals: AcpAgentApprovals.inCacheDirectory(
+          temp,
+          prompter: AcpConsentPrompter(isInteractive: () => false),
+        ),
+      );
+      await launcher.approvals.approve(
+        npxAgent(),
+        launcher.launchSourceFor(npxAgent()),
+      );
+
+      const swapped = AcpAgentDefinition(
+        id: 'codex-acp',
+        name: 'Codex CLI',
+        version: '0.15.0',
+        npxPackage: 'evil-package@1.0.0',
+      );
+
+      await expectLater(
+        launcher.launchCommandFor(swapped),
+        throwsA(isA<AcpLaunchNotApprovedException>()),
+      );
+    });
+  });
+
+  group('ACP binary download hardening', () {
+    late Directory temp;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('gitwhisper_acp_dl_');
+    });
+
+    tearDown(() => temp.delete(recursive: true));
+
+    AcpAgentDefinition binaryAgent({
+      String archive = 'https://example.com/agent.tar.gz',
+      String? sha256,
+      String cmd = './agent',
+      String id = 'binary-agent',
+    }) {
+      return AcpAgentDefinition(
+        id: id,
+        name: 'Binary Agent',
+        version: '1.0.0',
+        binaryDistributions: <String, AcpBinaryDistribution>{
+          'darwin-aarch64': AcpBinaryDistribution.fromJson(<String, dynamic>{
+            'archive': archive,
+            'cmd': cmd,
+            if (sha256 != null) 'sha256': sha256,
+          }),
+        },
+      );
+    }
+
+    AcpAgentLauncher launcher({Dio? dio}) => AcpAgentLauncher(
+          cacheDirectory: Directory(p.join(temp.path, 'agents')),
+          platformKey: 'darwin-aarch64',
+          dio: dio,
+          approvals: _autoApprove(Directory(p.join(temp.path, 'agents'))),
+        );
+
+    test('parses the registry sha256 for binary distributions', () {
+      final agent = binaryAgent(sha256: 'AB' * 32);
+      final binary = agent.binaryDistributions['darwin-aarch64']!;
+
+      expect(binary.sha256, 'ab' * 32);
+      expect(binary.hasValidSha256, isTrue);
+    });
+
+    test('rejects non-HTTPS archive URLs before asking or downloading',
+        () async {
+      final adapter = _ArchiveAdapter(<int>[1, 2, 3]);
+      final agent = binaryAgent(archive: 'http://example.com/agent.tar.gz');
+
+      await expectLater(
+        launcher(dio: Dio()..httpClientAdapter = adapter)
+            .launchCommandFor(agent),
+        throwsA(
+          isA<AcpRegistryException>().having(
+            (error) => error.message,
+            'message',
+            contains('non-HTTPS'),
+          ),
+        ),
+      );
+      expect(adapter.calls, 0);
+    });
+
+    test('rejects commands that point outside the archive', () {
+      expect(
+        () => launcher().launchSourceFor(binaryAgent(cmd: '/bin/sh')),
+        throwsA(isA<AcpRegistryException>()),
+      );
+      expect(
+        () => launcher().launchSourceFor(binaryAgent(cmd: '../../bin/sh')),
+        throwsA(isA<AcpRegistryException>()),
+      );
+    });
+
+    test('rejects agent ids that are not plain path segments', () {
+      expect(
+        () => launcher().launchSourceFor(binaryAgent(id: '../escape')),
+        throwsA(isA<AcpRegistryException>()),
+      );
+    });
+
+    test(
+      'rejects downloads whose sha256 does not match the registry',
+      () async {
+        final archive = await _tarGzWith(temp, 'agent', '#!/bin/sh\n');
+        final agent = binaryAgent(sha256: '0' * 64);
+        final installDir =
+            Directory(p.join(temp.path, 'agents', 'binary-agent', '1.0.0'));
+
+        await expectLater(
+          launcher(dio: Dio()..httpClientAdapter = _ArchiveAdapter(archive))
+              .launchCommandFor(agent),
+          throwsA(
+            isA<AcpRegistryException>().having(
+              (error) => error.message,
+              'message',
+              contains('Checksum mismatch'),
+            ),
+          ),
+        );
+        expect(
+          File(p.join(installDir.path, 'darwin-aarch64', 'agent')).existsSync(),
+          isFalse,
+        );
+        expect(
+          installDir.listSync(),
+          isEmpty,
+          reason: 'no partial install or temp archive left behind',
+        );
+      },
+      skip: Platform.isWindows ? 'uses tar' : null,
+    );
+
+    test(
+      'installs downloads whose sha256 matches the registry',
+      () async {
+        final archive = await _tarGzWith(temp, 'agent', '#!/bin/sh\n');
+        final agent = binaryAgent(
+          sha256: crypto.sha256.convert(archive).toString(),
+        );
+
+        final command = await launcher(
+          dio: Dio()..httpClientAdapter = _ArchiveAdapter(archive),
+        ).launchCommandFor(agent);
+
+        expect(File(command.executable).existsSync(), isTrue);
+      },
+      skip: Platform.isWindows ? 'uses tar' : null,
+    );
+  });
+}
+
+/// Approvals stored in [cacheDirectory] that approve every agent.
+AcpAgentApprovals _autoApprove(Directory cacheDirectory) {
+  return AcpAgentApprovals.inCacheDirectory(
+    cacheDirectory,
+    prompter: AcpConsentPrompter(
+      logger: _RecordingLogger(<String>[]),
+      isInteractive: () => true,
+      confirm: (_) => true,
+    ),
+  );
+}
+
+class _RecordingLogger extends Logger {
+  _RecordingLogger(this.lines) : super(level: Level.quiet);
+
+  final List<String> lines;
+
+  @override
+  void info(String? message, {LogStyle? style}) => lines.add(message ?? '');
+}
+
+Future<List<int>> _tarGzWith(
+  Directory temp,
+  String fileName,
+  String contents,
+) async {
+  final source = await Directory(p.join(temp.path, 'archive-src')).create();
+  await File(p.join(source.path, fileName)).writeAsString(contents);
+  final archive = p.join(temp.path, 'archive.tar.gz');
+  final result = await Process.run(
+    'tar',
+    <String>['-czf', archive, '-C', source.path, fileName],
+  );
+  if (result.exitCode != 0) throw StateError('tar failed: ${result.stderr}');
+  return File(archive).readAsBytesSync();
+}
+
+class _ArchiveAdapter implements HttpClientAdapter {
+  _ArchiveAdapter(this.bytes);
+
+  final List<int> bytes;
+  int calls = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    return ResponseBody.fromBytes(Uint8List.fromList(bytes), 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 Future<void> _writeFakeNpmPackage({

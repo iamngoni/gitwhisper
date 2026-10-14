@@ -208,7 +208,8 @@ class AcpInstallCommand extends Command<int> {
   final AcpAgentLauncher _agentLauncher;
 
   @override
-  String get description => 'Install an ACP binary agent into the local cache';
+  String get description =>
+      'Install an ACP agent into the local cache and approve it to run';
 
   @override
   String get name => 'install';
@@ -228,13 +229,19 @@ class AcpInstallCommand extends Command<int> {
       progress
           .update('Installing ${agent.id} for ${_agentLauncher.platformKey}');
       try {
-        await _agentLauncher.install(
+        // Installing is explicit consent: the launcher records the agent as
+        // approved to run, bound to exactly what was installed.
+        final source = await _agentLauncher.install(
           agent,
           onStatus: progress.update,
         );
         progress.complete(
           'Ready to launch ${agent.id} for ${_agentLauncher.platformKey}',
         );
+        _logger.info('Approved ${agent.id} v${agent.version} to run:');
+        for (final line in source.details) {
+          _logger.info('  $line');
+        }
       } on Object {
         progressFailed = true;
         progress.fail('Failed to install ${agent.id}');
@@ -300,7 +307,8 @@ class AcpCachePathCommand extends Command<int> {
   Future<int> run() async {
     _logger
       ..info('Registry cache: ${_registryLoader.cacheFile.path}')
-      ..info('Agent cache: ${_agentLauncher.cacheDirectory.path}');
+      ..info('Agent cache: ${_agentLauncher.cacheDirectory.path}')
+      ..info('Approved agents: ${_agentLauncher.approvals.file.path}');
     return ExitCode.success.code;
   }
 }
@@ -354,7 +362,11 @@ void _printAgentInfo(
   if (agent.binaryDistributions.isNotEmpty) {
     logger.info('Binary platforms:');
     for (final entry in agent.binaryDistributions.entries) {
-      logger.info('  - ${entry.key}: ${entry.value.command}');
+      final binary = entry.value;
+      logger
+        ..info('  - ${entry.key}: ${binary.command}')
+        ..info('    Archive: ${binary.archive}')
+        ..info('    SHA-256: ${binary.sha256 ?? 'not published'}');
     }
   }
 }

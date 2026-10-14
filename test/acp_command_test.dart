@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:gitwhisper/src/acp/acp_consent.dart';
 import 'package:gitwhisper/src/acp/acp_launcher.dart';
 import 'package:gitwhisper/src/acp/acp_registry.dart';
 import 'package:gitwhisper/src/commands/acp_command.dart';
@@ -124,6 +125,45 @@ void main() {
     );
   });
 
+  test('acp install approves the agent for non-interactive launches', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+    final registry = await AcpRegistryLoader(
+      registryUrl: 'http://127.0.0.1:1/unused.json',
+      cacheFile: File(p.join(fixture.root.path, 'registry.json')),
+    ).load();
+    final agent = registry.resolve('vtcode');
+
+    await expectLater(
+      fixture.launcher.launchCommandFor(agent),
+      throwsA(isA<AcpLaunchNotApprovedException>()),
+      reason: 'not approved before install',
+    );
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'install',
+      'vtcode',
+    ]);
+    final command = await fixture.launcher.launchCommandFor(agent);
+
+    expect(exitCode, ExitCode.success.code);
+    expect(command.arguments, ['acp']);
+  });
+
+  test('acp info rejects partial agent ids with a suggestion', () async {
+    final fixture = await AcpCommandFixture.create();
+    addTearDown(fixture.dispose);
+
+    final exitCode = await fixture.runner.run(<String>[
+      'acp',
+      'info',
+      'vtcod',
+    ]);
+
+    expect(exitCode, ExitCode.software.code);
+  });
+
   test('acp cache path returns cache locations', () async {
     final fixture = await AcpCommandFixture.create();
     addTearDown(fixture.dispose);
@@ -143,11 +183,13 @@ class AcpCommandFixture {
     required this.root,
     required this.agentCache,
     required this.runner,
+    required this.launcher,
   });
 
   final Directory root;
   final Directory agentCache;
   final CommandRunner<int> runner;
+  final AcpAgentLauncher launcher;
 
   static Future<AcpCommandFixture> create() async {
     final temp = await Directory.systemTemp.createTemp('gitwhisper_acp_cmd_');
@@ -187,6 +229,30 @@ class AcpCommandFixture {
       }),
     );
 
+    final launcher = AcpAgentLauncher(
+      cacheDirectory: agentCache,
+      platformKey: 'darwin-aarch64',
+      // Tests have no terminal: launches outside `acp install` fail closed.
+      approvals: AcpAgentApprovals.inCacheDirectory(
+        agentCache,
+        prompter: AcpConsentPrompter(
+          isInteractive: () => false,
+          confirm: (_) => fail('acp commands must not prompt'),
+        ),
+      ),
+      installBinary: (_, directory) async {
+        await File(p.join(directory.path, 'vtcode')).writeAsString('fake');
+      },
+      installNpm: (packageSpec, directory) async {
+        expect(packageSpec, '@zed-industries/codex-acp@0.15.0');
+        await _writeFakeNpmPackage(
+          directory: directory,
+          packageName: '@zed-industries/codex-acp',
+          binName: 'codex-acp',
+        );
+      },
+    );
+
     final runner = CommandRunner<int>('gitwhisper_test', 'test')
       ..addCommand(
         AcpCommand(
@@ -195,22 +261,7 @@ class AcpCommandFixture {
             registryUrl: 'http://127.0.0.1:1/unused.json',
             cacheFile: registryFile,
           ),
-          agentLauncher: AcpAgentLauncher(
-            cacheDirectory: agentCache,
-            platformKey: 'darwin-aarch64',
-            installBinary: (_, directory) async {
-              await File(p.join(directory.path, 'vtcode'))
-                  .writeAsString('fake');
-            },
-            installNpm: (packageSpec, directory) async {
-              expect(packageSpec, '@zed-industries/codex-acp@0.15.0');
-              await _writeFakeNpmPackage(
-                directory: directory,
-                packageName: '@zed-industries/codex-acp',
-                binName: 'codex-acp',
-              );
-            },
-          ),
+          agentLauncher: launcher,
         ),
       );
 
@@ -218,6 +269,7 @@ class AcpCommandFixture {
       root: temp,
       agentCache: agentCache,
       runner: runner,
+      launcher: launcher,
     );
   }
 
