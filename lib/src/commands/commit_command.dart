@@ -99,6 +99,13 @@ class CommitCommand extends Command<int> {
       );
   }
 
+  /// Exit code for every path where the user cancels, declines or discards
+  /// the commit, so `gw commit && git push` never pushes after a cancel.
+  ///
+  /// `tempFail` (75) marks "nothing went wrong, nothing was done", which keeps
+  /// cancels distinct from usage errors (64) and failures (70).
+  static const ExitCode cancelledExitCode = ExitCode.tempFail;
+
   @override
   String get description => 'Generate a commit message based on staged changes';
 
@@ -152,7 +159,7 @@ class CommitCommand extends Command<int> {
       );
 
       if (response == 'abort') {
-        return ExitCode.usage.code;
+        return cancelledExitCode.code;
       }
     }
 
@@ -248,7 +255,7 @@ class CommitCommand extends Command<int> {
               }
             }
           } else {
-            return ExitCode.usage.code;
+            return cancelledExitCode.code;
           }
         } else {
           _logger.err('No staged, unstaged, or untracked changes found!');
@@ -438,7 +445,7 @@ class CommitCommand extends Command<int> {
 
           if (finalMessage == null) {
             // User cancelled
-            return ExitCode.usage.code;
+            return cancelledExitCode.code;
           }
 
           commitMessage = finalMessage;
@@ -498,6 +505,7 @@ class CommitCommand extends Command<int> {
 
       int successCount = 0;
       final List<String> failedRepos = [];
+      final List<String> cancelledRepos = [];
 
       for (final f in foldersWithStagedChanges) {
         final folderName = path.basename(f);
@@ -509,7 +517,7 @@ class CommitCommand extends Command<int> {
         );
         if (largeFileResult != null) {
           // User cancelled for this repo, but continue with others
-          failedRepos.add(folderName);
+          cancelledRepos.add(folderName);
           continue;
         }
 
@@ -596,7 +604,7 @@ class CommitCommand extends Command<int> {
             if (finalMessage == null) {
               // User cancelled this repo
               _logger.warn('[$folderName] Commit cancelled by user.');
-              failedRepos.add(folderName);
+              cancelledRepos.add(folderName);
               continue;
             }
 
@@ -643,15 +651,19 @@ class CommitCommand extends Command<int> {
         _logger.err('Failed in: ${failedRepos.join(', ')}');
       }
 
+      if (cancelledRepos.isNotEmpty) {
+        _logger.warn('Cancelled in: ${cancelledRepos.join(', ')}');
+      }
+
       if (successCount == 1) {
         _logger.success('Processed 1 git repository.');
       } else {
         _logger.success('Processed $successCount git repositories.');
       }
 
-      return failedRepos.isEmpty
-          ? ExitCode.success.code
-          : ExitCode.software.code;
+      if (failedRepos.isNotEmpty) return ExitCode.software.code;
+      if (cancelledRepos.isNotEmpty) return cancelledExitCode.code;
+      return ExitCode.success.code;
     }
   }
 
@@ -1001,7 +1013,7 @@ class CommitCommand extends Command<int> {
             break;
           case 'Cancel commit':
             _logger.info('Commit cancelled.');
-            return ExitCode.success.code;
+            return cancelledExitCode.code;
           // 'Proceed anyway' continues
         }
       }
@@ -1011,7 +1023,7 @@ class CommitCommand extends Command<int> {
     final hasStaged = await GitUtils.hasStagedChanges(folderPath: folderPath);
     if (!hasStaged) {
       _logger.info('No staged changes remaining after handling large files.');
-      return ExitCode.success.code;
+      return cancelledExitCode.code;
     }
 
     return null; // Continue with commit
@@ -1120,7 +1132,7 @@ class CommitCommand extends Command<int> {
         );
 
         if (finalMessage == null) {
-          return ExitCode.usage.code;
+          return cancelledExitCode.code;
         }
 
         commitMessage = finalMessage;

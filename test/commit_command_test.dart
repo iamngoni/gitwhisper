@@ -130,6 +130,130 @@ void main() {
       );
     });
   });
+
+  group('commit cancellation exit codes', () {
+    final cancelled = CommitCommand.cancelledExitCode.code;
+
+    test('uses tempFail rather than success or usage', () {
+      expect(cancelled, ExitCode.tempFail.code);
+      expect(cancelled, isNot(ExitCode.success.code));
+      expect(cancelled, isNot(ExitCode.usage.code));
+    });
+
+    test('discarding the message exits with the cancelled code', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+      final before = await _commitCount(repo);
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(answers: ['discard']),
+      );
+
+      expect(exit, cancelled);
+      expect(await _commitCount(repo), before);
+    });
+
+    test('cancelling at the large-file prompt exits with the cancelled code',
+        () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'big.bin', 'x' * 64);
+      final before = await _commitCount(repo);
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add big file'),
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(answers: ['Cancel commit']),
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+
+      expect(exit, cancelled);
+      expect(await _commitCount(repo), before);
+    });
+
+    test('nothing left staged after large-file handling is a cancel', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'big.bin', 'x' * 64);
+      final fake = _FakeGenerator('feat: Add big file');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        fake,
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(answers: ['Add to .gitignore and unstage']),
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+
+      expect(exit, cancelled);
+      expect(fake.calls, 0, reason: 'nothing should be sent to the model');
+      expect(await _stagedFiles(repo), isEmpty);
+    });
+
+    test('declining to stage unstaged changes exits with the cancelled code',
+        () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      File(p.join(repo.path, 'a.txt')).writeAsStringSync('a\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(answers: ['no']),
+      );
+
+      expect(exit, cancelled);
+      expect(await _stagedFiles(repo), isEmpty);
+    });
+
+    test('aborting the subfolder prompt exits with the cancelled code',
+        () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final repo = await _createRepo(workspace, 'one');
+      await _stageFile(repo, 'a.txt', 'a\n');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: workspace.path,
+        logger: _ScriptedLogger(answers: ['abort']),
+      );
+
+      expect(exit, cancelled);
+    });
+
+    test('a discarded repo in multi-repo mode is cancelled, not failed',
+        () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final one = await _createRepo(workspace, 'one');
+      final two = await _createRepo(workspace, 'two');
+      await _stageFile(one, 'a.txt', 'a\n');
+      await _stageFile(two, 'b.txt', 'b\n');
+      final logger = _ScriptedLogger(
+        answers: ['continue', 'commit', 'discard'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        _FakeGenerator('feat: Add file'),
+        workingDirectory: workspace.path,
+        logger: logger,
+      );
+
+      expect(exit, cancelled);
+      expect(logger.errors.where((e) => e.startsWith('Failed in')), isEmpty);
+      expect(
+        logger.warnings.where((w) => w.startsWith('Cancelled in: ')),
+        hasLength(1),
+      );
+      final counts = [await _commitCount(one), await _commitCount(two)]..sort();
+      expect(counts, [1, 2], reason: 'exactly one repo should be committed');
+    });
+  });
 }
 
 Future<int> _runCommit(
@@ -199,6 +323,13 @@ Future<String> _gitOk(List<String> args, String dir) async {
     throw StateError('git ${args.join(' ')} failed: ${result.stderr}');
   }
   return (result.stdout as String).trim();
+}
+
+Future<void> _stageFile(Directory repo, String name, String content) async {
+  final file = File(p.join(repo.path, name));
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync(content);
+  await _gitOk(['add', '--', name], repo.path);
 }
 
 Future<int> _commitCount(Directory repo) async {
