@@ -882,6 +882,101 @@ void main() {
       ]);
     });
   });
+
+  group(
+    'ClaudeCodeDirectGenerator.defaultApiKeyHelperRunner',
+    () {
+      late Directory tempDir;
+
+      setUp(() {
+        tempDir = Directory.systemTemp.createTempSync('gw-claude-helper-');
+      });
+
+      tearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      test('returns trimmed helper output', () async {
+        final value = await ClaudeCodeDirectGenerator.defaultApiKeyHelperRunner(
+          r"printf '  helper-token  \n'",
+          const Duration(seconds: 10),
+        );
+
+        expect(value, 'helper-token');
+      });
+
+      test('kills a hung helper and its child processes on timeout', () async {
+        final shellPidFile = File(pathFor(tempDir, 'shell.pid'));
+        final childPidFile = File(pathFor(tempDir, 'child.pid'));
+        final command = 'echo \$\$ > "${shellPidFile.path}"; '
+            'sleep 30 & echo \$! > "${childPidFile.path}"; wait';
+
+        await expectLater(
+          ClaudeCodeDirectGenerator.defaultApiKeyHelperRunner(
+            command,
+            const Duration(seconds: 1),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              startsWith('timed out'),
+            ),
+          ),
+        );
+
+        for (final pidFile in <File>[shellPidFile, childPidFile]) {
+          final pid = int.parse(pidFile.readAsStringSync().trim());
+          expect(
+            await _waitForProcessExit(pid),
+            isTrue,
+            reason: 'helper process $pid was still running',
+          );
+        }
+      });
+
+      test('reports the exit code with a short sanitized stderr note',
+          () async {
+        const command =
+            r"printf '\033[31mhelper failed: %0200d\nsecond line\n' 0"
+            ' >&2; exit 3';
+
+        await expectLater(
+          ClaudeCodeDirectGenerator.defaultApiKeyHelperRunner(
+            command,
+            const Duration(seconds: 10),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                startsWith('exited with code 3 ('),
+                contains('helper failed: 000'),
+                isNot(contains('\x1B')),
+                isNot(contains('second line')),
+                hasLength(lessThan(110)),
+              ),
+            ),
+          ),
+        );
+      });
+    },
+    skip: Platform.isWindows ? 'Uses /bin/sh helpers.' : false,
+  );
+}
+
+/// Polls until [pid] no longer accepts signals. SIGCONT is harmless to a
+/// running process, so it is used as a liveness probe.
+Future<bool> _waitForProcessExit(int pid) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (DateTime.now().isBefore(deadline)) {
+    if (!Process.killPid(pid, ProcessSignal.sigcont)) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+  return false;
 }
 
 Future<void> _writeCredentials(

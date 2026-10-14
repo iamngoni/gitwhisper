@@ -65,6 +65,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     ClaudeCodeKeychainWriter? writeMacOsKeychainService,
     ClaudeCodeFileDescriptorCredentialReader? readFileDescriptorCredential,
     ClaudeCodeApiKeyHelperRunner? runApiKeyHelper,
+    Duration? apiKeyHelperTimeout,
     this.loginExecutable = 'claude',
     this.loginArguments = const <String>['setup-token'],
     this.useMacOsKeychain = true,
@@ -80,12 +81,19 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
         _writeMacOsKeychain = writeMacOsKeychainService,
         _readFileDescriptorCredential = readFileDescriptorCredential,
         _runApiKeyHelper = runApiKeyHelper ?? _defaultRunApiKeyHelper,
+        _apiKeyHelperTimeout =
+            apiKeyHelperTimeout ?? _defaultApiKeyHelperTimeout,
         super(
           apiKey,
           variant: variant,
           baseUrl: baseUrl ??
               (environment ?? Platform.environment)['ANTHROPIC_BASE_URL'],
         );
+
+  /// Runs an apiKeyHelper command with the platform shell. Used when no
+  /// runner is injected.
+  static const ClaudeCodeApiKeyHelperRunner defaultApiKeyHelperRunner =
+      _defaultRunApiKeyHelper;
 
   static const String _systemPrompt =
       "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -95,7 +103,8 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       '22422756-60c9-4084-8eb7-27705fd5cf9a';
   static const Duration _refreshBuffer = Duration(minutes: 5);
   static const Duration _apiKeyHelperDefaultTtl = Duration(minutes: 5);
-  static const Duration _apiKeyHelperTimeout = Duration(minutes: 10);
+  static const Duration _defaultApiKeyHelperTimeout = Duration(minutes: 10);
+  static const int _helperStderrNoteLength = 80;
   static const String _claudeAiInferenceScope = 'user:inference';
   static const String _ccrOAuthTokenPath =
       '/home/claude/.claude/remote/.oauth_token';
@@ -131,6 +140,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   final ClaudeCodeKeychainWriter? _writeMacOsKeychain;
   final ClaudeCodeFileDescriptorCredentialReader? _readFileDescriptorCredential;
   final ClaudeCodeApiKeyHelperRunner _runApiKeyHelper;
+  final Duration _apiKeyHelperTimeout;
   final String loginExecutable;
   final List<String> loginArguments;
   final bool useMacOsKeychain;
@@ -753,7 +763,11 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
       _apiKeyHelperCache = _ClaudeCodeApiKeyHelperCache(value);
       return value;
     } on Object catch (error) {
-      $logger.warn('Claude Code apiKeyHelper failed: $error');
+      final reason = error is StateError ? error.message : '$error';
+      $logger.warn(
+        'Claude Code apiKeyHelper failed: '
+        '${_terminalSafeNote(reason, maxLength: 200)}',
+      );
       _apiKeyHelperCache = _ClaudeCodeApiKeyHelperCache(' ');
       return ' ';
     }
@@ -1564,15 +1578,29 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     try {
       exitCode = await process.exitCode.timeout(timeout);
     } on TimeoutException {
-      process.kill();
-      throw StateError('timed out');
+      await _killProcessTree(process);
+      // A surviving grandchild may keep the pipes open; stop waiting on them.
+      stdoutFuture.ignore();
+      stderrFuture.ignore();
+      throw StateError('timed out after ${timeout.inSeconds}s');
     }
 
     final stdout = (await stdoutFuture).trim();
     final stderr = (await stderrFuture).trim();
     if (exitCode != 0) {
+      // Helpers can print secrets or terminal escapes on stderr, so only a
+      // short, sanitized first line is shown.
+      final firstLine = LineSplitter.split(stderr)
+          .map((line) => line.trim())
+          .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+      final note = _terminalSafeNote(
+        firstLine,
+        maxLength: _helperStderrNoteLength,
+      );
       throw StateError(
-        stderr.isEmpty ? 'exited $exitCode' : 'exited $exitCode: $stderr',
+        note.isEmpty
+            ? 'exited with code $exitCode'
+            : 'exited with code $exitCode ($note)',
       );
     }
     if (stdout.isEmpty) {
@@ -1580,6 +1608,63 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
 
     return stdout;
+  }
+
+  /// Kills a helper and the processes it started. `/bin/sh -c` keeps its own
+  /// children for compound commands, so killing only the shell can leave the
+  /// real helper running.
+  static Future<void> _killProcessTree(Process process) async {
+    if (Platform.isWindows) {
+      try {
+        await Process.run(
+          'taskkill',
+          <String>['/PID', '${process.pid}', '/T', '/F'],
+        );
+      } on ProcessException {
+        // Fall through to killing the direct child.
+      }
+      process.kill();
+      return;
+    }
+
+    final descendants = await _descendantPids(process.pid);
+    process.kill(ProcessSignal.sigkill);
+    for (final pid in descendants) {
+      Process.killPid(pid, ProcessSignal.sigkill);
+    }
+  }
+
+  static Future<List<int>> _descendantPids(int rootPid) async {
+    final descendants = <int>[];
+    final pending = <int>[rootPid];
+    while (pending.isNotEmpty) {
+      final parent = pending.removeLast();
+      final ProcessResult result;
+      try {
+        result = await Process.run('pgrep', <String>['-P', '$parent']);
+      } on ProcessException {
+        break;
+      }
+      for (final line in LineSplitter.split(result.stdout.toString())) {
+        final child = int.tryParse(line.trim());
+        if (child != null && !descendants.contains(child)) {
+          descendants.add(child);
+          pending.add(child);
+        }
+      }
+    }
+    return descendants;
+  }
+
+  /// Strips control characters (including terminal escapes) and truncates
+  /// [value] so it is safe to show in a one-line warning.
+  static String _terminalSafeNote(String value, {required int maxLength}) {
+    final printable = value
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (printable.length <= maxLength) return printable;
+    return '${printable.substring(0, maxLength)}...';
   }
 }
 
