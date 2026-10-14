@@ -13,19 +13,22 @@ on:
       - "pubspec.yaml"
   push:
     branches:
-      - main
+      - master
     paths:
       - ".github/workflows/gitwhisper.yaml"
       - "lib/**"
       - "test/**"
       - "pubspec.yaml"
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: stable
       - run: dart pub get
@@ -34,13 +37,13 @@ jobs:
       - run: dart test
 
   verify-version:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     steps:
       - name: 📚 Git Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🎯 Setup Dart
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: "stable"
 

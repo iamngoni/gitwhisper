@@ -5,189 +5,215 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
+    name: build (${{ matrix.asset }})
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          - platform: linux
-            runner: [self-hosted, linux]
-            target: gitwhisper
-            archive: gitwhisper-linux.tar.gz
-          - platform: macos
-            runner: [self-hosted, macOS]
-            target: gitwhisper
-            archive: gitwhisper-macos.tar.gz
-          - platform: windows
-            runner: [self-hosted, Windows]
-            target: gitwhisper.exe
-            archive: gitwhisper-windows.tar.gz
+          # `legacy` re-publishes the build under the pre-1.0.9 asset name so
+          # older install scripts keep working.
+          - asset: linux-x64
+            legacy: linux
+            runner: [self-hosted, Linux, X64]
+            binary: gitwhisper
+          - asset: linux-arm64
+            runner: [self-hosted, Linux, ARM64]
+            binary: gitwhisper
+          - asset: macos-arm64
+            legacy: macos
+            runner: [self-hosted, macOS, ARM64]
+            binary: gitwhisper
+          - asset: macos-x64
+            runner: [self-hosted, macOS, X64]
+            binary: gitwhisper
+          - asset: windows-x64
+            legacy: windows
+            runner: [self-hosted, Windows, X64]
+            binary: gitwhisper.exe
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+
       - run: dart pub get
 
-      - name: Install yq (Linux)
-        if: matrix.platform == 'linux'
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod a+x /usr/local/bin/yq
+      - name: Compile binary
+        run: dart compile exe bin/main.dart -o ${{ matrix.binary }}
 
-      - name: Install yq (macOS)
-        if: matrix.platform == 'macos'
-        run: brew install yq
-
-      - name: Install yq (Windows)
-        if: matrix.platform == 'windows'
-        run: choco install yq
-
-      - name: Compile binary (Unix)
-        if: matrix.platform != 'windows'
-        run: dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o ${{ matrix.target }}
-
-      - name: Compile binary (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $version = yq '.version' pubspec.yaml
-          dart compile exe -DAPP_VERSION=$version bin/main.dart -o ${{ matrix.target }}
-
-      - name: Archive binary
-        run: tar -czf ${{ matrix.archive }} ${{ matrix.target }}
-
-      - name: Calculate sha256 (Linux/macOS)
-        id: hash_unix
-        if: matrix.platform != 'windows'
-        run: echo "sha256=$(shasum -a 256 ${{ matrix.archive }} | cut -d ' ' -f1)" >> $GITHUB_OUTPUT
+      - name: Archive and checksum (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
-
-      - name: Calculate sha256 (Windows)
-        id: hash_win
-        if: matrix.platform == 'windows'
         run: |
-          $hash = Get-FileHash ${{ matrix.archive }} -Algorithm SHA256
-          echo "sha256=$($hash.Hash)" >> $env:GITHUB_OUTPUT
+          set -euo pipefail
+          archive="gitwhisper-${{ matrix.asset }}.tar.gz"
+          tar -czf "$archive" "${{ matrix.binary }}"
+          if [ -n "${{ matrix.legacy }}" ]; then
+            cp "$archive" "gitwhisper-${{ matrix.legacy }}.tar.gz"
+          fi
+          for f in gitwhisper-*.tar.gz; do
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$f" > "$f.sha256"
+            else
+              shasum -a 256 "$f" > "$f.sha256"
+            fi
+          done
+
+      - name: Archive and checksum (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "gitwhisper-${{ matrix.asset }}.tar.gz"
+          tar -czf $archive ${{ matrix.binary }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ("${{ matrix.legacy }}") {
+            Copy-Item $archive "gitwhisper-${{ matrix.legacy }}.tar.gz"
+          }
+          Get-ChildItem gitwhisper-*.tar.gz | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            Set-Content -Path "$($_.Name).sha256" -Value "$hash  $($_.Name)" -Encoding ascii
+          }
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             gitwhisper-*.tar.gz
+            gitwhisper-*.tar.gz.sha256
+          fail_on_unmatched_files: true
+
+  publish-apt:
+    needs: build
+    runs-on: [self-hosted, Linux]
+    steps:
+      - name: Build and publish .deb packages
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and publish .deb to APT repo
-        if: matrix.platform == 'linux'
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
         run: |
-          version=${GITHUB_REF_NAME#v}
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
 
-          # Build amd64 package
-          mkdir -p deb-amd64/usr/local/bin
-          cp gitwhisper deb-amd64/usr/local/bin/
-          ln -s /usr/local/bin/gitwhisper deb-amd64/usr/local/bin/gw
+          for pair in amd64:linux-x64 arm64:linux-arm64; do
+            deb_arch="${pair%%:*}"
+            asset="gitwhisper-${pair#*:}.tar.gz"
+            curl -fsSL -o "$asset" "$base/$asset"
+            curl -fsSL -o "$asset.sha256" "$base/$asset.sha256"
+            sha256sum -c "$asset.sha256"
 
-          mkdir -p deb-amd64/DEBIAN
-          cat <<EOF > deb-amd64/DEBIAN/control
-          Package: gitwhisper
-          Version: ${version}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Ngonidzashe Mangudya <imngonii@gmail.com>
-          Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
-          EOF
+            pkg="deb-$deb_arch"
+            mkdir -p "$pkg/usr/local/bin" "$pkg/DEBIAN"
+            tar -xzf "$asset" -C "$pkg/usr/local/bin"
+            ln -sf /usr/local/bin/gitwhisper "$pkg/usr/local/bin/gw"
+            printf '%s\n' \
+              "Package: gitwhisper" \
+              "Version: ${version}" \
+              "Section: utils" \
+              "Priority: optional" \
+              "Architecture: ${deb_arch}" \
+              "Maintainer: Ngonidzashe Mangudya <imngonii@gmail.com>" \
+              "Description: AI-assisted Git commit CLI. Includes both gitwhisper and gw commands." \
+              > "$pkg/DEBIAN/control"
+            dpkg-deb --build --root-owner-group "$pkg" "gitwhisper_${version}_${deb_arch}.deb"
+          done
 
-          dpkg-deb --build deb-amd64
-          mv deb-amd64.deb gitwhisper_${version}_amd64.deb
-
-          # Build arm64 package (cross-compile)
-          dart compile exe -DAPP_VERSION=$(yq '.version' pubspec.yaml) bin/main.dart -o gitwhisper-arm64 --target-os linux
-
-          mkdir -p deb-arm64/usr/local/bin
-          cp gitwhisper-arm64 deb-arm64/usr/local/bin/gitwhisper
-          ln -s /usr/local/bin/gitwhisper deb-arm64/usr/local/bin/gw
-
-          mkdir -p deb-arm64/DEBIAN
-          cat <<EOF > deb-arm64/DEBIAN/control
-          Package: gitwhisper
-          Version: ${version}
-          Section: utils
-          Priority: optional
-          Architecture: arm64
-          Maintainer: Ngonidzashe Mangudya <imngonii@gmail.com>
-          Description: AI-assisted Git commit CLI. Includes both `gitwhisper` and `gw` commands.
-          EOF
-
-          dpkg-deb --build deb-arm64
-          mv deb-arm64.deb gitwhisper_${version}_arm64.deb
-
-          # Clone and update APT repo
           git clone --depth=1 --branch=gh-pages https://github.com/iamngoni/gitwhisper-apt apt-repo
           cd apt-repo
 
           mkdir -p pool/main/g/gitwhisper
-          mkdir -p dists/stable/main/binary-amd64
-          mkdir -p dists/stable/main/binary-arm64
+          cp ../gitwhisper_"${version}"_*.deb pool/main/g/gitwhisper/
 
-          # Copy packages
-          cp ../gitwhisper_${version}_amd64.deb pool/main/g/gitwhisper/
-          cp ../gitwhisper_${version}_arm64.deb pool/main/g/gitwhisper/
+          for deb_arch in amd64 arm64; do
+            mkdir -p "dists/stable/main/binary-$deb_arch"
+            dpkg-scanpackages --arch "$deb_arch" pool /dev/null > "dists/stable/main/binary-$deb_arch/Packages"
+            gzip -kf "dists/stable/main/binary-$deb_arch/Packages"
+          done
 
-          # Generate package indices
-          dpkg-scanpackages --arch amd64 pool /dev/null > dists/stable/main/binary-amd64/Packages
-          gzip -kf dists/stable/main/binary-amd64/Packages
-
-          dpkg-scanpackages --arch arm64 pool /dev/null > dists/stable/main/binary-arm64/Packages
-          gzip -kf dists/stable/main/binary-arm64/Packages
-
-          # Create Release file
-          cat <<EOF > dists/stable/Release
-          Origin: GitWhisper
-          Label: GitWhisper
-          Suite: stable
-          Codename: stable
-          Architectures: amd64 arm64
-          Components: main
-          Description: GitWhisper APT Repository
-          EOF
+          printf '%s\n' \
+            "Origin: GitWhisper" \
+            "Label: GitWhisper" \
+            "Suite: stable" \
+            "Codename: stable" \
+            "Architectures: amd64 arm64" \
+            "Components: main" \
+            "Description: GitWhisper APT Repository" \
+            > dists/stable/Release
 
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add .
           git commit -m "Publish gitwhisper ${version} (amd64 and arm64)"
-          git push https://x-access-token:${{ secrets.HOMEBREW_TAP_PAT }}@github.com/iamngoni/gitwhisper-apt gh-pages
+          git push "https://x-access-token:${TAP_TOKEN}@github.com/iamngoni/gitwhisper-apt" gh-pages
 
   update-homebrew:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, macOS]
     needs: build
+    runs-on: [self-hosted, macOS]
     steps:
-      - name: Clone and update formula
+      - name: Update formula
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
         run: |
-          git clone https://github.com/iamngoni/homebrew-gitwhisper.git
-          cd homebrew-gitwhisper
-          curl -LO https://github.com/iamngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz
-          sha256=$(shasum -a 256 gitwhisper-macos.tar.gz | cut -d ' ' -f1)
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
 
-          echo "class Gitwhisper < Formula" > Formula/gitwhisper.rb
-          echo "  desc \"AI-assisted git commit CLI\"" >> Formula/gitwhisper.rb
-          echo "  homepage \"https://github.com/iamngoni/gitwhisper\"" >> Formula/gitwhisper.rb
-          echo "  url \"https://github.com/iamngoni/gitwhisper/releases/download/${{ github.ref_name }}/gitwhisper-macos.tar.gz\"" >> Formula/gitwhisper.rb
-          echo "  sha256 \"$sha256\"" >> Formula/gitwhisper.rb
-          echo "  version \"${{ github.ref_name }}\"" >> Formula/gitwhisper.rb
-          echo "" >> Formula/gitwhisper.rb
-          echo "  def install" >> Formula/gitwhisper.rb
-          echo "    bin.install \"gitwhisper\"" >> Formula/gitwhisper.rb
-          echo "    bin.install_symlink \"gitwhisper\" => \"gw\"" >> Formula/gitwhisper.rb
-          echo "  end" >> Formula/gitwhisper.rb
-          echo "end" >> Formula/gitwhisper.rb
+          for asset in macos-arm64 macos-x64 linux-arm64 linux-x64; do
+            curl -fsSL -o "$asset.tar.gz" "$base/gitwhisper-$asset.tar.gz"
+          done
+          sum() { shasum -a 256 "$1.tar.gz" | cut -d ' ' -f1; }
 
+          git clone https://github.com/iamngoni/homebrew-gitwhisper.git tap
+          cat > tap/Formula/gitwhisper.rb <<EOF
+          class Gitwhisper < Formula
+            desc "AI-assisted git commit CLI"
+            homepage "https://github.com/iamngoni/gitwhisper"
+            version "${GITHUB_REF_NAME}"
+
+            on_macos do
+              on_arm do
+                url "${base}/gitwhisper-macos-arm64.tar.gz"
+                sha256 "$(sum macos-arm64)"
+              end
+              on_intel do
+                url "${base}/gitwhisper-macos-x64.tar.gz"
+                sha256 "$(sum macos-x64)"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${base}/gitwhisper-linux-arm64.tar.gz"
+                sha256 "$(sum linux-arm64)"
+              end
+              on_intel do
+                url "${base}/gitwhisper-linux-x64.tar.gz"
+                sha256 "$(sum linux-x64)"
+              end
+            end
+
+            def install
+              bin.install "gitwhisper"
+              bin.install_symlink "gitwhisper" => "gw"
+            end
+          end
+          EOF
+
+          cd tap
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add Formula/gitwhisper.rb
-          git commit -m "Update formula to ${{ github.ref_name }}"
-          git push https://x-access-token:${{ secrets.HOMEBREW_TAP_PAT }}@github.com/iamngoni/homebrew-gitwhisper HEAD:main
+          git commit -m "Update formula to ${GITHUB_REF_NAME}"
+          git push "https://x-access-token:${TAP_TOKEN}@github.com/iamngoni/homebrew-gitwhisper" HEAD:main
