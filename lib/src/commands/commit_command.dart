@@ -89,8 +89,11 @@ class CommitCommand extends Command<int> {
       )
       ..addFlag(
         'agent',
-        help: 'Use agent mode when the selected model supports tools.',
-        negatable: false,
+        help: 'Let the model inspect staged changes with read-only git tools. '
+            'Use --no-agent to send the staged diff in the prompt instead; '
+            'diffs over the max diff size (see `gw set-defaults '
+            '--max-diff-size`) are then summarised file by file.',
+        defaultsTo: true,
       )
       ..addFlag(
         'confirm',
@@ -116,6 +119,20 @@ class CommitCommand extends Command<int> {
   /// `tempFail` (75) marks "nothing went wrong, nothing was done", which keeps
   /// cancels distinct from usage errors (64) and failures (70).
   static const ExitCode cancelledExitCode = ExitCode.tempFail;
+
+  /// Built-in providers offered when retrying with a different model.
+  static const _providers = [
+    'claude',
+    'claude-code',
+    'codex',
+    'openai',
+    'gemini',
+    'grok',
+    'llama',
+    'deepseek',
+    'github',
+    'ollama',
+  ];
 
   @override
   String get description => 'Generate a commit message based on staged changes';
@@ -367,12 +384,14 @@ class CommitCommand extends Command<int> {
       confirm: confirm,
       // --dry-run generates the message but never commits, pushes or tags.
       dryRun: (argResults?['dry-run'] as bool?) ?? false,
+      // Agent mode is the default; --no-agent sends the diff directly.
+      preferAgentMode: (argResults?['agent'] as bool?) ?? true,
       ollamaBaseUrl: configManager.getOllamaBaseURL(),
     );
 
     // Create the appropriate AI generator based on model name
-    final model = _ModelChoice(
-      generator: _generatorBuilder(
+    final model = _modelChoice(
+      _generatorBuilder(
         modelName,
         apiKey,
         variant: modelVariant,
@@ -380,7 +399,7 @@ class CommitCommand extends Command<int> {
       ),
       name: modelName,
       variant: modelVariant,
-      agentMode: _supportsAgentMode(modelName),
+      options: options,
     );
 
     // --- Single repo flow ---
@@ -672,11 +691,28 @@ class CommitCommand extends Command<int> {
     };
   }
 
-  bool _supportsAgentMode(String modelName) {
+  /// Wraps [generator] for a run. Agent mode is used unless --no-agent was
+  /// passed or the generator has no agent implementation.
+  _ModelChoice _modelChoice(
+    CommitGenerator generator, {
+    required String name,
+    required String variant,
+    required _CommitOptions options,
+  }) {
+    return _ModelChoice(
+      generator: generator,
+      name: name,
+      variant: variant,
+      agentMode: options.preferAgentMode && generator is AgentCommitGenerator,
+    );
+  }
+
+  /// Whether [modelName] may drop to direct-diff mode when it rejects tool
+  /// use. These are the API providers whose tool support depends on the
+  /// selected model. Codex, Claude Code and ACP agents always run as agents.
+  bool _canFallBackToDirectMode(String modelName) {
     return switch (modelName.toLowerCase()) {
       'openai' ||
-      'codex' ||
-      'claude-code' ||
       'claude' ||
       'gemini' ||
       'grok' ||
@@ -685,8 +721,27 @@ class CommitCommand extends Command<int> {
       'github' ||
       'ollama' =>
         true,
-      _ => true,
+      _ => false,
     };
+  }
+
+  /// Whether [error] says the provider or model does not accept tools, such
+  /// as Ollama's "registry.ollama.ai/library/gemma3:latest does not support
+  /// tools" or "function calling is not enabled".
+  static bool _rejectsToolUse(Object error) {
+    final text =
+        (error is ApiException ? error.message : '$error').toLowerCase();
+    final mentionsTools = text.contains('tool') || text.contains('function');
+    const rejections = [
+      'not support',
+      "n't support",
+      'unsupported',
+      'not enabled',
+      'not available',
+      'not allowed',
+      'unrecognized',
+    ];
+    return mentionsTools && rejections.any(text.contains);
   }
 
   String _analysisMessage({
@@ -722,28 +777,50 @@ class CommitCommand extends Command<int> {
   /// Generates a commit message for the staged changes in [folderPath] and
   /// sanitizes it. Returns an empty string when the model produced no usable
   /// message.
+  ///
+  /// When an API provider rejects tool use in agent mode, warns and retries
+  /// once in direct-diff mode, and keeps [model] in direct-diff mode for the
+  /// rest of the run.
   Future<String> _generateMessage({
     required _ModelChoice model,
     required _CommitOptions options,
     required String? folderPath,
     required String label,
   }) async {
-    final rawMessage = model.agentMode
-        ? await _generateAgentMessage(
-            generator: model.generator,
-            options: options,
-            folderPath: folderPath,
-          )
-        : await _generateDirectMessage(
-            generator: model.generator,
-            options: options,
-            folderPath: folderPath,
-            label: label,
-          );
+    if (model.agentMode) {
+      try {
+        final rawMessage = await _generateAgentMessage(
+          generator: model.generator,
+          options: options,
+          folderPath: folderPath,
+        );
+        return GitUtils.sanitizeGeneratedCommitMessage(
+          rawMessage,
+          requireConventionalCommit: true,
+          prefix: options.prefix,
+        );
+      } on Object catch (e) {
+        if (!_canFallBackToDirectMode(model.name) || !_rejectsToolUse(e)) {
+          rethrow;
+        }
+        final reason = e is ApiException ? e.message : '$e';
+        _logger.warn(
+          '$label${_modelDisplayName(model.name)} rejected tool use '
+          '($reason). Retrying without agent mode, sending the staged diff '
+          'instead.',
+        );
+        model.agentMode = false;
+      }
+    }
 
+    final rawMessage = await _generateDirectMessage(
+      generator: model.generator,
+      options: options,
+      folderPath: folderPath,
+      label: label,
+    );
     return GitUtils.sanitizeGeneratedCommitMessage(
       rawMessage,
-      requireConventionalCommit: model.agentMode,
       prefix: options.prefix,
     );
   }
@@ -756,7 +833,8 @@ class CommitCommand extends Command<int> {
   }) {
     if (generator is! AgentCommitGenerator) {
       throw UnsupportedError(
-        'Agent mode currently supports only openai and claude.',
+        '${generator.modelName} does not support agent mode. Run again with '
+        '--no-agent.',
       );
     }
 
@@ -927,23 +1005,7 @@ class CommitCommand extends Command<int> {
             case 'different model':
               final newModelName = _logger.chooseOne(
                 'Select a different model:',
-                choices: model.agentMode
-                    ? [
-                        'claude',
-                        'openai',
-                      ]
-                    : [
-                        'claude',
-                        'claude-code',
-                        'codex',
-                        'openai',
-                        'gemini',
-                        'grok',
-                        'llama',
-                        'deepseek',
-                        'github',
-                        'ollama',
-                      ],
+                choices: _providers,
                 defaultValue: model.name == 'openai' ? 'claude' : 'openai',
               );
 
@@ -960,15 +1022,15 @@ class CommitCommand extends Command<int> {
               }
 
               // Create new generator
-              final newModel = _ModelChoice(
-                generator: CommitGeneratorFactory.create(
+              final newModel = _modelChoice(
+                _generatorBuilder(
                   newModelName,
                   newApiKey,
                   baseUrl: options.baseUrl,
                 ),
                 name: newModelName,
                 variant: '',
-                agentMode: model.agentMode,
+                options: options,
               );
 
               _logger.info('Regenerating with $newModelName...');
@@ -1174,6 +1236,7 @@ class _CommitOptions {
     required this.autoPush,
     required this.confirm,
     required this.dryRun,
+    required this.preferAgentMode,
     this.prefix,
     this.tag,
     this.ollamaBaseUrl,
@@ -1187,6 +1250,9 @@ class _CommitOptions {
   final bool autoPush;
   final bool confirm;
   final bool dryRun;
+
+  /// False when --no-agent was passed.
+  final bool preferAgentMode;
   final String? prefix;
   final String? tag;
   final String? ollamaBaseUrl;
@@ -1197,7 +1263,7 @@ class _CommitOptions {
 
 /// The generator that writes commit messages, and how it is driven.
 class _ModelChoice {
-  const _ModelChoice({
+  _ModelChoice({
     required this.generator,
     required this.name,
     required this.variant,
@@ -1207,5 +1273,7 @@ class _ModelChoice {
   final CommitGenerator generator;
   final String name;
   final String variant;
-  final bool agentMode;
+
+  /// Turned off for the rest of the run when the provider rejects tool use.
+  bool agentMode;
 }

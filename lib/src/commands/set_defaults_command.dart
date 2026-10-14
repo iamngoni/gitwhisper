@@ -51,8 +51,9 @@ class SetDefaultsCommand extends Command<int> {
       )
       ..addOption(
         'max-diff-size',
-        help: 'Maximum diff size (in characters) before prompting for '
-            'interactive staging (default: 50000)',
+        help: 'Maximum diff size (in characters) that `gw commit --no-agent` '
+            'sends in one prompt; larger diffs are summarised file by file '
+            '(default: 50000)',
         valueHelp: '50000',
       )
       ..addOption(

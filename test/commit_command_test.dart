@@ -588,6 +588,197 @@ void main() {
     });
   });
 
+  group('commit agent mode', () {
+    late Directory repo;
+
+    setUp(() async {
+      repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+    });
+
+    test('--agent defaults on and is negatable', () {
+      final parser = CommitCommand(logger: _ScriptedLogger()).argParser;
+
+      expect(parser.parse([])['agent'], isTrue);
+      expect(parser.parse(['--agent'])['agent'], isTrue);
+      expect(parser.parse(['--no-agent'])['agent'], isFalse);
+    });
+
+    test('is used by default', () async {
+      final fake = _FakeGenerator('feat: Add a');
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        fake,
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.agentRequests, hasLength(1));
+      expect(fake.directInputs, isEmpty);
+    });
+
+    test('--no-agent sends the staged diff instead', () async {
+      final fake = _FakeGenerator('feat: Add a');
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--no-agent'],
+        fake,
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.agentRequests, isEmpty);
+      expect(fake.directInputs.single, contains('diff --git a/a.txt b/a.txt'));
+      expect(await _lastSubject(repo), 'feat: Add a');
+    });
+
+    test('is skipped for generators without agent support', () async {
+      final generator = _DirectOnlyGenerator('feat: Add a');
+
+      final exit = await _runCommit(
+        ['--model', 'some-agent'],
+        generator,
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(generator.directInputs, hasLength(1));
+    });
+
+    test('--no-agent summarises diffs over max-diff-size file by file',
+        () async {
+      await _stageFile(repo, 'b.txt', 'b\n');
+      final fake = _FakeGenerator(
+        'unused',
+        responses: ['Adds a', 'Adds b', 'feat: Add two files'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--no-agent'],
+        fake,
+        workingDirectory: repo.path,
+        config: _TestConfigManager(maxDiffSize: 10),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.directInputs, hasLength(3));
+      expect(fake.directInputs.last, contains('- a.txt: Adds a'));
+      expect(await _lastSubject(repo), 'feat: Add two files');
+    });
+
+    test('falls back to the staged diff when the model rejects tools',
+        () async {
+      final fake = _FakeGenerator(
+        'feat: Add a',
+        agentError: const InvalidRequestException(
+          message: 'registry.ollama.ai/library/gemma3:latest does not '
+              'support tools',
+        ),
+      );
+      final logger = _ScriptedLogger();
+
+      final exit = await _runCommit(
+        ['--model', 'ollama'],
+        fake,
+        workingDirectory: repo.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.agentRequests, hasLength(1));
+      expect(fake.directInputs, hasLength(1));
+      expect(await _lastSubject(repo), 'feat: Add a');
+      expect(
+        logger.warnings.single,
+        allOf(contains('rejected tool use'), contains('does not support')),
+      );
+    });
+
+    test('stays in direct mode for later repositories after a fallback',
+        () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final one = await _createRepo(workspace, 'one');
+      final two = await _createRepo(workspace, 'two');
+      await _stageFile(one, 'a.txt', 'a\n');
+      await _stageFile(two, 'b.txt', 'b\n');
+      final fake = _FakeGenerator(
+        'feat: Add file',
+        agentError: const InvalidRequestException(
+          message: 'Function calling is not enabled for this model',
+        ),
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'gemini'],
+        fake,
+        workingDirectory: workspace.path,
+        logger: _ScriptedLogger(answers: ['continue']),
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(fake.agentRequests, hasLength(1));
+      expect(fake.directInputs, hasLength(2));
+    });
+
+    test('does not fall back for agent-only providers', () async {
+      final fake = _FakeGenerator(
+        'feat: Add a',
+        agentError: const InvalidRequestException(
+          message: 'this model does not support tools',
+        ),
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        fake,
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect(fake.directInputs, isEmpty);
+    });
+
+    test('does not fall back for unrelated errors', () async {
+      final fake = _FakeGenerator(
+        'feat: Add a',
+        agentError: const ServerException(
+          message: 'upstream exploded',
+          statusCode: 503,
+        ),
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'ollama'],
+        fake,
+        workingDirectory: repo.path,
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect(fake.directInputs, isEmpty);
+    });
+
+    test(
+        'the different-model retry offers every provider and uses the '
+        'injected builder', () async {
+      final built = <String>[];
+
+      final exit = await _runCommit(
+        ['--model', 'codex', '--confirm'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(
+          answers: ['retry', 'different model', 'gemini', 'commit'],
+        ),
+        builtModels: built,
+      );
+
+      expect(exit, ExitCode.success.code);
+      expect(built, ['codex', 'gemini']);
+    });
+  });
+
   group('commit large-file "Add to .gitignore and unstage"', () {
     Future<int> addToGitignore(
       Directory repo, {
@@ -1099,6 +1290,36 @@ class _ScriptedLogger extends Logger {
   @override
   bool confirm(String? message, {bool defaultValue = false}) =>
       _next(message) == 'yes';
+}
+
+/// Generator without an agent implementation, like a provider that only
+/// accepts a prompt.
+class _DirectOnlyGenerator extends CommitGenerator {
+  _DirectOnlyGenerator(this._message) : super(null);
+
+  final String _message;
+  final List<String> directInputs = [];
+
+  @override
+  String get modelName => 'direct-only';
+
+  @override
+  String get defaultVariant => '';
+
+  @override
+  Future<String> generateCommitMessage(
+    String diff,
+    Language language, {
+    String? prefix,
+    bool withEmoji = true,
+  }) async {
+    directInputs.add(diff);
+    return _message;
+  }
+
+  @override
+  Future<String> analyzeChanges(String diff, Language language) async =>
+      _message;
 }
 
 /// Captures what a logger writes to stdout/stderr inside
