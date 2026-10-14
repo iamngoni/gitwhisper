@@ -79,6 +79,23 @@ class GitUtils {
     return _gitText(['diff'], folderPath: folderPath);
   }
 
+  /// Returns the paths with unresolved merge conflicts, relative to the
+  /// repository root. Covers the whole repository even when [folderPath] is a
+  /// subdirectory, which plain `git ls-files -u` would not.
+  static Future<List<String>> getUnmergedFiles({String? folderPath}) async {
+    final output = await _gitText(
+      ['ls-files', '--unmerged', '--full-name', '-z', '--', ':/'],
+      folderPath: folderPath,
+    );
+    // Entries look like "<mode> <object> <stage>\t<path>", one per stage.
+    final files = <String>{};
+    for (final entry in output.split('\x00')) {
+      final tab = entry.indexOf('\t');
+      if (tab != -1) files.add(entry.substring(tab + 1));
+    }
+    return files.toList();
+  }
+
   /// Check if there are staged changes
   static Future<bool> hasStagedChanges({String? folderPath}) async {
     final result = await Process.run(

@@ -350,6 +350,56 @@ void main() {
     });
   });
 
+  group('commit with unresolved merge conflicts', () {
+    test('stops before staging or calling the model', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'sub/keep.txt', 'keep\n');
+      await _createMergeConflict(repo, 'conflict.txt');
+      File(p.join(repo.path, 'other.txt')).writeAsStringSync('other\n');
+      final fake = _FakeGenerator('feat: Add a');
+      final logger = _ScriptedLogger();
+
+      // Run from a subdirectory: the conflict at the root must still count.
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        fake,
+        workingDirectory: p.join(repo.path, 'sub'),
+        logger: logger,
+        config: _TestConfigManager(alwaysAdd: true),
+      );
+
+      expect(exit, ExitCode.usage.code);
+      expect(fake.calls, 0);
+      expect(logger.errors.first, contains('conflict.txt'));
+      expect(
+        await _gitOk(['ls-files', '-u'], repo.path),
+        isNotEmpty,
+        reason: 'the conflicted file must not be staged as resolved',
+      );
+    });
+
+    test('skips only the conflicted repo in multi-repo mode', () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final conflicted = await _createRepo(workspace, 'conflicted');
+      final clean = await _createRepo(workspace, 'clean');
+      await _createMergeConflict(conflicted, 'conflict.txt');
+      await _stageFile(clean, 'a.txt', 'a\n');
+      final logger = _ScriptedLogger(answers: ['continue']);
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: workspace.path,
+        logger: logger,
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(clean), 'feat: Add a');
+      expect(logger.errors, contains('Failed in: conflicted'));
+    });
+  });
+
   group('commit always_add', () {
     test('stages a repo whose only changes are untracked files', () async {
       final repo = await _createRepo(sandbox, 'repo');
@@ -593,6 +643,20 @@ Future<void> _stageFile(Directory repo, String name, String content) async {
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(content);
   await _gitOk(['add', '--', name], repo.path);
+}
+
+/// Leaves [repo] mid-merge with [file] conflicted.
+Future<void> _createMergeConflict(Directory repo, String file) async {
+  await _stageFile(repo, file, 'base\n');
+  await _gitOk(['commit', '-q', '-m', 'base'], repo.path);
+  await _gitOk(['checkout', '-q', '-b', 'other'], repo.path);
+  await _stageFile(repo, file, 'theirs\n');
+  await _gitOk(['commit', '-q', '-m', 'theirs'], repo.path);
+  await _gitOk(['checkout', '-q', 'main'], repo.path);
+  await _stageFile(repo, file, 'ours\n');
+  await _gitOk(['commit', '-q', '-m', 'ours'], repo.path);
+  final merge = await _git(['merge', 'other'], repo.path);
+  expect(merge.exitCode, isNot(0), reason: 'the merge should conflict');
 }
 
 Future<int> _commitCount(Directory repo) async {

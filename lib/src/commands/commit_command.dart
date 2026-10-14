@@ -175,6 +175,24 @@ class CommitCommand extends Command<int> {
       }
     }
 
+    // Stop before staging or calling the model while a merge is unresolved:
+    // staging would mark conflicted files resolved, markers and all.
+    final List<String> conflictedRepos = [];
+    if (!hasSubGitRepos) {
+      if (await _reportUnmergedFiles(workingDirectory)) {
+        return ExitCode.usage.code;
+      }
+    } else {
+      for (final repo in [...subGitRepos]) {
+        final folderName = path.basename(repo);
+        if (await _reportUnmergedFiles(repo, label: '[$folderName] ')) {
+          conflictedRepos.add(folderName);
+          subGitRepos.remove(repo);
+        }
+      }
+      if (subGitRepos.isEmpty) return ExitCode.usage.code;
+    }
+
     final bool hasStagedChanges = !hasSubGitRepos
         ? await GitUtils.hasStagedChanges(folderPath: workingDirectory)
         : (await GitUtils.foldersWithStagedChanges(subGitRepos)).isNotEmpty;
@@ -528,7 +546,7 @@ class CommitCommand extends Command<int> {
       _logger.info('Working in ${foldersWithStagedChanges.length} git repos');
 
       int successCount = 0;
-      final List<String> failedRepos = [];
+      final List<String> failedRepos = [...conflictedRepos];
       final List<String> cancelledRepos = [];
 
       for (final f in foldersWithStagedChanges) {
@@ -801,6 +819,23 @@ class CommitCommand extends Command<int> {
         withEmoji: withEmoji,
       ),
     );
+  }
+
+  /// Logs an error and returns true when the repository at [folderPath] has
+  /// unresolved merge conflicts.
+  Future<bool> _reportUnmergedFiles(
+    String? folderPath, {
+    String label = '',
+  }) async {
+    final unmerged = await GitUtils.getUnmergedFiles(folderPath: folderPath);
+    if (unmerged.isEmpty) return false;
+    _logger
+      ..err('${label}Unresolved merge conflicts in: ${unmerged.join(', ')}')
+      ..err(
+        '${label}Resolve the conflicts and stage the results with `git add`, '
+        'then run gw commit again.',
+      );
+    return true;
   }
 
   /// Lists alternatives for errors where switching models may help.
