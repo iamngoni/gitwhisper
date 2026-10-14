@@ -499,14 +499,7 @@ class CommitCommand extends Command<int> {
           e,
           context: 'generating commit message',
         );
-
-        if (ErrorHandler.shouldSuggestModelSwitch(e)) {
-          final suggestions = ErrorHandler.getModelSwitchSuggestions(e);
-          ErrorHandler.handleErrorWithFallback(
-            e,
-            fallbackOptions: suggestions,
-          );
-        }
+        _logModelSwitchSuggestions(e);
 
         return ExitCode.software.code;
       } catch (e) {
@@ -795,6 +788,23 @@ class CommitCommand extends Command<int> {
         withEmoji: withEmoji,
       ),
     );
+  }
+
+  /// Lists alternatives for errors where switching models may help.
+  ///
+  /// [ErrorHandler.handleErrorWithFallback] would print the error itself a
+  /// second time after [ErrorHandler.handleErrorWithRetry], so only the
+  /// suggestions are logged here.
+  void _logModelSwitchSuggestions(ApiException error) {
+    if (!ErrorHandler.shouldSuggestModelSwitch(error)) return;
+    final suggestions = ErrorHandler.getModelSwitchSuggestions(error);
+    if (suggestions.isEmpty) return;
+    _logger
+      ..info('')
+      ..info('You can try these alternatives:');
+    for (final suggestion in suggestions) {
+      _logger.info('• $suggestion');
+    }
   }
 
   void _logAgentToolUse(AgentToolUse toolUse) {

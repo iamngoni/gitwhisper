@@ -4,6 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:gitwhisper/src/agent/agent_commit_generator.dart';
 import 'package:gitwhisper/src/commands/commit_command.dart';
 import 'package:gitwhisper/src/config_manager.dart';
+import 'package:gitwhisper/src/constants.dart';
+import 'package:gitwhisper/src/exceptions/exceptions.dart';
 import 'package:gitwhisper/src/models/commit_generator.dart';
 import 'package:gitwhisper/src/models/language.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -237,6 +239,45 @@ void main() {
       );
 
       expect(logger.warnings.where((w) => w.contains('--key')), isEmpty);
+    });
+  });
+
+  group('commit API errors', () {
+    setUpAll(() {
+      // Initialize the global logger outside the capture zone so it resolves
+      // stdout per write instead of pinning the first zone's overrides.
+      expect($logger.level, isNotNull);
+    });
+
+    test('prints a server error once, then the model-switch suggestions',
+        () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+      final logger = _ScriptedLogger();
+
+      final (exit, output) = await _captureOutput(
+        () => _runCommit(
+          ['--model', 'codex'],
+          _FakeGenerator(
+            'unused',
+            agentError: const ServerException(
+              message: 'upstream exploded',
+              statusCode: 503,
+            ),
+          ),
+          workingDirectory: repo.path,
+          logger: logger,
+        ),
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect('API Error:'.allMatches(output), hasLength(1), reason: output);
+      expect(
+        'upstream exploded'.allMatches(output).length,
+        lessThanOrEqualTo(2),
+        reason: 'the raw error and its friendly message, each once',
+      );
+      expect(logger.infos, contains('You can try these alternatives:'));
     });
   });
 
@@ -580,14 +621,61 @@ class _ScriptedLogger extends Logger {
       _next(message) == 'yes';
 }
 
+/// Captures what a logger writes to stdout/stderr inside
+/// [IOOverrides.runZoned].
+class _CapturedStdout implements Stdout {
+  final StringBuffer buffer = StringBuffer();
+
+  @override
+  void write(Object? object) => buffer.write(object);
+
+  @override
+  void writeln([Object? object = '']) => buffer.writeln(object);
+
+  @override
+  bool get hasTerminal => false;
+
+  @override
+  bool get supportsAnsiEscapes => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Runs [body] and returns its result with everything written to stdout and
+/// stderr, including output from the global `$logger` used by ErrorHandler.
+Future<(int, String)> _captureOutput(Future<int> Function() body) async {
+  final out = _CapturedStdout();
+  final code = await IOOverrides.runZoned(
+    body,
+    stdout: () => out,
+    stderr: () => out,
+  );
+  return (code, out.buffer.toString());
+}
+
 /// Fake generator that returns canned messages without touching any provider
 /// or network. Implements [AgentCommitGenerator] because the commit command
 /// runs in agent mode by default.
+///
+/// `responses` are returned in order and the last one repeats. [agentError] is
+/// thrown from agent mode only, to simulate providers that reject tool use.
 class _FakeGenerator extends CommitGenerator implements AgentCommitGenerator {
-  _FakeGenerator(this._message) : super(null);
+  _FakeGenerator(
+    String message, {
+    List<String>? responses,
+    this.agentError,
+  })  : _responses = responses ?? [message],
+        super(null);
 
-  final String _message;
+  final List<String> _responses;
+  final Exception? agentError;
   int calls = 0;
+  final List<AgentCommitRequest> agentRequests = [];
+  final List<String> directInputs = [];
+
+  String _nextResponse() =>
+      _responses.length > 1 ? _responses.removeAt(0) : _responses.first;
 
   @override
   String get modelName => 'fake';
@@ -603,16 +691,20 @@ class _FakeGenerator extends CommitGenerator implements AgentCommitGenerator {
     bool withEmoji = true,
   }) async {
     calls++;
-    return _message;
+    directInputs.add(diff);
+    return _nextResponse();
   }
 
   @override
   Future<String> analyzeChanges(String diff, Language language) async =>
-      _message;
+      _nextResponse();
 
   @override
   Future<String> generateAgentCommitMessage(AgentCommitRequest request) async {
     calls++;
-    return _message;
+    agentRequests.add(request);
+    final error = agentError;
+    if (error != null) throw error;
+    return _nextResponse();
   }
 }
