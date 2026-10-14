@@ -137,6 +137,7 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   final Map<String, String?> _fileDescriptorCredentialCache =
       <String, String?>{};
   _ClaudeCodeApiKeyHelperCache? _apiKeyHelperCache;
+  bool _warnedAboutUntrustedProjectSettings = false;
 
   Map<String, String> get _env => _environment ?? Platform.environment;
 
@@ -691,9 +692,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   Future<_ClaudeCodeOAuthCredentials?>
       _readClaudeAiOauthCredentialsFromFile() async {
-    final credentialsFile = File(
-      path.join(_resolvedClaudeConfigDir, '.credentials.json'),
-    );
+    final configDir = _resolvedClaudeConfigDir;
+    if (configDir == null) return null;
+
+    final credentialsFile = File(path.join(configDir, '.credentials.json'));
     final decoded = await _readJsonObject(credentialsFile);
     if (decoded == null) return null;
 
@@ -704,11 +706,10 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   Future<String?> _readGlobalConfigApiKey() async {
-    final home = _env['HOME'];
-    if (home == null || home.isEmpty) return null;
+    final configFile = _globalClaudeConfigFile;
+    if (configFile == null) return null;
 
-    final decoded =
-        await _readJsonObject(File(path.join(home, '.claude.json')));
+    final decoded = await _readJsonObject(configFile);
     if (decoded == null) return null;
 
     return _readNestedString(decoded, <String>['primaryApiKey']);
@@ -760,32 +761,125 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
 
   String? get _configuredApiKeyHelper {
     String? helper;
-    for (final file in _claudeSettingsFiles) {
-      final settings = _readJsonObjectSync(file);
-      final value = settings['apiKeyHelper'];
-      if (value is String) {
-        helper = _nonBlank(value) ?? helper;
+    bool? projectTrusted;
+    for (final source in _claudeSettingsSources) {
+      final value = _readJsonObjectSync(source.file)['apiKeyHelper'];
+      final command = value is String ? _nonBlank(value) : null;
+      if (command == null) continue;
+
+      // A repository can ship .claude/settings*.json, and apiKeyHelper runs a
+      // shell command. Like Claude Code, only honour it once the user has
+      // accepted the workspace trust dialog for this folder.
+      if (source.isProjectScope) {
+        projectTrusted ??= _isProjectTrusted;
+        if (!projectTrusted) {
+          _warnIgnoredProjectApiKeyHelper(source.file);
+          continue;
+        }
       }
+
+      helper = command;
     }
     return helper;
   }
 
-  List<File> get _claudeSettingsFiles {
+  void _warnIgnoredProjectApiKeyHelper(File file) {
+    if (_warnedAboutUntrustedProjectSettings) return;
+    _warnedAboutUntrustedProjectSettings = true;
+    $logger.warn(
+      'Ignoring apiKeyHelper from ${file.path} because this folder is not '
+      'trusted in Claude Code. Open it with `claude` and accept the trust '
+      'prompt to use project settings.',
+    );
+  }
+
+  List<({File file, bool isProjectScope})> get _claudeSettingsSources {
     final userSettingsFileName =
         _isEnvTruthy(_env['CLAUDE_CODE_USE_COWORK_PLUGINS'])
             ? 'cowork_settings.json'
             : 'settings.json';
+    final configDir = _resolvedClaudeConfigDir;
     final projectDirectory = _resolvedProjectDirectory;
-    return <File>[
-      File(path.join(_resolvedClaudeConfigDir, userSettingsFileName)),
-      File(path.join(projectDirectory, '.claude', 'settings.json')),
-      File(path.join(projectDirectory, '.claude', 'settings.local.json')),
-      ..._managedSettingsFiles,
+    return <({File file, bool isProjectScope})>[
+      if (configDir != null)
+        (
+          file: File(path.join(configDir, userSettingsFileName)),
+          isProjectScope: false,
+        ),
+      (
+        file: File(path.join(projectDirectory, '.claude', 'settings.json')),
+        isProjectScope: true,
+      ),
+      (
+        file: File(
+          path.join(projectDirectory, '.claude', 'settings.local.json'),
+        ),
+        isProjectScope: true,
+      ),
+      for (final file in _managedSettingsFiles)
+        (file: file, isProjectScope: false),
     ];
   }
 
   String get _resolvedProjectDirectory =>
       _nonBlank(_projectDirectory) ?? Directory.current.path;
+
+  /// Whether Claude Code's global config records that the user accepted the
+  /// workspace trust dialog for exactly this project directory.
+  ///
+  /// This is deliberately stricter than Claude Code: parent folders,
+  /// sandboxed sessions and bypass-permissions acceptance do not count.
+  bool get _isProjectTrusted {
+    final configFile = _globalClaudeConfigFile;
+    if (configFile == null) return false;
+
+    final projects = _readJsonObjectSync(configFile)['projects'];
+    if (projects is! Map<dynamic, dynamic>) return false;
+
+    for (final key in _projectConfigKeys) {
+      final project = projects[key];
+      if (project is Map<dynamic, dynamic> &&
+          project['hasTrustDialogAccepted'] == true) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Keys Claude Code may have used for this project in `projects`: the
+  /// normalized absolute path with forward slashes, before and after
+  /// resolving symlinks (e.g. macOS /var vs /private/var).
+  Set<String> get _projectConfigKeys {
+    String toKey(String directory) =>
+        path.normalize(directory).replaceAll(r'\', '/');
+
+    final directory = path.absolute(_resolvedProjectDirectory);
+    final keys = <String>{toKey(directory)};
+    try {
+      keys.add(toKey(Directory(directory).resolveSymbolicLinksSync()));
+    } on FileSystemException {
+      // The literal path is still checked.
+    }
+    return keys;
+  }
+
+  /// Claude Code's global config file: a legacy `.config.json` in the config
+  /// directory if present, otherwise `.claude<oauth suffix>.json` in
+  /// CLAUDE_CONFIG_DIR or the home directory.
+  File? get _globalClaudeConfigFile {
+    final configDir = _resolvedClaudeConfigDir;
+    if (configDir != null) {
+      final legacyConfig = File(path.join(configDir, '.config.json'));
+      if (legacyConfig.existsSync()) return legacyConfig;
+    }
+
+    final baseDirectory = _nonBlank(_claudeConfigDir) ??
+        _nonBlank(_env['CLAUDE_CONFIG_DIR']) ??
+        _homeDirectory;
+    if (baseDirectory == null) return null;
+
+    return File(path.join(baseDirectory, '.claude$_oauthFileSuffix.json'));
+  }
 
   List<File> get _managedSettingsFiles {
     final managedPath = _managedSettingsPath;
@@ -1299,18 +1393,24 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
     }
   }
 
-  String get _resolvedClaudeConfigDir {
+  /// The Claude Code config directory, or null when no home directory is
+  /// known. Never falls back to the working directory: a repository's own
+  /// `.claude/` must not be mistaken for the user's settings or credentials.
+  String? get _resolvedClaudeConfigDir {
     final explicit = _nonBlank(_claudeConfigDir);
     if (explicit != null) return explicit;
 
     final envDir = _nonBlank(_env['CLAUDE_CONFIG_DIR']);
     if (envDir != null) return envDir;
 
-    final home = _nonBlank(_env['HOME']);
+    final home = _homeDirectory;
     if (home != null) return path.join(home, '.claude');
 
-    return path.join(Directory.current.path, '.claude');
+    return null;
   }
+
+  String? get _homeDirectory =>
+      _nonBlank(_env['HOME']) ?? _nonBlank(_env['USERPROFILE']);
 
   Uri get _refreshTokenEndpoint {
     final customBaseUrl = _customOAuthBaseUrl;
@@ -1379,10 +1479,13 @@ class ClaudeCodeDirectGenerator extends ClaudeGenerator {
   }
 
   String get _configDirHashSuffix {
-    if (_nonBlank(_env['CLAUDE_CONFIG_DIR']) == null) return '';
+    final configDir = _resolvedClaudeConfigDir;
+    if (_nonBlank(_env['CLAUDE_CONFIG_DIR']) == null || configDir == null) {
+      return '';
+    }
 
     final digest = crypto.sha256
-        .convert(utf8.encode(_resolvedClaudeConfigDir))
+        .convert(utf8.encode(configDir))
         .toString()
         .substring(0, 8);
     return '-$digest';

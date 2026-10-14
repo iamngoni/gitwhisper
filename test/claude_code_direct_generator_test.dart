@@ -168,24 +168,72 @@ void main() {
       expect(headers['anthropic-beta'], 'claude-code-20250219');
     });
 
-    test('uses local apiKeyHelper over project and user settings', () async {
+    test('ignores project apiKeyHelper settings in untrusted folders',
+        () async {
       final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
-      final projectDir = Directory(pathFor(tempDir, 'project'))..createSync();
-      final claudeDir = Directory(pathFor(projectDir, '.claude'))..createSync();
+      final projectDir = await _writeProjectApiKeyHelpers(tempDir);
       await File(pathFor(userDir, 'settings.json')).writeAsString(
         jsonEncode(<String, dynamic>{
           'apiKeyHelper': 'user-helper',
         }),
       );
-      await File(pathFor(claudeDir, 'settings.json')).writeAsString(
+
+      final commands = <String>[];
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: userDir.path,
+        projectDirectory: projectDir.path,
+        runApiKeyHelper: (command, timeout) async {
+          commands.add(command);
+          return 'user-helper-token';
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(commands, <String>['user-helper']);
+      expect(headers['Authorization'], 'Bearer user-helper-token');
+    });
+
+    test('never runs an untrusted project apiKeyHelper', () async {
+      final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
+      await _writeCredentials(userDir, 'stored-token');
+      final projectDir = await _writeProjectApiKeyHelpers(tempDir);
+      // Trust for a parent folder or another project does not count.
+      await _writeClaudeTrust(
+        File(pathFor(userDir, '.claude.json')),
+        <String>[tempDir.path, pathFor(tempDir, 'other-project')],
+      );
+
+      var helperCalls = 0;
+      final generator = _sandboxedGenerator(
+        tempDir,
+        claudeConfigDir: userDir.path,
+        projectDirectory: projectDir.path,
+        runApiKeyHelper: (command, timeout) async {
+          helperCalls += 1;
+          return 'project-helper-token';
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(helperCalls, 0);
+      expect(headers['Authorization'], 'Bearer stored-token');
+    });
+
+    test('uses local apiKeyHelper over project and user settings when trusted',
+        () async {
+      final userDir = Directory(pathFor(tempDir, 'user'))..createSync();
+      final projectDir = await _writeProjectApiKeyHelpers(tempDir);
+      await File(pathFor(userDir, 'settings.json')).writeAsString(
         jsonEncode(<String, dynamic>{
-          'apiKeyHelper': 'project-helper',
+          'apiKeyHelper': 'user-helper',
         }),
       );
-      await File(pathFor(claudeDir, 'settings.local.json')).writeAsString(
-        jsonEncode(<String, dynamic>{
-          'apiKeyHelper': 'local-helper',
-        }),
+      await _writeClaudeTrust(
+        File(pathFor(userDir, '.claude.json')),
+        <String>[projectDir.path],
       );
 
       final generator = _sandboxedGenerator(
@@ -201,6 +249,75 @@ void main() {
       final headers = await generator.resolveHeaders();
 
       expect(headers['Authorization'], 'Bearer local-helper-token');
+    });
+
+    test('reads project trust from the home Claude Code config', () async {
+      final home = Directory(pathFor(tempDir, 'trusted-home'))..createSync();
+      final projectDir = await _writeProjectApiKeyHelpers(tempDir);
+      await _writeClaudeTrust(
+        File(pathFor(home, '.claude.json')),
+        <String>[projectDir.resolveSymbolicLinksSync()],
+      );
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        projectDirectory: projectDir.path,
+        environment: <String, String>{'HOME': home.path},
+        runApiKeyHelper: (command, timeout) async {
+          expect(command, 'local-helper');
+          return 'local-helper-token';
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer local-helper-token');
+    });
+
+    test('reads project trust from CLAUDE_CONFIG_DIR config', () async {
+      final configDir = Directory(pathFor(tempDir, 'config'))..createSync();
+      final home = Directory(pathFor(tempDir, 'untrusted-home'))..createSync();
+      final projectDir = await _writeProjectApiKeyHelpers(tempDir);
+      await _writeClaudeTrust(
+        File(pathFor(configDir, '.claude.json')),
+        <String>[projectDir.path],
+      );
+      await _writeClaudeTrust(File(pathFor(home, '.claude.json')), <String>[]);
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        projectDirectory: projectDir.path,
+        environment: <String, String>{
+          'HOME': home.path,
+          'CLAUDE_CONFIG_DIR': configDir.path,
+        },
+        runApiKeyHelper: (command, timeout) async {
+          expect(command, 'local-helper');
+          return 'local-helper-token';
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer local-helper-token');
+    });
+
+    test('uses USERPROFILE when HOME is not set', () async {
+      final profile = Directory(pathFor(tempDir, 'profile'))..createSync();
+      final claudeDir = Directory(pathFor(profile, '.claude'))..createSync();
+      await _writeCredentials(claudeDir, 'profile-token');
+
+      final generator = _sandboxedGenerator(
+        tempDir,
+        environment: <String, String>{
+          'HOME': '',
+          'USERPROFILE': profile.path,
+        },
+      );
+
+      final headers = await generator.resolveHeaders();
+
+      expect(headers['Authorization'], 'Bearer profile-token');
     });
 
     test('uses managed apiKeyHelper drop-in over local settings', () async {
@@ -753,6 +870,39 @@ String _credentialsJson(
       'scopes': <String>['user:inference'],
     },
   });
+}
+
+/// Creates `<sandbox>/project` with a shared and a local apiKeyHelper, as a
+/// cloned repository could.
+Future<Directory> _writeProjectApiKeyHelpers(Directory sandbox) async {
+  final projectDir = Directory(pathFor(sandbox, 'project'))..createSync();
+  final claudeDir = Directory(pathFor(projectDir, '.claude'))..createSync();
+  await File(pathFor(claudeDir, 'settings.json')).writeAsString(
+    jsonEncode(<String, dynamic>{
+      'apiKeyHelper': 'project-helper',
+    }),
+  );
+  await File(pathFor(claudeDir, 'settings.local.json')).writeAsString(
+    jsonEncode(<String, dynamic>{
+      'apiKeyHelper': 'local-helper',
+    }),
+  );
+  return projectDir;
+}
+
+/// Writes a Claude Code global config that trusts [trustedDirectories].
+Future<void> _writeClaudeTrust(
+  File configFile,
+  List<String> trustedDirectories,
+) async {
+  await configFile.writeAsString(
+    jsonEncode(<String, dynamic>{
+      'projects': <String, dynamic>{
+        for (final directory in trustedDirectories)
+          directory: <String, dynamic>{'hasTrustDialogAccepted': true},
+      },
+    }),
+  );
 }
 
 String _hex(String value) {
