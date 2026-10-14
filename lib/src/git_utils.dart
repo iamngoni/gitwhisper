@@ -871,15 +871,28 @@ class GitUtils {
   }
 
   /// Unstages a specific file, given relative to the repository root
+  ///
+  /// `git reset HEAD <file>` fails on a branch with no commits yet, so it is
+  /// only used when HEAD has the file, to restore its committed version in
+  /// the index. Otherwise the file is dropped from the index with
+  /// `git rm --cached`, which keeps the working-tree copy. `-f` lets that
+  /// drop a file whose working copy changed after staging, as reset would.
   static Future<void> unstageFile(String filePath, {String? folderPath}) async {
-    final result = await Process.run(
+    final root = await _workTreeRoot(folderPath);
+    final inHead = await Process.run(
       'git',
-      ['--literal-pathspecs', 'reset', 'HEAD', '--', filePath],
-      workingDirectory: await _workTreeRoot(folderPath),
+      ['cat-file', '-e', 'HEAD:$filePath'],
+      workingDirectory: root,
     );
+    final args = inHead.exitCode == 0
+        ? ['--literal-pathspecs', 'reset', '-q', 'HEAD', '--', filePath]
+        : ['--literal-pathspecs', 'rm', '--cached', '-f', '-q', '--', filePath];
+    final result = await Process.run('git', args, workingDirectory: root);
 
     if (result.exitCode != 0) {
-      throw Exception('Failed to unstage file: ${result.stderr}');
+      throw GitException(
+        'Failed to unstage $filePath: ${_errorText(result)}',
+      );
     }
   }
 

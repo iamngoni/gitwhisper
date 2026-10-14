@@ -109,6 +109,21 @@ void main() {
       );
     });
 
+    test('unstageFile works on a branch with no commits yet', () async {
+      File(path.join(subdirectory, 'big.bin')).writeAsStringSync('x' * 64);
+      await git(['add', '-A']);
+
+      await GitUtils.unstageFile('sub/big.bin', folderPath: subdirectory);
+
+      final staged = await Process.run(
+        'git',
+        ['diff', '--cached', '--name-only'],
+        workingDirectory: repo.path,
+      );
+      expect((staged.stdout as String).trim(), isEmpty);
+      expect(File(path.join(subdirectory, 'big.bin')).existsSync(), isTrue);
+    });
+
     test('addToGitignore writes the root .gitignore', () async {
       await GitUtils.addToGitignore('assets/big.bin', folderPath: subdirectory);
 

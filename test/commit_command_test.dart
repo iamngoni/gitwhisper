@@ -588,6 +588,89 @@ void main() {
     });
   });
 
+  group('commit large-file "Add to .gitignore and unstage"', () {
+    Future<int> addToGitignore(
+      Directory repo, {
+      List<String> extraAnswers = const [],
+    }) {
+      return _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add small file'),
+        workingDirectory: repo.path,
+        logger: _ScriptedLogger(
+          answers: ['Add to .gitignore and unstage', ...extraAnswers],
+        ),
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+    }
+
+    test('works on a branch with no commits yet', () async {
+      final repo = await _createRepo(sandbox, 'repo', initialCommit: false);
+      await _stageFile(repo, 'big.bin', 'x' * 64);
+      await _stageFile(repo, 'small.txt', 'small\n');
+      // Change the working copy after staging, which `git rm --cached` only
+      // accepts with -f.
+      File(p.join(repo.path, 'big.bin')).writeAsStringSync('y' * 64);
+
+      final exit = await addToGitignore(repo);
+
+      expect(exit, ExitCode.success.code);
+      expect(
+        await _gitOk(['show', '--name-only', '--pretty=', 'HEAD'], repo.path),
+        'small.txt',
+      );
+      expect(File(p.join(repo.path, 'big.bin')).readAsStringSync(), 'y' * 64);
+      expect(
+        File(p.join(repo.path, '.gitignore')).readAsStringSync(),
+        'big.bin\n',
+      );
+    });
+
+    test('restores a tracked file instead of staging its deletion', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'big.bin', 'x' * 64);
+      await _gitOk(['commit', '-q', '-m', 'add big file'], repo.path);
+      await _stageFile(repo, 'big.bin', 'y' * 64);
+
+      final exit = await addToGitignore(repo);
+
+      expect(exit, CommitCommand.cancelledExitCode.code);
+      expect(await _stagedFiles(repo), isEmpty);
+      expect(await _gitOk(['ls-files', 'big.bin'], repo.path), 'big.bin');
+    });
+
+    test('reports a failure and continues with the other repositories',
+        () async {
+      final workspace = Directory(p.join(sandbox.path, 'workspace'))
+        ..createSync();
+      final broken = await _createRepo(workspace, 'broken');
+      final fine = await _createRepo(workspace, 'fine');
+      await _stageFile(broken, 'big.bin', 'x' * 64);
+      // A directory where .gitignore should be makes the write fail.
+      Directory(p.join(broken.path, '.gitignore')).createSync();
+      await _stageFile(fine, 'a.txt', 'a\n');
+      final logger = _ScriptedLogger(
+        answers: ['continue', 'Add to .gitignore and unstage'],
+      );
+
+      final exit = await _runCommit(
+        ['--model', 'codex'],
+        _FakeGenerator('feat: Add a'),
+        workingDirectory: workspace.path,
+        logger: logger,
+        config: _TestConfigManager(maxFileSize: 16),
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect(await _lastSubject(fine), 'feat: Add a');
+      expect(
+        logger.errors,
+        contains(startsWith('[broken] Could not handle large files')),
+      );
+      expect(logger.errors, contains('Failed in: broken'));
+    });
+  });
+
   group('commit with unresolved merge conflicts', () {
     test('stops before staging or calling the model', () async {
       final repo = await _createRepo(sandbox, 'repo');

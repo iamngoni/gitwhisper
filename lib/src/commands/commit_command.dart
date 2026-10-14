@@ -463,9 +463,15 @@ class CommitCommand extends Command<int> {
     final multiRepo = repoName != null;
     final label = multiRepo ? '[$repoName] ' : '';
 
-    // Check for large files before proceeding
-    if (!await _checkForLargeFiles(configManager, folderPath: folderPath)) {
-      return _RepoOutcome.cancelled;
+    // Check for large files before proceeding. A failure here (e.g. an
+    // unwritable .gitignore) is reported so other repositories can continue.
+    try {
+      if (!await _checkForLargeFiles(configManager, folderPath: folderPath)) {
+        return _RepoOutcome.cancelled;
+      }
+    } on Object catch (e) {
+      _logger.err('${label}Could not handle large files: $e');
+      return _RepoOutcome.failed;
     }
 
     if (!await GitUtils.hasStagedChanges(folderPath: folderPath)) {
