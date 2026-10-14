@@ -1,3 +1,55 @@
+## 1.0.9
+
+### Security
+- `claude-code` ignores an `apiKeyHelper` from a repository's `.claude/settings*.json` unless that folder is trusted in Claude Code, and does not open untrusted project settings at all, so a cloned repository can no longer run commands through it.
+- ACP agents and their login commands start in a private GitWhisper directory, and npx runs with `--prefix`, so a repository's `.npmrc` or `node_modules` can no longer run code.
+- GitWhisper asks before an ACP agent works in a repository whose agent configuration can run commands (`.claude/`, `.mcp.json`, `.gemini/`, `.codex/`, `.npmrc`, `node_modules/`, …). Without a terminal it refuses until you run `gw acp trust <path>`; `gw acp untrust <path>` revokes it.
+- ACP sessions auto-approve only GitWhisper's own read-only git tools, by exact identity and one call at a time; every other permission request is rejected.
+- ACP agents resolve by exact id or alias. Binary downloads require HTTPS on every redirect and are checked against the registry's sha256 checksum when it publishes one, and cached binaries are reinstalled unless they match the registry's current archive. GitWhisper shows what will run and asks before the first launch of each agent version (`gw acp install <agent>` approves it ahead of time; non-interactive runs fail closed).
+- GitWhisper asks before running an ACP agent's terminal login command.
+- ACP debug logs are off by default (`GITWHISPER_ACP_DEBUG=1` turns them on), never contain prompts, diffs or tool output, are readable only by you, and are pruned after 7 days.
+- Agent tools read staged content from the git index, so staged symlinks are not followed and unstaged edits are never shown, and every tool result is size-capped.
+- Refreshed Claude Code and Codex credentials are written through an owner-only staging directory and renamed into place, so they are never readable by other users, even briefly. Tokens those tools refreshed in the meantime are kept, a logout during a run is not undone, concurrent GitWhisper runs coordinate through a lock, and if saving fails the new tokens are kept for the run (with a private recovery copy for Claude Code that is removed once no longer needed).
+- Refreshed Claude Code keychain credentials are passed to `security` on stdin instead of the command line.
+- `claude-code` reads Claude Code's remote-session credential files only inside remote sessions, and ignores settings or credential files that are not regular files or exceed 1 MiB.
+- An unset, empty or relative home directory is an error instead of putting config, credentials or ACP state under the working directory.
+- `gw show-config` masks API keys (`--reveal` shows them). The config file is written atomically with 0600 permissions, a config written by 1.0.8 or earlier is tightened to 0600 when loaded, and passing a key with `--key` prints a shell-history warning.
+- OpenAI-compatible requests no longer send `store: true`, and the Gemini API key is sent in a header instead of the URL.
+- The commit message editor's temp file is created in a private temporary directory.
+- `install.sh` and `install.ps1` verify release checksums and refuse to install a 1.0.9 or later build whose checksum cannot be downloaded.
+
+### Fixed
+- `--auto-push` pushes to the branch's upstream (or sets it when there is a single remote), handles upstreams with a different branch name, works when committing several repositories from a parent folder, and reports a failed push separately from the commit.
+- `--prefix` is kept on every generated commit line, whatever the model writes.
+- `--model-variant` is honoured without `--model`.
+- `gw commit` from a subdirectory stages, commits and edits `.gitignore` at the repository root.
+- `always_add` stages repositories whose only changes are untracked files.
+- "Add to .gitignore and unstage" works on branches with no commits yet.
+- Retrying in the confirm prompt keeps the last good message, and "add context" is now sent to the model.
+- The "edit" option opens the configured git editor on Windows and keeps the message if the editor fails.
+- `gw commit` stops before calling the model when a merge has unresolved conflicts.
+- Agent tools and the ACP MCP server read staged files with non-ASCII or special characters in their names, and report rename line counts correctly.
+- Agent mode asks for the final message when the tool-call budget runs out instead of failing, and truncated responses are retried or reported instead of used.
+- File-by-file summaries stop on errors that affect every file (invalid key, no credit, rate limit, retired provider, unreachable server) instead of repeating them, and only the 30 most-changed files are summarised by the model.
+- AI requests time out instead of hanging on a stalled connection.
+- Empty or malformed AI responses show a clear error instead of committing "null".
+- Rate-limit waits read the `Retry-After` header.
+- Ollama respects output limits and its errors, including "does not support tools", are reported as Ollama errors.
+- API errors are printed once.
+- Agent mode works with current Claude models, which reject a forced tool choice, and `claude-code` `--no-agent` and `gw analyze` recover from responses cut off at the token limit.
+- ACP agents in agent mode work on the repository being committed when committing several repositories at once.
+- `gw set-defaults` runs from scripts without a terminal and no longer re-enables emojis unless `--allow-emojis` is passed.
+- On Windows, a failed config save no longer loses the new contents.
+- The release ships separate linux-arm64 and macos-x64 builds (the arm64 `.deb` previously contained an x64 binary), the Homebrew formula picks the right build for each CPU, and `install.sh` works on macOS.
+
+### Changed
+- `--[no-]agent`: agent mode stays the default; `--no-agent` sends the staged diff in the prompt, summarised file by file above `max_diff_size`. API models that reject tool use fall back to it automatically.
+- A cancelled or discarded commit always exits with code 75.
+- New default models: `gpt-5.6-terra`, `claude-sonnet-5-5` (also for `claude-code`), `gemini-3.6-flash`, `grok-4.3` and `deepseek-flash`. Retired models were removed from `list-variants`.
+- The `llama` provider uses Meta's Meta Model API (`muse-spark-1.3` by default) and needs a Meta Model API key.
+- GitHub Models, retired by GitHub on July 30, 2026, now stops right away with a message saying so.
+- ACP binary agents cached by 1.0.8 or earlier are downloaded again once so their checksum can be verified.
+
 ## 1.0.8
 - Prefer Claude Code's macOS keychain OAuth credentials over stale `.credentials.json` copies so direct calls follow the same live login state as Claude Code.
 - Match Claude Code's keychain service naming, `CLAUDE_CONFIG_DIR` hash suffix, hex keychain save format, and external auth precedence for direct Claude Code calls.
