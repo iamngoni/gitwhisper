@@ -14,20 +14,31 @@ import 'package:yaml/yaml.dart';
 
 import 'models/language.dart';
 import 'private_files.dart';
+import 'user_home.dart';
 
 /// Manages configuration and API keys for the application
 class ConfigManager {
   /// Uses `~/.git_whisper.yaml`, or [configPath] when given (for tests).
-  ConfigManager({String? configPath}) : _configPathOverride = configPath;
+  ///
+  /// The home directory comes from [environment], which defaults to
+  /// [Platform.environment].
+  ConfigManager({String? configPath, Map<String, String>? environment})
+      : _configPathOverride = configPath,
+        _environment = environment;
 
   static const String _configFileName = '.git_whisper.yaml';
   final String? _configPathOverride;
+  final Map<String, String>? _environment;
   Map<String, dynamic> _config = {};
 
   /// Loads configuration from the config file
+  ///
+  /// A config file other users can read (as versions up to 1.0.8 wrote it)
+  /// is made owner-only first.
   Future<void> load() async {
     final configFile = File(_getConfigPath());
     if (configFile.existsSync()) {
+      await tightenPrivateFile(configFile);
       final yamlString = await configFile.readAsString();
       final yamlMap = loadYaml(yamlString);
       _config = _convertYamlToMap(yamlMap as YamlMap);
@@ -193,23 +204,18 @@ class ConfigManager {
   }
 
   /// Gets the path to the config file
+  ///
+  /// Throws [UserHomeException] when the home directory is unset, empty or
+  /// relative, rather than reading or writing API keys in the working
+  /// directory.
   String _getConfigPath() {
     final override = _configPathOverride;
     if (override != null) return override;
 
-    String? home;
-
-    if (Platform.isMacOS || Platform.isLinux) {
-      home = Platform.environment['HOME'];
-    } else if (Platform.isWindows) {
-      home = Platform.environment['USERPROFILE'];
-    }
-
-    if (home == null) {
-      throw Exception('Could not determine the user home directory.');
-    }
-
-    return path.join(home, _configFileName);
+    return path.join(
+      userHomeDirectory(environment: _environment),
+      _configFileName,
+    );
   }
 
   /// Converts a YamlMap to a regular Map

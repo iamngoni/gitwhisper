@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:gitwhisper/src/config_manager.dart';
+import 'package:gitwhisper/src/user_home.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -85,6 +86,70 @@ void main() {
         expect(_mode(realFile.path), 0x180, reason: 'expected 0600');
       },
       skip: Platform.isWindows ? 'POSIX symlinks only' : null,
+    );
+  });
+
+  group('ConfigManager.load', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('gw_config_test_');
+    });
+
+    tearDown(() => dir.delete(recursive: true));
+
+    test(
+      'makes a config file written by older versions owner-only',
+      () async {
+        final configPath = p.join(dir.path, '.git_whisper.yaml');
+        File(configPath).writeAsStringSync('{"api_keys":{"openai":"sk-old"}}');
+        await Process.run('chmod', <String>['644', configPath]);
+
+        final manager = ConfigManager(configPath: configPath);
+        await manager.load();
+
+        expect(_mode(configPath), 0x180, reason: 'expected 0600');
+        expect(manager.getApiKey('openai'), 'sk-old');
+      },
+      skip: Platform.isWindows ? 'POSIX permissions only' : null,
+    );
+
+    test('uses the config file in HOME', () async {
+      final manager = ConfigManager(
+        environment: <String, String>{'HOME': dir.path},
+      );
+      await manager.load();
+      manager.setApiKey('openai', 'sk-home-key');
+      await manager.save();
+
+      expect(
+        File(p.join(dir.path, '.git_whisper.yaml')).readAsStringSync(),
+        contains('sk-home-key'),
+      );
+    });
+
+    test(
+      'refuses an empty or relative HOME instead of using the working '
+      'directory',
+      () async {
+        // Relative to the working directory, this HOME reaches a folder with
+        // a config file. Using it would let a repository supply API keys.
+        File(p.join(dir.path, '.git_whisper.yaml'))
+            .writeAsStringSync('{"api_keys":{"openai":"sk-cwd"}}');
+
+        for (final home in <String>['', p.relative(dir.path)]) {
+          final manager = ConfigManager(
+            environment: <String, String>{'HOME': home},
+          );
+
+          await expectLater(
+            manager.load(),
+            throwsA(isA<UserHomeException>()),
+            reason: 'HOME="$home"',
+          );
+        }
+      },
+      skip: Platform.isWindows ? 'Windows uses USERPROFILE' : null,
     );
   });
 }
