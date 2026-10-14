@@ -6,6 +6,10 @@
 //  Copyright (c) 2025 Codecraft Solutions. All rights reserved.
 //
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
+
 import 'package:dio/dio.dart';
 
 import 'api_exception.dart';
@@ -13,11 +17,18 @@ import 'api_exceptions.dart';
 
 /// Utility class for parsing API errors from different providers
 class ErrorParser {
+  /// Upper bound for parsed retry delays, so a bogus value can't overflow.
+  static const int _maxRetryAfterSeconds = 7 * 24 * 60 * 60;
+
+  /// Longest plain-text error body kept in an exception message.
+  static const int _maxPlainTextErrorLength = 500;
+
   /// Parse error response from different API providers
   static ApiException parseError(DioException error) {
     final statusCode = error.response?.statusCode ?? 0;
-    final responseData = error.response?.data;
-    final requestId = _extractRequestId(error.response?.headers);
+    final headers = error.response?.headers;
+    final responseData = _decodeErrorBody(error.response?.data);
+    final requestId = _extractRequestId(headers);
 
     // Handle network/connection errors
     if (error.type == DioExceptionType.connectionTimeout ||
@@ -38,11 +49,123 @@ class ErrorParser {
 
     // Parse error based on response format
     if (responseData is Map<String, dynamic>) {
-      return _parseErrorResponse(statusCode, responseData, requestId);
+      return _parseErrorResponse(statusCode, responseData, requestId, headers);
+    }
+
+    // Plain-text bodies still carry the provider's explanation.
+    final message = _plainTextError(responseData) ?? error.message;
+    if (statusCode > 0) {
+      return _createSpecificError(
+        statusCode: statusCode,
+        message: message ?? 'Unknown error occurred',
+        requestId: requestId,
+        retryAfter: _extractRetryAfter(headers, null),
+      );
     }
 
     // Fallback for unknown error format
-    return _createGenericError(statusCode, error.message, requestId);
+    return _createGenericError(statusCode, message, requestId);
+  }
+
+  /// Parses a retry delay, in whole seconds, from a `Retry-After` header or
+  /// a response body field.
+  ///
+  /// Accepts integer or fractional seconds given as numbers or strings (with
+  /// an optional `s` suffix, as Gemini sends), and HTTP-dates. Returns null
+  /// when [value] can't be read.
+  static int? parseRetryAfter(Object? value, {DateTime? now}) {
+    if (value is num) return _wholeSeconds(value);
+    if (value is! String) return null;
+
+    final text = value.trim();
+    if (text.isEmpty) return null;
+
+    final seconds = num.tryParse(
+      text.endsWith('s') ? text.substring(0, text.length - 1).trim() : text,
+    );
+    if (seconds != null) return _wholeSeconds(seconds);
+
+    try {
+      final retryAt = HttpDate.parse(text);
+      final wait = retryAt.difference(now ?? DateTime.now());
+      return _wholeSeconds(wait.inMilliseconds / 1000);
+    } on Exception {
+      return null;
+    }
+  }
+
+  static int? _wholeSeconds(num seconds) {
+    if (seconds.isNaN || seconds.isInfinite) return null;
+    if (seconds <= 0) return 0;
+    return math.min(seconds, _maxRetryAfterSeconds).ceil();
+  }
+
+  /// Reads the retry delay from the `retry-after` header, falling back to
+  /// `retry_after` in the body and Gemini's `RetryInfo` detail.
+  static int? _extractRetryAfter(
+    Headers? headers,
+    Map<String, dynamic>? data,
+  ) {
+    final headerValues = headers?['retry-after'];
+    if (headerValues != null && headerValues.isNotEmpty) {
+      final fromHeader = parseRetryAfter(headerValues.first);
+      if (fromHeader != null) return fromHeader;
+    }
+
+    if (data == null) return null;
+    final errorData = data['error'];
+    return parseRetryAfter(data['retry_after']) ??
+        (errorData is Map ? parseRetryAfter(errorData['retry_after']) : null) ??
+        _geminiRetryDelay(errorData);
+  }
+
+  static int? _geminiRetryDelay(Object? errorData) {
+    if (errorData is! Map) return null;
+    final details = errorData['details'];
+    if (details is! List) return null;
+
+    for (final detail in details) {
+      if (detail is Map && detail['retryDelay'] != null) {
+        return parseRetryAfter(detail['retryDelay']);
+      }
+    }
+    return null;
+  }
+
+  /// Normalizes an error body to a JSON map where possible.
+  ///
+  /// Providers sometimes send JSON with a non-JSON content type (so Dio leaves
+  /// it as a string) or wrap the error object in a list.
+  static Object? _decodeErrorBody(Object? data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) {
+      return data.map((key, value) => MapEntry(key.toString(), value));
+    }
+    if (data is List) {
+      final first = data.isEmpty ? null : data.first;
+      return first is Map ? _decodeErrorBody(first) : data;
+    }
+    if (data is String) {
+      final text = data.trim();
+      if (text.startsWith('{') || text.startsWith('[')) {
+        try {
+          return _decodeErrorBody(jsonDecode(text));
+        } on FormatException {
+          return text;
+        }
+      }
+      return text;
+    }
+    return data;
+  }
+
+  /// Returns a short plain-text error body, skipping empty and HTML bodies.
+  static String? _plainTextError(Object? data) {
+    if (data is! String) return null;
+    final text = data.trim();
+    if (text.isEmpty || text.startsWith('<')) return null;
+    if (text.length <= _maxPlainTextErrorLength) return text;
+    return '${text.substring(0, _maxPlainTextErrorLength)}…';
   }
 
   /// Parse error response based on API provider format
@@ -50,11 +173,11 @@ class ErrorParser {
     int statusCode,
     Map<String, dynamic> data,
     String? requestId,
+    Headers? headers,
   ) {
     String message = 'Unknown error';
     String? errorType;
     String? errorCode;
-    int? retryAfter;
 
     // Parse different API response formats
     if (data.containsKey('error')) {
@@ -76,18 +199,13 @@ class ErrorParser {
       message = data['detail']?.toString() ?? message;
     }
 
-    // Extract retry-after header for rate limiting
-    if (statusCode == 429 && data.containsKey('retry_after')) {
-      retryAfter = data['retry_after'] as int?;
-    }
-
     return _createSpecificError(
       statusCode: statusCode,
       message: message,
       errorType: errorType,
       errorCode: errorCode,
       requestId: requestId,
-      retryAfter: retryAfter,
+      retryAfter: _extractRetryAfter(headers, data),
     );
   }
 
@@ -245,8 +363,10 @@ class ErrorParser {
 
   /// Parse Claude/Anthropic specific errors
   static ApiException _parseClaudeError(
-      DioException error, ApiException baseError) {
-    final responseData = error.response?.data;
+    DioException error,
+    ApiException baseError,
+  ) {
+    final responseData = _decodeErrorBody(error.response?.data);
     if (responseData is Map<String, dynamic> &&
         responseData.containsKey('error')) {
       final errorData = responseData['error'];
@@ -284,8 +404,10 @@ class ErrorParser {
 
   /// Parse Gemini specific errors
   static ApiException _parseGeminiError(
-      DioException error, ApiException baseError) {
-    final responseData = error.response?.data;
+    DioException error,
+    ApiException baseError,
+  ) {
+    final responseData = _decodeErrorBody(error.response?.data);
     if (responseData is Map<String, dynamic> &&
         responseData.containsKey('error')) {
       final errorData = responseData['error'];
@@ -300,6 +422,7 @@ class ErrorParser {
               message: message?.toString() ?? 'Rate limit exceeded',
               errorType: status?.toString(),
               requestId: _extractRequestId(error.response?.headers),
+              retryAfter: baseError.retryAfter,
             );
           case 'FAILED_PRECONDITION':
             return PermissionException(
@@ -325,7 +448,9 @@ class ErrorParser {
 
   /// Parse Grok specific errors
   static ApiException _parseGrokError(
-      DioException error, ApiException baseError) {
+    DioException error,
+    ApiException baseError,
+  ) {
     // Grok uses OpenAI-compatible format
     return baseError;
   }

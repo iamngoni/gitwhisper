@@ -98,30 +98,31 @@ class ErrorHandler {
 
   /// Get a short error summary for display
   static String getErrorSummary(ApiException error) {
-    switch (error.runtimeType) {
-      case AuthenticationException:
-        return 'Authentication failed - check your API key';
-      case PermissionException:
-        return 'Permission denied - check your account access';
-      case RateLimitException:
-        return 'Rate limit exceeded - please wait before retrying';
-      case InvalidRequestException:
-        return 'Invalid request - check your parameters';
-      case ResourceNotFoundException:
-        return 'Resource not found - check your configuration';
-      case RequestTooLargeException:
-        return 'Request too large - reduce the size of your changes';
-      case ServerException:
-        return 'Server error - temporary issue, please try again';
-      case ServiceOverloadedException:
-        return 'Service overloaded - please try again later';
-      case InsufficientBalanceException:
-        return 'Insufficient balance - add funds to your account';
-      case ApiTimeoutException:
-        return 'Request timeout - reduce request size or try again';
-      default:
-        return 'API error occurred';
-    }
+    return switch (error) {
+      AuthenticationException() => 'Authentication failed - check your API key',
+      PermissionException() => 'Permission denied - check your account access',
+      RateLimitException() =>
+        'Rate limit exceeded - please wait before retrying',
+      InvalidRequestException() => 'Invalid request - check your parameters',
+      ResourceNotFoundException() =>
+        'Resource not found - check your configuration',
+      RequestTooLargeException() =>
+        'Request too large - reduce the size of your changes',
+      ServerException() => 'Server error - temporary issue, please try again',
+      ServiceOverloadedException() =>
+        'Service overloaded - please try again later',
+      InsufficientBalanceException() =>
+        'Insufficient balance - add funds to your account',
+      ApiTimeoutException() =>
+        'Request timeout - reduce request size or try again',
+      ResponseTruncatedException() =>
+        'Response truncated - the model hit its output token limit',
+      InvalidResponseException() =>
+        'Unexpected response - try again or use another model',
+      ProviderRetiredException() =>
+        'Provider retired - switch to another provider',
+      _ => 'API error occurred',
+    };
   }
 
   /// Check if an error suggests switching to a different model

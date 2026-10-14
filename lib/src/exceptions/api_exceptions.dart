@@ -23,7 +23,7 @@ class AuthenticationException extends ApiException {
       'Solutions:\n'
       '• Check that your API key is correct and valid\n'
       '• Ensure your API key has not expired\n'
-      '• Verify you\'re using the correct API key for this service\n'
+      "• Verify you're using the correct API key for this service\n"
       '• Make sure your API key is properly formatted (no extra spaces)';
 }
 
@@ -141,7 +141,7 @@ class ServerException extends ApiException {
 
   @override
   String get userFriendlyMessage => 'Server error: $message\n'
-      'This is a temporary issue on the service provider\'s side.\n'
+      "This is a temporary issue on the service provider's side.\n"
       'Solutions:\n'
       '• Wait a few minutes and try again\n'
       '• Check the service status page\n'
@@ -186,6 +186,71 @@ class InsufficientBalanceException extends ApiException {
       '• Check your billing information\n'
       '• Verify your payment method\n'
       '• Review your usage limits';
+}
+
+/// Exception for successful HTTP responses that carry no usable output, such
+/// as a missing message or an empty completion.
+class InvalidResponseException extends ApiException {
+  const InvalidResponseException({
+    required super.message,
+    super.statusCode = 0,
+    super.errorType,
+    super.errorCode,
+    super.requestId,
+  });
+
+  /// Empty or malformed responses are usually transient.
+  @override
+  bool get isRetryable => true;
+
+  @override
+  String get userFriendlyMessage => 'Unexpected response: $message\n'
+      'Solutions:\n'
+      '• Try again; providers occasionally return empty responses\n'
+      '• Try a different model variant\n'
+      '• Check the provider status page';
+}
+
+/// Exception for output that the provider cut off at the token limit.
+class ResponseTruncatedException extends InvalidResponseException {
+  const ResponseTruncatedException({
+    required super.message,
+    super.statusCode,
+    super.errorType = 'max_tokens',
+    super.errorCode,
+    super.requestId,
+  });
+
+  /// Retrying with the same limit fails the same way.
+  @override
+  bool get isRetryable => false;
+
+  @override
+  String get userFriendlyMessage => 'Response truncated: $message\n'
+      'Solutions:\n'
+      '• Use a model variant that spends fewer tokens on reasoning\n'
+      '• Stage fewer changes per commit\n'
+      '• Try again';
+}
+
+/// Exception for a provider that has shut down its API.
+class ProviderRetiredException extends ApiException {
+  const ProviderRetiredException({
+    required super.message,
+    super.statusCode = 410,
+    super.errorType = 'provider_retired',
+    super.errorCode,
+    super.requestId,
+  });
+
+  @override
+  bool get isRetryable => false;
+
+  @override
+  String get userFriendlyMessage => 'Provider retired: $message\n'
+      'Solutions:\n'
+      '• Use another provider with --model\n'
+      '• Change your default with `gw set-defaults`';
 }
 
 /// Exception for timeout errors
