@@ -677,6 +677,8 @@ class CommitCommand extends Command<int> {
     };
   }
 
+  /// GitHub Models is not listed: it was retired, and its generator reports
+  /// that before making any request, which a missing-key error would hide.
   bool _requiresApiKey(String modelName) {
     return switch (modelName.toLowerCase()) {
       'claude' ||
@@ -684,8 +686,7 @@ class CommitCommand extends Command<int> {
       'gemini' ||
       'grok' ||
       'llama' ||
-      'deepseek' ||
-      'github' =>
+      'deepseek' =>
         true,
       _ => false,
     };
@@ -718,7 +719,6 @@ class CommitCommand extends Command<int> {
       'grok' ||
       'llama' ||
       'deepseek' ||
-      'github' ||
       'ollama' =>
         true,
       _ => false,

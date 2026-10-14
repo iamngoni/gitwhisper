@@ -279,6 +279,32 @@ void main() {
       );
       expect(logger.infos, contains('You can try these alternatives:'));
     });
+
+    test('--model github without a key reports that it was retired', () async {
+      final repo = await _createRepo(sandbox, 'repo');
+      await _stageFile(repo, 'a.txt', 'a\n');
+      final logger = _ScriptedLogger();
+      // The real factory: GithubGenerator fails before making any request.
+      final runner = CommandRunner<int>('gitwhisper', 'test')
+        ..addCommand(
+          CommitCommand(
+            logger: logger,
+            configManager: _TestConfigManager(hasApiKeys: false),
+            workingDirectory: repo.path,
+            messageEditor: (message, {folderPath}) =>
+                throw StateError('Unexpected editor launch'),
+          ),
+        );
+
+      final (exit, output) = await _captureOutput(
+        () async => await runner.run(['commit', '--model', 'github']) ?? 0,
+      );
+
+      expect(exit, ExitCode.software.code);
+      expect(output, contains('GitHub Models was retired'));
+      expect(logger.errors.where((e) => e.contains('No API key')), isEmpty);
+      expect(await _commitCount(repo), 1, reason: 'no commit expected');
+    });
   });
 
   group('commit file-by-file summaries', () {
@@ -1537,6 +1563,7 @@ class _TestConfigManager extends ConfigManager {
     int? maxDiffSize,
     int? maxFileSize,
     (String, String?)? defaults,
+    this.hasApiKeys = true,
   }) {
     setAlwaysAdd(value: alwaysAdd);
     setConfirmCommits(value: confirmCommits);
@@ -1553,10 +1580,13 @@ class _TestConfigManager extends ConfigManager {
     throw StateError('Tests must not write the user config file.');
   }
 
+  /// False to simulate a user who saved no keys.
+  final bool hasApiKeys;
+
   /// A dummy key for every provider, so the command never falls back to the
   /// developer's *_API_KEY environment variables. Fake generators ignore it.
   @override
-  String? getApiKey(String model) => 'test-api-key';
+  String? getApiKey(String model) => hasApiKeys ? 'test-api-key' : null;
 }
 
 /// Logger that records output and answers prompts from a script, so tests can
